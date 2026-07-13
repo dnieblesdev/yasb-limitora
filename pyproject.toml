@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yasb-limitora"
+version = "0.1.0"
+description = "Lightweight YASB widget integration for the Limitora LLM provider library."
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "dnieblesdev", email = "dnieblesp@gmail.com"},
+]
+# TODO: Set requires-python once compatibility is validated.
+dependencies = []
+
+[project.optional-dependencies]
+# TODO: Add YASB-specific extras once the official integration model is known.
+
+[project.scripts]
+# TODO: Add CLI or YASB entry point once the widget contract is defined.
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
