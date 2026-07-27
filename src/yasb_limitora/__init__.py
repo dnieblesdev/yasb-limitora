@@ -1,8 +1,7 @@
-"""yasb-limitora: YASB widget integration for Limitora.
-
-This package is intentionally empty in the scaffold phase. The widget,
-popup, and styling modules will be implemented once the official YASB
-integration model is researched and Limitora's public API is stable.
-"""
+"""Native Windows machine-JSON contracts for the YASB integration."""
 
 __version__ = "0.1.0"
+
+from .config import CodexConfig, ConfigError, LocalConfig, OpenCodeGoConfig
+from .model import DocumentView, ProviderKey, ProviderState, ProviderView, SafeError, SafeErrorCode
+from .projection import project_bytes, project_document

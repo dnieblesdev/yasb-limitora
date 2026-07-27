@@ -5,20 +5,28 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "yasb-limitora"
 version = "0.1.0"
-description = "Lightweight YASB widget integration for the Limitora LLM provider library."
+description = "Native Windows JSON integration for the Limitora LLM provider library."
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
     {name = "dnieblesdev", email = "dnieblesp@gmail.com"},
 ]
-# TODO: Set requires-python once compatibility is validated.
-dependencies = []
+requires-python = ">=3.10"
+classifiers = [
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = ["limitora[opencode-go]==0.1.0"]
 
 [project.optional-dependencies]
-# TODO: Add YASB-specific extras once the official integration model is known.
+test = ["pytest>=8,<9"]
 
 [project.scripts]
-# TODO: Add CLI or YASB entry point once the widget contract is defined.
+# The machine-JSON entry point is added with the runtime CLI in slice 05.
 
 [tool.setuptools.packages.find]
 where = ["src"]
