@@ -1,70 +1,60 @@
-# yasb-limitora architecture
+# yasb-limitora product boundary
 
-This document describes the intended data flow, layers, and non-negotiable
-rules for the YASB-side integration.
-
-## Intended flow
+The product boundary is deliberately one-way: [YASB](https://github.com/amnweb/yasb)
+consumes `yasb-limitora`, and `yasb-limitora` consumes the public
+[Limitora 0.1.0](https://github.com/dnieblesdev/limitora) API. The JSON document
+is the machine-facing contract between the integration and its future YASB
+consumer; provider internals do not cross that boundary.
 
 ```text
-┌─────────────────────────────────────────────┐
-│                 YASB bar                    │
-│  ┌───────────────────────────────────────┐  │
-│  │  yasb-limitora widget (native comp.)  │  │
-│  │  - provider selector                  │  │
-│  │  - status / output area               │  │
-│  └───────────────────────────────────────┘  │
-└─────────────────────────────────────────────┘
-                       │
-                       │ imports
-                       ▼
-              ┌─────────────────┐
-              │    limitora     │
-              │  core / models  │
-              └─────────────────┘
-                       │
-                       │ adapters
-                       ▼
-              ┌─────────────────┐
-              │    providers    │
-              │ Codex/OpenCode  │
-              └─────────────────┘
+YASB host  ──loads──>  yasb-limitora  ──public API only──>  Limitora 0.1.0
+   ▲                         │                                  │
+   └──── versioned JSON ─────┴──── provider results ────────────┘
 ```
 
-1. YASB loads `yasb_limitora` as a widget.
-2. The widget renders native YASB components based on user interaction.
-3. Widget events are translated into calls to `limitora`'s public API.
-4. `limitora` executes provider requests, rate limiting, and auth.
-5. Results flow back to the widget for display.
+## Ownership
 
-## Layers
+| Component | Owns | Does not own |
+|-----------|------|--------------|
+| YASB | Host lifecycle and eventual native presentation | Provider calls, credentials, or JSON internals |
+| `yasb-limitora` | Configuration, coordination, safe projection, and JSON serialization | Provider implementation or private Limitora APIs |
+| Limitora 0.1.0 | Public provider clients, transport, authentication, and provider-specific behavior | YASB imports or widget concerns |
 
-| Layer | Responsibility | What it must NOT do |
-|-------|----------------|---------------------|
-| Widget layout | Define native YASB components, labels, and styling | Import provider SDKs or manage tokens |
-| Popup | Expanded native view with tabs, All view, provider views, quota rows, states, and alerts | Call providers directly or store credentials |
-| Backend bridge | Convert YASB lifecycle events into Limitora calls | Duplicate auth, rate limiting, or endpoint logic |
-| Settings | Surface widget configuration to the YASB config file | Store credentials |
-| `limitora` | All provider interaction, request lifecycle, and rate limiting | Import YASB or any UI framework |
+Each provider has an independent public client, configuration, and state. A
+Codex failure therefore cannot erase or reinterpret an OpenCode Go result. The
+integration preserves the fixed states `loading`, `success`, `unavailable`, and
+`safe_error` for each provider.
 
-## Mandated rules
+## Native Windows Codex isolation
 
-- `yasb_limitora` imports `limitora` only.
-- `limitora` never imports YASB, PyQt, Waybar, or any UI integration.
-- HTML/CSS reference exports become native YASB components; no embedded webview.
-- No auth, endpoint, provider, or network logic is duplicated in this repository.
-- No tokens, cookies, sessions, credentials, or provider cache data are stored here.
-- The compact widget and popup must use native YASB components.
-- Decorative reference pieces (fake desktop, code editor, demo scene) are not implemented.
+Codex runs only in a disposable native Windows helper process owned by
+`yasb-limitora`. Before the helper receives authorization to invoke Limitora,
+the parent establishes a Windows Job Object containment boundary and completes
+a `contained → ready → go` handshake. Setup, assignment, readiness, timeout,
+or cleanup failure is a safe error: the integration never falls back to
+uncontained execution. Terminal cleanup terminates the complete contained tree,
+waits for it, and verifies that no descendant remains.
 
-## MVP constraints
+## Versioned JSON seam
 
-- No provider network code.
-- No auth, token, session, or credential handling.
-- No release automation, CI, or tests in this phase.
-- No PyQt, Qtile, or system-tray code outside what YASB itself requires.
+The CLI emits one UTF-8 JSON document with integer `version: 1`, fixed provider
+order (`codex`, then `opencode_go`), stable state spellings, and safe fields
+only. Diagnostics are sanitized and go to stderr. A future YASB consumer needs
+only this versioned document, not a provider SDK, process handle, or private
+payload. Widget rendering and popover behavior are explicit non-goals for this
+machine-JSON slice.
 
-## Open questions
+## Security invariants
 
-- Does YASB expect an in-process Python module, an external command, or a socket-based widget?
-- What is the official lifecycle (init, update, destroy) for a YASB widget?
-- How should Limitora's configuration be exposed inside YASB's config file?
+- `authCookie` enters only through the documented environment variable and is
+  memory-only; it never appears in argv, JSON, logs, or diagnostics.
+- Credentials, workspace IDs, private payloads, runner details, and raw
+  exceptions never cross the JSON or diagnostic boundary.
+- Malformed configuration and unknown failures map to deterministic safe
+  states and reasons without echoing sensitive input.
+- Limitora remains unchanged and is accessed only through its public 0.1.0
+  surface.
+
+See the [project overview](../../README.md) for repository scope and the
+[Limitora repository](https://github.com/dnieblesdev/limitora) for the upstream
+public API.
