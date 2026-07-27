@@ -17,7 +17,7 @@ YASB never talks to providers directly; Limitora never imports YASB, PyQt, or an
 ## What this repository is
 
 - A future YASB widget for selecting a provider and showing LLM output.
-- A thin Python package that imports Limitora at runtime once it is installed separately (no package dependency is declared).
+- A thin Python package with a pinned `limitora[opencode-go]==0.1.0` runtime dependency.
 - A place to research how Limitora fits into the official YASB extension model.
 
 ## What this repository is not
@@ -40,7 +40,7 @@ See [`docs/design/ai-usage/README.md`](docs/design/ai-usage/README.md) for the c
 | YASB widget scaffolding and research | Provider adapters, API clients, and rate-limit logic |
 | Native YASB component layout and styling | PyQt / Qtile / system tray code |
 | Consuming Limitora's public API once stable | Auth, token, session, or endpoint management |
-| Documentation and integration research | Tests, CI, network calls, and release automation in this phase |
+| Documentation, contract tests, and integration research | CI, network calls, and release automation in this phase |
 
 ## Provider support
 
@@ -61,23 +61,17 @@ Once published:
 python -m pip install yasb-limitora
 ```
 
-This will pull `limitora` as a dependency. No manual provider setup is required from this package.
+This pulls the pinned `limitora[opencode-go]==0.1.0` dependency. No manual provider setup is required from this package.
 
 ## Local development
 
-`yasb-limitora` declares no package dependencies in `pyproject.toml`; it expects `limitora` to be installed separately. For local development against an unpublished sibling checkout:
-
-1. Install the `limitora` checkout in editable mode.
-2. Install this package in editable mode.
+Install the package and its minimal contract-test tooling in an isolated environment:
 
 ```bash
-python -m pip install -e ..\limitora
-python -m pip install -e .
+python -m pip install -e ".[test]"
 ```
 
-The first command installs the unpublished `limitora` checkout; the second installs `yasb-limitora` only.
-
-> These commands assume both repositories share the same parent directory on Windows. Adjust the path separator when working on Linux or macOS.
+The package resolves the released Limitora dependency from its declared metadata.
 
 ## Architecture
 
