@@ -233,3 +233,179 @@ def test_private_surface_has_no_public_supervisor_or_provider_exports():
     assert not hasattr(s, "StatusClient")
     assert not hasattr(s, "activate_provider")
     assert all(name.startswith("_") for name in s.__dict__ if name not in {"__name__", "__doc__", "__package__", "__loader__", "__spec__", "__all__", "__builtins__"})
+
+
+def test_transport_reports_runtime_eof():
+    transport = s._PipeTransport(1, 2, peek=lambda fd: (0, True), nonblocking=True)
+    with pytest.raises(s._TransportError, match="eof"):
+        transport.read_frame(expected_size=1)
+
+
+def test_transport_rejects_partial_frame_followed_by_eof():
+    available = iter(((2, False), (0, True)))
+    transport = s._PipeTransport(
+        1,
+        2,
+        peek=lambda fd: next(available),
+        read=lambda fd, size: b"ab",
+        nonblocking=True,
+    )
+    with pytest.raises(s._TransportError, match="eof"):
+        transport.read_frame(expected_size=3)
+
+
+def test_transport_requires_nonblocking_io_contract():
+    with pytest.raises(s._TransportError, match="nonblocking_required"):
+        s._PipeTransport(1, 2)
+
+
+class _ControlledClock:
+    def __init__(self):
+        self.now = 0.0
+        self.sleeps = []
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def test_transport_times_out_when_empty_without_eof():
+    clock = _ControlledClock()
+    transport = s._PipeTransport(
+        1,
+        2,
+        peek=lambda fd: (0, False),
+        clock=clock,
+        sleep=clock.sleep,
+        nonblocking=True,
+    )
+    with pytest.raises(s._TransportTimeout, match="timeout"):
+        transport.read_frame(expected_size=1, timeout_seconds=0.002)
+    assert clock.sleeps and all(seconds > 0 for seconds in clock.sleeps)
+
+
+def test_transport_rejects_oversized_frame():
+    transport = s._PipeTransport(
+        1,
+        2,
+        peek=lambda fd: (4, False),
+        nonblocking=True,
+    )
+    with pytest.raises(s._TransportError, match="frame_oversize"):
+        transport.read_frame(expected_size=3, max_size=3)
+
+
+def test_transport_assembles_partial_reads_within_frame_bound():
+    chunks = iter((b"a", b"bc"))
+    available = iter(((3, False), (2, False), (0, True)))
+    transport = s._PipeTransport(
+        1,
+        2,
+        peek=lambda fd: next(available),
+        read=lambda fd, size: next(chunks),
+        nonblocking=True,
+    )
+    assert transport.read_frame(expected_size=3) == b"abc"
+
+
+def test_transport_completes_partial_writes_and_rejects_broken_writes():
+    writes = []
+
+    def partial_write(fd, data):
+        writes.append(data)
+        return 1
+
+    s._PipeTransport(1, 2, write=partial_write, nonblocking=True).write_control(b"abc")
+    assert writes == [b"abc", b"bc", b"c"]
+    clock = _ControlledClock()
+    with pytest.raises(s._TransportTimeout, match="timeout"):
+        s._PipeTransport(
+            1,
+            2,
+            write=lambda fd, data: 0,
+            clock=clock,
+            sleep=clock.sleep,
+            nonblocking=True,
+        ).write_control(b"x", timeout_seconds=0.002)
+    assert clock.sleeps and all(seconds > 0 for seconds in clock.sleeps)
+
+    def broken_write(fd, data):
+        raise OSError("broken")
+
+    with pytest.raises(s._TransportError, match="write_failed"):
+        s._PipeTransport(1, 2, write=broken_write, nonblocking=True).write_control(b"x")
+
+
+def test_transport_handles_nonblocking_read_stall_then_completion():
+    clock = _ControlledClock()
+    available = iter(((1, False), (1, False), (0, False), (2, False), (0, True)))
+    reads = iter((b"a", BlockingIOError(), b"bc"))
+
+    def read(fd, size):
+        value = next(reads)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    transport = s._PipeTransport(
+        1,
+        2,
+        peek=lambda fd: next(available),
+        read=read,
+        clock=clock,
+        sleep=clock.sleep,
+        nonblocking=True,
+    )
+    assert transport.read_frame(expected_size=3, timeout_seconds=1) == b"abc"
+    assert clock.sleeps and all(seconds > 0 for seconds in clock.sleeps)
+
+
+def test_transport_times_out_during_nonblocking_read_stall():
+    clock = _ControlledClock()
+    reads = iter((b"a", BlockingIOError()))
+
+    def read(fd, size):
+        value = next(reads, BlockingIOError())
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    transport = s._PipeTransport(
+        1,
+        2,
+        peek=lambda fd: (1, False),
+        read=read,
+        clock=clock,
+        sleep=clock.sleep,
+        nonblocking=True,
+    )
+    with pytest.raises(s._TransportTimeout, match="timeout"):
+        transport.read_frame(expected_size=2, timeout_seconds=0.002)
+    assert clock.sleeps and all(seconds > 0 for seconds in clock.sleeps)
+
+
+def test_transport_rejects_cumulative_split_oversize_and_trailing_data():
+    available = iter(((2, False), (2, False)))
+    transport = s._PipeTransport(
+        1,
+        2,
+        peek=lambda fd: next(available),
+        read=lambda fd, size: b"ab",
+        nonblocking=True,
+    )
+    with pytest.raises(s._TransportError, match="trailing_data"):
+        transport.read_frame(expected_size=3)
+
+    available = iter(((3, False), (1, False)))
+    transport = s._PipeTransport(
+        1,
+        2,
+        peek=lambda fd: next(available),
+        read=lambda fd, size: b"abc",
+        nonblocking=True,
+    )
+    with pytest.raises(s._TransportError, match="trailing_data"):
+        transport.read_frame(expected_size=3)
