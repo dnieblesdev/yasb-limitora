@@ -4,8 +4,24 @@ import math as _math
 import os as _os
 import secrets as _secrets
 import subprocess as _subprocess
+import threading as _threading
 import time as _time
+from dataclasses import dataclass as _dataclass
 import typing as _typing
+
+from ._codex_resource_core import (
+    _CloseOutcome,
+    _FdIdentity,
+    _GenerationRegistry,
+    _GenerationToken,
+    _IndeterminateCleanupError,
+    _IpcPair,
+    _OwnerToken,
+    _OwnedEndpoint,
+    _StaleGenerationError,
+    _new_endpoint_spec,
+    _new_ipc_pair,
+)
 
 __all__: tuple[str, ...] = ()
 
@@ -13,6 +29,7 @@ _CONTROL_CAPACITY = 4096
 _DEFAULT_TRANSPORT_TIMEOUT = 2.0
 _TRANSPORT_BACKOFF = 0.001
 _ERROR_BROKEN_PIPE = 109
+_SPAWN_LOCK = _threading.RLock()
 
 
 class _TransportError(RuntimeError):
@@ -237,3 +254,184 @@ def _startup(
 def _new_ready_nonce() -> bytes:
     """Generate a non-repeating ASCII-safe nonce for one helper handshake."""
     return _secrets.token_hex(32).encode("ascii")
+
+
+class _PrimitiveError(RuntimeError):
+    def __repr__(self) -> str:
+        return f"<{type(self).__name__}>"
+
+
+class _CleanupError(_PrimitiveError):
+    def __init__(self, owner: "_FdCleanup | None" = None) -> None:
+        self.owner = owner
+        super().__init__("cleanup_failed")
+
+
+class _OwnershipError(_PrimitiveError):
+    pass
+
+
+class _TimeoutError(_PrimitiveError):
+    pass
+
+
+@_dataclass(frozen=True)
+class _AcquisitionEntry:
+    close: _typing.Callable[[], None]
+
+
+class _AcquisitionTransaction:
+    def __init__(self) -> None:
+        self._entries: list[_AcquisitionEntry] = []
+        self._committed = False
+
+    def add(self, close: _typing.Callable[[], None]) -> _AcquisitionEntry:
+        if self._committed:
+            raise _OwnershipError from None
+        entry = _AcquisitionEntry(close)
+        self._entries.append(entry)
+        return entry
+
+    def release(self, entry: _AcquisitionEntry) -> None:
+        index = next((index for index, candidate in enumerate(self._entries) if candidate is entry), None)
+        if self._committed or index is None:
+            raise _OwnershipError from None
+        self._entries.pop(index)
+
+    def rollback(self) -> None:
+        if self._committed:
+            raise _OwnershipError from None
+        with _SPAWN_LOCK:
+            failed_execution: list[_AcquisitionEntry] = []
+            for entry in reversed(self._entries):
+                try:
+                    entry.close()
+                except Exception:
+                    failed_execution.append(entry)
+            self._entries = [
+                entry
+                for entry in self._entries
+                if any(entry is failed for failed in failed_execution)
+            ]
+        if failed_execution:
+            raise _CleanupError from None
+
+    def commit(self) -> None:
+        if self._committed or self._entries:
+            raise _OwnershipError from None
+        self._committed = True
+
+
+def _fd_handle(fd: int) -> int:
+    if type(fd) is not int or fd < 0:
+        raise _OwnershipError from None
+    try:
+        import msvcrt
+
+        handle = msvcrt.get_osfhandle(fd)
+    except Exception:
+        raise _OwnershipError from None
+    if type(handle) is not int or handle < 0:
+        raise _OwnershipError from None
+    return handle
+
+
+def _set_inheritable(handle: int, inheritable: bool) -> None:
+    if type(handle) is not int or handle < 0 or type(inheritable) is not bool:
+        raise _OwnershipError from None
+    try:
+        _os.set_handle_inheritable(handle, inheritable)
+    except Exception:
+        raise _OwnershipError from None
+
+
+def _pipe_factory() -> tuple[int, int]:
+    return _os.pipe()
+
+
+class _FdCleanup:
+    def __init__(self, closers: _typing.Iterable[_typing.Callable[[], None]]) -> None:
+        self._pending = list(closers)
+        self._cause: Exception | None = None
+
+    def close(self) -> None:
+        failed: list[_typing.Callable[[], None]] = []
+        for closer in self._pending:
+            try:
+                closer()
+            except (_IndeterminateCleanupError, _StaleGenerationError) as error:
+                self._cause = self._cause or error
+                failed.append(closer)
+            except Exception:
+                failed.append(closer)
+        self._pending = failed
+        if failed:
+            if self._cause is not None:
+                raise _CleanupError(self) from self._cause
+            raise _CleanupError(self) from None
+
+
+def _pipes(
+    factory: _typing.Callable[[], tuple[int, int]], owner: _OwnerToken
+) -> tuple[_IpcPair, _IpcPair, tuple[int, int], tuple[int, int]]:
+    gate_read, gate_write = factory()
+    registry = _GenerationRegistry()
+
+    def close_fd(identity: _FdIdentity) -> _CloseOutcome:
+        result = _os.close(identity._number)
+        return result if result is _CloseOutcome.RETRY else _CloseOutcome.CLOSED
+
+    gate_specs = (
+        _new_endpoint_spec(gate_read, _GenerationToken(), close_fd),
+        _new_endpoint_spec(gate_write, _GenerationToken(), close_fd),
+    )
+    gate = _new_ipc_pair(gate_specs[0], gate_specs[1], owner, registry)
+    try:
+        data_read, data_write = factory()
+    except Exception:
+        _FdCleanup([lambda: gate._close(owner)]).close()
+        raise
+    data_specs = (
+        _new_endpoint_spec(data_read, _GenerationToken(), close_fd),
+        _new_endpoint_spec(data_write, _GenerationToken(), close_fd),
+    )
+    try:
+        data = _new_ipc_pair(
+            data_specs[0],
+            data_specs[1],
+            owner,
+            registry,
+        )
+    except Exception:
+        _FdCleanup([lambda: gate._close(owner)]).close()
+        raise
+    return gate, data, (gate_read, gate_write), (data_read, data_write)
+
+
+class _InheritableHandleReset:
+    def __init__(self, set_inheritable: _typing.Callable[[int, bool], object]) -> None:
+        self._set_inheritable = set_inheritable
+        self._pending: list[int] = []
+
+    def mark(self, handle: int) -> None:
+        if type(handle) is not int or handle < 0:
+            raise _OwnershipError from None
+        self._pending.append(handle)
+
+    def _reset_locked(self) -> None:
+        failed: list[int] = []
+        for handle in self._pending:
+            try:
+                self._set_inheritable(handle, False)
+            except Exception:
+                failed.append(handle)
+        self._pending = failed
+        if failed:
+            raise _CleanupError from None
+
+    def reset(self) -> None:
+        with _SPAWN_LOCK:
+            self._reset_locked()
+
+    def close(self) -> None:
+        self.reset()

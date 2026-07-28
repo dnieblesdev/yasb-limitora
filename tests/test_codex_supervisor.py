@@ -409,3 +409,171 @@ def test_transport_rejects_cumulative_split_oversize_and_trailing_data():
     )
     with pytest.raises(s._TransportError, match="trailing_data"):
         transport.read_frame(expected_size=3)
+
+
+def test_acquisition_pipes_create_gate_then_data_and_clean_partial_creation(monkeypatch):
+    events, closed, close_failures = [], [], {11}
+
+    def factory():
+        index = len(events) + 1
+        events.append(f"pipe{index}")
+        if index == 2:
+            raise RuntimeError("data pipe failed")
+        return 10, 11
+
+    def close(fd):
+        closed.append(fd)
+        if fd in close_failures:
+            close_failures.remove(fd)
+            return s._CloseOutcome.RETRY
+        return s._CloseOutcome.CLOSED
+
+    monkeypatch.setattr(s._os, "close", close)
+    with pytest.raises(s._CleanupError) as failure:
+        s._pipes(factory, s._OwnerToken())
+    assert events == ["pipe1", "pipe2"]
+    assert closed == [11, 10]
+    assert len(failure.value.owner._pending) == 1
+    failure.value.owner.close()
+    assert closed == [11, 10, 11] and not failure.value.owner._pending
+
+
+def test_transaction_rolls_back_in_reverse_order_and_attempts_every_entry():
+    events, failing = [], {"second", "third"}
+    transaction = s._AcquisitionTransaction()
+
+    def close(name):
+        def action():
+            events.append(name)
+            if name in failing:
+                failing.remove(name)
+                raise RuntimeError(name)
+
+        return action
+
+    entries = [transaction.add(close(name)) for name in ("first", "second", "third")]
+    equal_entry = s._AcquisitionEntry(entries[0].close)
+    with pytest.raises(s._OwnershipError):
+        transaction.release(equal_entry)
+    with pytest.raises(s._CleanupError):
+        transaction.rollback()
+    assert events == ["third", "second", "first"]
+    assert transaction._entries == [entries[1], entries[2]]
+    transaction.rollback()
+    assert events == ["third", "second", "first", "third", "second"]
+    assert transaction._entries == []
+
+
+def test_fd_cleanup_retains_compound_owner_across_real_fd_reuse():
+    registry = s._GenerationRegistry()
+    old_read, old_write = os.pipe()
+    replacement_read = replacement_write = -1
+    events = []
+    try:
+        old_generation, retry_state = s._GenerationToken(), [True]
+
+        def closes_old_then_raises(identity):
+            events.append("read")
+            os.close(identity._number)
+            raise OSError("closed before reporting failure")
+
+        def retries_then_closes(identity):
+            events.append("write")
+            if retry_state:
+                retry_state.pop()
+                return s._CloseOutcome.RETRY
+            os.close(identity._number)
+            return s._CloseOutcome.CLOSED
+
+        old_spec = s._new_endpoint_spec(old_read, old_generation, closes_old_then_raises)
+        write_spec = s._new_endpoint_spec(old_write, old_generation, retries_then_closes)
+        registry._register(old_spec._identity)
+        registry._register(write_spec._identity)
+        pair = s._IpcPair(old_spec, write_spec, s._OwnerToken(), registry)
+        cleanup = s._FdCleanup([lambda: pair._close(pair._owner)])
+        with pytest.raises(s._CleanupError) as failure:
+            cleanup.close()
+        assert failure.value.owner is cleanup
+        assert isinstance(failure.value.__cause__, s._IndeterminateCleanupError)
+        assert cleanup._pending and events == ["write", "read"]
+
+        replacement_read, replacement_write = os.pipe()
+        if replacement_read != old_read:
+            os.dup2(replacement_read, old_read)
+            os.close(replacement_read)
+        replacement_read = -1
+        cleanup.close()
+        assert not cleanup._pending and events == ["write", "read", "write"]
+        with pytest.raises(OSError):
+            os.write(old_write, b"stale")
+        os.write(replacement_write, b"x")
+        assert os.read(old_read, 1) == b"x"
+    finally:
+        for fd in (old_read, old_write, replacement_read, replacement_write):
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+
+def test_fd_handle_and_inheritable_seams_validate_owned_inputs(monkeypatch):
+    class Msvcrt:
+        @staticmethod
+        def get_osfhandle(fd):
+            return 900 + fd
+
+    monkeypatch.setitem(sys.modules, "msvcrt", Msvcrt)
+    assert s._fd_handle(4) == 904
+    with pytest.raises(s._OwnershipError):
+        s._fd_handle(-1)
+    calls = []
+    monkeypatch.setattr(
+        s._os,
+        "set_handle_inheritable",
+        lambda *args: calls.append(args),
+        raising=False,
+    )
+    s._set_inheritable(904, True)
+    assert calls == [(904, True)]
+    with pytest.raises(s._OwnershipError):
+        s._set_inheritable(-1, False)
+
+
+def test_handle_reset_attempts_all_retains_failures_retries_and_owns_lock():
+    class TrackingLock:
+        def __init__(self):
+            self.depth = 0
+            self.observed = []
+
+        def __enter__(self):
+            self.depth += 1
+            return self
+
+        def __exit__(self, *args):
+            self.depth -= 1
+
+    lock, attempts, failing = TrackingLock(), [], {2}
+    original = s._SPAWN_LOCK
+    try:
+        s._SPAWN_LOCK = lock
+
+        def reset(handle, inheritable):
+            lock.observed.append(lock.depth)
+            attempts.append((handle, inheritable))
+            if not inheritable and handle in failing:
+                raise RuntimeError
+
+        resetter = s._InheritableHandleReset(reset)
+        for handle in (1, 2, 3):
+            resetter.mark(handle)
+        with pytest.raises(s._CleanupError):
+            resetter.reset()
+        assert attempts == [(1, False), (2, False), (3, False)]
+        assert resetter._pending == [2] and lock.observed == [1, 1, 1]
+        failing.clear()
+        resetter.close()
+        assert attempts[-1] == (2, False) and not resetter._pending
+        assert all(depth == 1 for depth in lock.observed)
+    finally:
+        s._SPAWN_LOCK = original
