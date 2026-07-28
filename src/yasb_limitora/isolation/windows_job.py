@@ -28,6 +28,7 @@ MILLISECONDS_PER_SECOND = 1000
 MIN_ACTIVE_PROCESSES, TERMINATION_EXIT_CODE = 1, 1
 DEFAULT_CLEANUP_BUDGET_SECONDS = 2.0
 EMERGENCY_CLEANUP_BUDGET_SECONDS = 1.0
+MAX_CLEANUP_SECONDS = MAX_WAIT_MILLISECONDS / MILLISECONDS_PER_SECOND
 INVALID_HANDLE = ctypes.c_void_p(-1).value
 class IO_COUNTERS(ctypes.Structure):
     _fields_ = [(name, ctypes.c_ulonglong) for name in ("ReadOperationCount", "WriteOperationCount", "OtherOperationCount", "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
@@ -140,14 +141,15 @@ class Kernel32Api:
         if not self.CloseHandle(handle): _win_failure(CLEANUP_ERROR)
         return True
 def _deadline(clock: Any, value: object) -> float:
+    if type(value) not in (int, float): raise JobError(JobErrorCode.TIMEOUT) from None
     try: timeout = float(value)
-    except (TypeError, ValueError, OverflowError): raise JobError(JobErrorCode.TIMEOUT) from None
-    if not math.isfinite(timeout) or timeout <= 0: raise JobError(JobErrorCode.TIMEOUT)
-    return clock() + timeout
+    except (ValueError, OverflowError): raise JobError(JobErrorCode.TIMEOUT) from None
+    if not math.isfinite(timeout) or timeout < 0: raise JobError(JobErrorCode.TIMEOUT) from None
+    return clock() + min(timeout, MAX_CLEANUP_SECONDS)
 class WindowsJobBoundary:
     def __init__(self, api: NativeApi | None = None, clock: Any = time.monotonic) -> None:
         self.api, self.clock = api or Kernel32Api.load(), clock
-        self.job = self.process = None; self.assigned = False
+        self.job = self.process = None; self.assigned = False; self.borrowed_process = False
         self.state = JobState.CREATED
         try:
             self.job = self._call("create_job")
@@ -156,6 +158,17 @@ class WindowsJobBoundary:
             ok, _ = self._cleanup(False, self.clock() + EMERGENCY_CLEANUP_BUDGET_SECONDS, True)
             self.state = JobState.CLOSED if ok else JobState.BROKEN
             raise JobError(CLEANUP_ERROR) if not ok else (error if isinstance(error, JobError) else JobError(JobErrorCode.INTERNAL_ERROR)) from None
+
+    @classmethod
+    def _from_owned_job(cls, api: NativeApi, job: Any, clock: Any = time.monotonic) -> "WindowsJobBoundary":
+        boundary = cls.__new__(cls)
+        boundary.api, boundary.clock = api, clock
+        boundary.job = job
+        boundary.process = None
+        boundary.assigned = False
+        boundary.borrowed_process = False
+        boundary.state = JobState.CREATED
+        return boundary
 
     def _call(self, name: str, *args: Any) -> Any:
         try: return getattr(self.api, name)(*args)
@@ -169,16 +182,20 @@ class WindowsJobBoundary:
         for name, ready in (("process", process_ready), ("job", job_ready)):
             handle = getattr(self, name)
             if handle is None or not ready: continue
+            if name == "process" and self.borrowed_process:
+                continue
             try: closed = bool(self._call("close", handle))
             except JobError: closed = False
             if closed: setattr(self, name, None)
             else: ok = False
+        if self.borrowed_process and process_ready and job_ready and self.job is None:
+            self.process, self.borrowed_process = None, False
         return ok
     def _cleanup(self, assigned: bool, deadline: float, timed_out: bool = False) -> tuple[bool, bool]:
-        ok, process_waited, wait_failed, active_zero = True, self.process is None, False, self.job is None or not assigned
-        process_terminated = self.process is None or assigned
+        ok, process_waited, wait_failed, active_zero = True, self.process is None or (self.borrowed_process and not assigned), False, self.job is None or not assigned
+        process_terminated = self.process is None or assigned or self.borrowed_process
         job_terminated = self.job is None
-        if not assigned and self.process is not None:
+        if not assigned and self.process is not None and not self.borrowed_process:
             process_terminated = self._safe("terminate_process", self.process)
             ok &= process_terminated
         if self.job is not None:
@@ -190,7 +207,7 @@ class WindowsJobBoundary:
                 timed_out = True
                 break
             timeout_ms = max(MIN_WAIT_MILLISECONDS, min(MAX_WAIT_MILLISECONDS, int(remaining * MILLISECONDS_PER_SECOND)))
-            if self.process is not None:
+            if self.process is not None and (not self.borrowed_process or assigned):
                 try: result = self._call("wait", self.process, timeout_ms)
                 except JobError: ok = process_waited = False; result = WAIT_FAILED
                 if result == WAIT_OBJECT_0: process_waited = True
@@ -221,6 +238,25 @@ class WindowsJobBoundary:
             self.assigned = assigned
             if not assigned: raise JobError(JobErrorCode.ASSIGNMENT_FAILED)
             if not self._call("is_process_in_job", self.process, self.job): raise JobError(JobErrorCode.ASSIGNMENT_FAILED)
+            if self._call("query_active", self.job) < MIN_ACTIVE_PROCESSES: raise JobError(JobErrorCode.ASSIGNMENT_FAILED)
+            self.assigned = True; self.state = JobState.ASSIGNED
+        except Exception as error:
+            ok, _ = self._cleanup(assigned, self.clock() + EMERGENCY_CLEANUP_BUDGET_SECONDS, True)
+            self.state = JobState.CLOSED if ok else JobState.BROKEN
+            if not ok: raise JobError(CLEANUP_ERROR) from None
+            raise error if isinstance(error, JobError) else JobError(JobErrorCode.INTERNAL_ERROR) from None
+
+    def assign_borrowed_handle(self, handle: Any) -> None:
+        if self.state is not JobState.CREATED or self.process is not None or self.job is None: raise JobError(JobErrorCode.INVALID_STATE)
+        if not handle or handle == INVALID_HANDLE: raise JobError(JobErrorCode.HANDLE_FAILED)
+        assigned = False
+        self.process, self.borrowed_process = handle, True
+        try:
+            if self._call("is_process_in_job", handle, None): raise JobError(JobErrorCode.NESTED_JOB)
+            assigned = bool(self._call("assign", self.job, handle))
+            self.assigned = assigned
+            if not assigned: raise JobError(JobErrorCode.ASSIGNMENT_FAILED)
+            if not self._call("is_process_in_job", handle, self.job): raise JobError(JobErrorCode.ASSIGNMENT_FAILED)
             if self._call("query_active", self.job) < MIN_ACTIVE_PROCESSES: raise JobError(JobErrorCode.ASSIGNMENT_FAILED)
             self.assigned = True; self.state = JobState.ASSIGNED
         except Exception as error:
