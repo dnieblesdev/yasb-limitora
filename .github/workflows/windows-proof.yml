@@ -32,22 +32,49 @@ jobs:
           $rawLog = "native-proof.raw.log"
           & python -m pytest -q --strict-markers tests/test_windows_native_proof.py --junitxml=native-proof.xml *> $rawLog
           $proofExit = $LASTEXITCODE
-          $unsafe = $false
-          foreach ($candidate in @($rawLog, "native-proof.xml", "native-proof.json")) {
-            if (Test-Path $candidate) {
-              $content = [IO.File]::ReadAllText((Resolve-Path $candidate))
-              if ($content.Contains("native-redaction-sentinel")) {
-                Remove-Item -Force $candidate
-                $unsafe = $true
+          $exitClass = if ($proofExit -eq 0) { "zero" } else { "nonzero" }
+          "YASB_NATIVE_PYTEST_EXIT=$exitClass" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $candidates = @(
+            [PSCustomObject]@{ Label = "raw-log"; Path = $rawLog },
+            [PSCustomObject]@{ Label = "junit"; Path = "native-proof.xml" },
+            [PSCustomObject]@{ Label = "evidence"; Path = "native-proof.json" }
+          )
+          $unsafeClasses = @()
+          $scanFailed = $false
+          foreach ($candidate in $candidates) {
+            if (Test-Path $candidate.Path) {
+              try {
+                $content = [IO.File]::ReadAllText((Resolve-Path $candidate.Path))
+                if ($content.Contains("native-redaction-sentinel")) {
+                  $unsafeClasses += $candidate.Label
+                  Remove-Item -Force -ErrorAction Stop $candidate.Path
+                }
+              } catch {
+                $unsafeClasses += $candidate.Label
+                $scanFailed = $true
               }
             }
           }
-          if ($unsafe) {
-            throw "Native proof output was withheld by the safety scan"
+          $unsafeClasses = @($unsafeClasses | Select-Object -Unique)
+          $allowedClasses = @("raw-log", "junit", "evidence")
+          $invalidClasses = @($unsafeClasses | Where-Object { $_ -notin $allowedClasses })
+          $classText = $unsafeClasses -join ","
+          if ($invalidClasses.Count -gt 0) {
+            throw "Native proof safety classification invalid; pytest_exit=$exitClass"
+          }
+          if ($scanFailed) {
+            throw "Native proof safety cleanup failed; candidates=$classText; pytest_exit=$exitClass"
+          }
+          if ($unsafeClasses.Count -gt 0) {
+            throw "Native proof safety failure; candidates=$classText; pytest_exit=$exitClass"
           }
           if (Test-Path $rawLog) {
-            Get-Content $rawLog
-            Remove-Item -Force $rawLog
+            try {
+              Get-Content $rawLog -ErrorAction Stop
+              Remove-Item -Force -ErrorAction Stop $rawLog
+            } catch {
+              throw "Native proof diagnostics unavailable; pytest_exit=$exitClass"
+            }
           }
           if ($proofExit -ne 0) {
             throw "Native proof test failed"
@@ -65,11 +92,15 @@ jobs:
           $skipped = 0
           $failures = 0
           $errors = 0
-          foreach ($suite in $suites) {
-            $tests += [int]$suite.tests
-            $skipped += [int]$suite.skipped
-            $failures += [int]$suite.failures
-            $errors += [int]$suite.errors
+          try {
+            foreach ($suite in $suites) {
+              $tests += [int]$suite.tests
+              $skipped += [int]$suite.skipped
+              $failures += [int]$suite.failures
+              $errors += [int]$suite.errors
+            }
+          } catch {
+            throw "Native proof JUnit counts were invalid"
           }
           if ($suites.Count -eq 0 -or $tests -lt 1 -or $skipped -ne 0 -or $failures -ne 0 -or $errors -ne 0) {
             throw "Native proof was skipped, deselected, or failed"
@@ -88,13 +119,48 @@ jobs:
           $rawLog = "full-suite.raw.log"
           & python -m pytest -q --strict-markers tests *> $rawLog
           $suiteExit = $LASTEXITCODE
-          $content = [IO.File]::ReadAllText((Resolve-Path $rawLog))
-          if ($content.Contains("native-redaction-sentinel")) {
-            Remove-Item -Force $rawLog
-            throw "Full-suite output was withheld by the safety scan"
+          $exitClass = if ($suiteExit -eq 0) { "zero" } else { "nonzero" }
+          "YASB_NATIVE_PYTEST_EXIT=$exitClass" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $candidates = @(
+            [PSCustomObject]@{ Label = "raw-log"; Path = $rawLog },
+            [PSCustomObject]@{ Label = "junit"; Path = "native-proof.xml" },
+            [PSCustomObject]@{ Label = "evidence"; Path = "native-proof.json" }
+          )
+          $unsafeClasses = @()
+          $scanFailed = $false
+          foreach ($candidate in $candidates) {
+            if (Test-Path $candidate.Path) {
+              try {
+                $content = [IO.File]::ReadAllText((Resolve-Path $candidate.Path))
+                if ($content.Contains("native-redaction-sentinel")) {
+                  $unsafeClasses += $candidate.Label
+                  Remove-Item -Force -ErrorAction Stop $candidate.Path
+                }
+              } catch {
+                $unsafeClasses += $candidate.Label
+                $scanFailed = $true
+              }
+            }
           }
-          Get-Content $rawLog
-          Remove-Item -Force $rawLog
+          $unsafeClasses = @($unsafeClasses | Select-Object -Unique)
+          $allowedClasses = @("raw-log", "junit", "evidence")
+          $invalidClasses = @($unsafeClasses | Where-Object { $_ -notin $allowedClasses })
+          $classText = $unsafeClasses -join ","
+          if ($invalidClasses.Count -gt 0) {
+            throw "Full-suite safety classification invalid; pytest_exit=$exitClass"
+          }
+          if ($scanFailed) {
+            throw "Full-suite safety cleanup failed; candidates=$classText; pytest_exit=$exitClass"
+          }
+          if ($unsafeClasses.Count -gt 0) {
+            throw "Full-suite safety failure; candidates=$classText; pytest_exit=$exitClass"
+          }
+          try {
+            Get-Content $rawLog -ErrorAction Stop
+            Remove-Item -Force -ErrorAction Stop $rawLog
+          } catch {
+            throw "Full-suite diagnostics unavailable; pytest_exit=$exitClass"
+          }
           if ($suiteExit -ne 0) {
             throw "Full test suite failed"
           }
@@ -102,18 +168,39 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $unsafe = $false
-          foreach ($candidate in @("native-proof.json", "native-proof.xml")) {
-            if (Test-Path $candidate) {
-              $content = [IO.File]::ReadAllText((Resolve-Path $candidate))
-              if ($content.Contains("native-redaction-sentinel")) {
-                Remove-Item -Force $candidate
-                $unsafe = $true
+          $exitClass = $env:YASB_NATIVE_PYTEST_EXIT
+          if ($exitClass -notin @("zero", "nonzero")) {
+            $exitClass = "unknown"
+          }
+          $candidates = @(
+            [PSCustomObject]@{ Label = "junit"; Path = "native-proof.xml" },
+            [PSCustomObject]@{ Label = "evidence"; Path = "native-proof.json" }
+          )
+          $unsafeClasses = @()
+          $scanFailed = $false
+          foreach ($candidate in $candidates) {
+            if (Test-Path $candidate.Path) {
+              try {
+                $content = [IO.File]::ReadAllText((Resolve-Path $candidate.Path))
+                if ($content.Contains("native-redaction-sentinel")) {
+                  $unsafeClasses += $candidate.Label
+                  Remove-Item -Force -ErrorAction Stop $candidate.Path
+                }
+              } catch {
+                $unsafeClasses += $candidate.Label
+                $scanFailed = $true
               }
             }
           }
-          if ($unsafe) {
-            throw "Native proof artifacts were withheld by the safety scan"
+          $unsafeClasses = @($unsafeClasses | Select-Object -Unique)
+          $allowedClasses = @("raw-log", "junit", "evidence")
+          $invalidClasses = @($unsafeClasses | Where-Object { $_ -notin $allowedClasses })
+          $classText = $unsafeClasses -join ","
+          if ($invalidClasses.Count -gt 0) {
+            throw "Final artifact safety classification invalid; pytest_exit=$exitClass"
+          }
+          if ($scanFailed -or $unsafeClasses.Count -gt 0) {
+            throw "Final artifact safety failure; candidates=$classText; pytest_exit=$exitClass"
           }
       - name: Publish safe native evidence
         if: success()
