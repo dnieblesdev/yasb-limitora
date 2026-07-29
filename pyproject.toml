@@ -26,7 +26,7 @@ dependencies = ["limitora[opencode-go]==0.1.0"]
 test = ["pytest>=8,<9"]
 
 [project.scripts]
-# The machine-JSON entry point is added with the runtime CLI in slice 05.
+yasb-limitora = "yasb_limitora.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
