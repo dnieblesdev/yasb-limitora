@@ -32,6 +32,19 @@ _STILL_ACTIVE = 259
 _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 _SYNCHRONIZE = 0x00100000
 _DESCENDANT_ATTEMPT = "descendant stderr attempted\n"
+_CHECKPOINT_ENV = "YASB_NATIVE_CHECKPOINT_PATH"
+(
+    _CHECKPOINT_START,
+    _CHECKPOINT_SUCCESS_EXECUTOR_RETURNED,
+    _CHECKPOINT_SUCCESS_VALIDATED,
+    _CHECKPOINT_SUCCESS_TREE_GONE,
+    _CHECKPOINT_TIMEOUT_TREE_OBSERVED,
+    _CHECKPOINT_TIMEOUT_VALIDATED,
+    _CHECKPOINT_TIMEOUT_STATE_VALIDATED,
+    _CHECKPOINT_TIMEOUT_TREE_GONE,
+    _CHECKPOINT_FINAL_SCAN_COMPLETE,
+) = range(1, 10)
+_CHECKPOINT_PAYLOADS = {f"{stage}\n".encode("ascii"): str(stage) for stage in range(1, 10)}
 
 
 class _OsStreamCapture:
@@ -79,6 +92,32 @@ def _assert_descendant_output_attempted(marker: Path) -> None:
         time.sleep(0.05)
     if not marker.exists() or marker.read_text(encoding="utf-8") != _DESCENDANT_ATTEMPT:
         raise AssertionError("native descendant output attempt was not observed")
+
+
+def _write_checkpoint(stage: int) -> None:
+    if f"{stage}\n".encode("ascii") not in _CHECKPOINT_PAYLOADS:
+        raise AssertionError("native proof checkpoint unavailable")
+    checkpoint_path = os.environ.get(_CHECKPOINT_ENV)
+    if not checkpoint_path:
+        return
+    target = Path(checkpoint_path)
+    temporary = target.with_name(f"{target.name}.tmp")
+    try:
+        with temporary.open("w", encoding="ascii", newline="\n") as stream:
+            stream.write(f"{stage}\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+    except Exception as error:  # noqa: BLE001 - checkpoint failures stay redacted
+        temporary.unlink(missing_ok=True)
+        raise AssertionError("native proof checkpoint unavailable") from error
+
+
+def _classify_checkpoint(path: Path) -> str:
+    try:
+        return _CHECKPOINT_PAYLOADS.get(path.read_bytes(), "unknown")
+    except FileNotFoundError:
+        return "unknown"
 
 
 def _process_is_running(pid: int) -> bool:
@@ -138,6 +177,7 @@ def _assert_artifacts_are_sentinel_free(paths: tuple[Path, ...], sentinel: str) 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
 def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path) -> None:
     sentinel = "native-redaction-sentinel"
+    _write_checkpoint(_CHECKPOINT_START)
 
     success_evidence = tmp_path / "success.json"
     success_marker = tmp_path / "success-descendant.attempted"
@@ -145,13 +185,16 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
         success = CodexHelperExecutor(timeout_seconds=2.0).run(
             _runner("success", success_evidence, sentinel, success_marker)
         )
+    _write_checkpoint(_CHECKPOINT_SUCCESS_EXECUTOR_RETURNED)
     assert success.state is ProviderState.SUCCESS
     _assert_streams_clean(success_streams)
     success_record = _read_evidence(success_evidence)
     assert success_record["fixture_stderr_attempted"] is True
     _assert_descendant_output_attempted(success_marker)
+    _write_checkpoint(_CHECKPOINT_SUCCESS_VALIDATED)
     success_pids = [int(success_record[key]) for key in ("helper_pid", "fixture_pid", "descendant_pid")]
     _assert_gone(success_pids)
+    _write_checkpoint(_CHECKPOINT_SUCCESS_TREE_GONE)
 
     timeout_evidence = tmp_path / "timeout.json"
     timeout_marker = tmp_path / "timeout-descendant.attempted"
@@ -170,15 +213,19 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
         timeout_record = _read_evidence(timeout_evidence)
         timeout_pids = [int(timeout_record[key]) for key in ("helper_pid", "fixture_pid", "descendant_pid")]
         assert all(_process_is_running(pid) for pid in timeout_pids)
+        _write_checkpoint(_CHECKPOINT_TIMEOUT_TREE_OBSERVED)
         worker.join(5.0)
         assert not worker.is_alive()
         timeout_view = result["view"]
     _assert_streams_clean(timeout_streams)
     assert timeout_record["fixture_stderr_attempted"] is True
     _assert_descendant_output_attempted(timeout_marker)
+    _write_checkpoint(_CHECKPOINT_TIMEOUT_VALIDATED)
     assert timeout_view.state is ProviderState.SAFE_ERROR
     assert timeout_view.error.code is SafeErrorCode.TIMEOUT
+    _write_checkpoint(_CHECKPOINT_TIMEOUT_STATE_VALIDATED)
     _assert_gone(timeout_pids)
+    _write_checkpoint(_CHECKPOINT_TIMEOUT_TREE_GONE)
 
     artifact_path = os.environ.get("YASB_NATIVE_EVIDENCE_PATH")
     if artifact_path:
@@ -196,6 +243,7 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
         }
         Path(artifact_path).write_text(json.dumps(artifact, sort_keys=True) + "\n", encoding="utf-8")
     _assert_artifacts_are_sentinel_free(tuple(tmp_path.iterdir()), sentinel)
+    _write_checkpoint(_CHECKPOINT_FINAL_SCAN_COMPLETE)
 
 
 def test_sentinel_scan_failure_diagnostics_are_redacted(tmp_path: Path) -> None:
@@ -206,6 +254,30 @@ def test_sentinel_scan_failure_diagnostics_are_redacted(tmp_path: Path) -> None:
         _assert_artifacts_are_sentinel_free((unsafe,), sentinel)
     if sentinel in str(error.value):
         pytest.fail("sentinel escaped artifact-scan diagnostics")
+
+
+def test_checkpoint_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "native-proof.checkpoint"
+    for content, expected in ((b"1\n", "1"), (None, "unknown"), (b"arbitrary", "unknown")):
+        if content is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.write_bytes(content)
+        assert _classify_checkpoint(path) == expected
+    monkeypatch.setenv(_CHECKPOINT_ENV, str(path))
+    _write_checkpoint(_CHECKPOINT_START)
+    _write_checkpoint(_CHECKPOINT_FINAL_SCAN_COMPLETE)
+    assert path.read_bytes() == b"9\n"
+    assert not path.with_name(f"{path.name}.tmp").exists()
+
+    def fail_replace(source: str, target: str) -> None:
+        raise OSError
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    with pytest.raises(AssertionError, match="native proof checkpoint unavailable"):
+        _write_checkpoint(_CHECKPOINT_START)
+    assert path.read_bytes() == b"9\n"
+    assert not path.with_name(f"{path.name}.tmp").exists()
 
 
 class _NestedJobApi:
@@ -265,3 +337,12 @@ def test_supervisor_setup_failure_is_safe_and_does_not_run_runner() -> None:
     assert calls == ["setup"]
     assert view.state is ProviderState.SAFE_ERROR
     assert view.error.code is SafeErrorCode.PROVIDER_ERROR
+
+
+if __name__ == "__main__":
+    try:
+        if len(sys.argv) != 3 or sys.argv[1] != "--classify-checkpoint":
+            raise ValueError
+        print(_classify_checkpoint(Path(sys.argv[2])))
+    except Exception:
+        raise SystemExit(1) from None
