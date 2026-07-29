@@ -99,3 +99,7 @@ unredacted*
 !docs/design/ai-usage/styles.css
 !docs/design/ai-usage/critique.json
 !docs/design/ai-usage/reference-final.png
+
+# Local tooling
+.atl/
+.codegraph/
