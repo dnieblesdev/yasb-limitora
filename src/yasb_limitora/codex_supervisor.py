@@ -173,6 +173,7 @@ class _PipeTransport:
                 continue
             offset += written
 
+
 _GATE_ENV = "_YASB_CODEX_GATE_HANDLE"
 _DATA_ENV = "_YASB_CODEX_DATA_HANDLE"
 _NONCE_ENV = "_YASB_CODEX_READY_NONCE"
@@ -281,14 +282,22 @@ class _TimeoutError(_PrimitiveError):
 
 
 class _AcquisitionError(_PrimitiveError):
-    def __init__(self, owner: object | None = None) -> None:
+    def __init__(
+        self,
+        owner: object | None = None,
+        *,
+        primary: Exception | None = None,
+        cleanup: Exception | None = None,
+    ) -> None:
         self.owner = owner
+        self.primary, self.cleanup = primary, cleanup
         super().__init__("acquisition_failed")
 
 
 class _SupervisorState(str, _Enum):
     OPEN = "open"
     PREPARED = "prepared"
+    ACQUIRED = "acquired"
     BROKEN = "broken"
     CLOSED = "closed"
 
@@ -317,8 +326,7 @@ class _PreparedAcquisition:
         self._transaction.rollback()
 
     def _release_for_commit(self) -> None:
-        for entry in self._entries:
-            self._transaction.release(entry)
+        self._transaction.commit(self._entries)
 
 
 @_dataclass(frozen=True)
@@ -369,9 +377,11 @@ class _AcquisitionTransaction:
         if failed_execution:
             raise _CleanupError from None
 
-    def commit(self) -> None:
-        if self._committed or self._entries:
+    def commit(self, entries: _typing.Iterable[_AcquisitionEntry] = ()) -> None:
+        requested = tuple(entries)
+        if self._committed or tuple(self._entries) != requested:
             raise _OwnershipError from None
+        self._entries.clear()
         self._committed = True
 
 
@@ -500,8 +510,10 @@ class _CodexSupervisor:
         handle_adapter: _typing.Callable[[int], int] = _fd_handle,
         set_inheritable: _typing.Callable[[int, bool], object] = _set_inheritable,
         job_factory: _typing.Callable[[object], object] | None = None,
+        transport_factory: _typing.Callable[..., _PipeTransport] = _PipeTransport,
         startup_factory: _typing.Callable[[], object] | None = None,
         environment_source: _typing.Mapping[str, str] | None = None,
+        timeout_seconds: object = _DEFAULT_TRANSPORT_TIMEOUT,
     ) -> None:
         self._command = (
             tuple(command)
@@ -518,11 +530,17 @@ class _CodexSupervisor:
         self._popen_factory, self._pipe_factory = popen_factory, pipe_factory
         self._handle_adapter, self._set_inheritable = handle_adapter, set_inheritable
         self._job_factory = job_factory or _acquire_job_owner
+        self._transport_factory = transport_factory
         self._startup_factory = startup_factory
         self._environment_source = environment_source or dict(_os.environ)
+        self._timeout_seconds = timeout_seconds
         self._state = _SupervisorState.OPEN
         self._prepared: _PreparedAcquisition | None = None
         self._pending: _AcquisitionTransaction | None = None
+        self._helper = self._gate = self._data = None
+        self._owner: _OwnerToken | None = None
+        self._nonce: bytes | None = None
+        self._terminal_error: Exception | None = None
 
     def _abort(self, transaction: _AcquisitionTransaction, error: Exception) -> None:
         try:
@@ -536,11 +554,64 @@ class _CodexSupervisor:
         self,
         command: _typing.Sequence[str] | None = None,
         nonce: bytes | None = None,
-    ) -> _PreparedAcquisition:
+    ) -> "_CodexSupervisor":
         with _SPAWN_LOCK:
             if self._state is not _SupervisorState.OPEN or self._pending is not None:
                 raise _OwnershipError from None
-            return self._acquire_locked(command, nonce)
+            prepared = self._acquire_locked(command, nonce)
+            try:
+                gate_write = prepared._descriptors[0][1]
+                data_read = prepared._descriptors[1][0]
+                transport = self._transport_factory(
+                    data_read,
+                    gate_write,
+                    nonblocking=True,
+                )
+                transport.write_control(
+                    b"1",
+                    timeout_seconds=self._timeout_seconds,
+                )
+                expected = b"READY:" + prepared._nonce
+                received = transport.read_frame(
+                    expected_size=len(expected),
+                    timeout_seconds=self._timeout_seconds,
+                )
+                if received != expected:
+                    raise _TransportError("ready_mismatch") from None
+                prepared._release_for_commit()
+            except Exception as error:  # noqa: BLE001 - retain Unit B cleanup owner
+                return self._abort_prepared(prepared, error)
+            self._prepared = None
+            self._helper, self._gate, self._data = (
+                prepared._helper,
+                prepared._gate,
+                prepared._data,
+            )
+            self._owner, self._nonce = prepared._owner, prepared._nonce
+            self._state = _SupervisorState.ACQUIRED
+            return self
+
+    def _abort_prepared(
+        self, prepared: _PreparedAcquisition, error: Exception
+    ) -> "_CodexSupervisor":
+        try:
+            prepared.rollback()
+        except Exception as cleanup_error:  # noqa: BLE001 - preserve both failures
+            self._prepared = None
+            self._pending, self._state, self._terminal_error = (
+                prepared._transaction,
+                _SupervisorState.BROKEN,
+                self._terminal_for(prepared._gate)
+                or self._terminal_for(prepared._data),
+            )
+            raise _AcquisitionError(
+                self._pending,
+                primary=error,
+                cleanup=cleanup_error,
+            ) from error
+        self._prepared = None
+        self._state = _SupervisorState.OPEN
+        raise _AcquisitionError from error
 
     def _acquire_locked(
         self,
@@ -613,7 +684,7 @@ class _CodexSupervisor:
                 (gate_descriptors, data_descriptors),
                 helper,
                 nonce,
-                (helper_entry, data_entry, gate_entry),
+                (gate_entry, data_entry, helper_entry),
             )
             self._prepared, self._state = prepared, _SupervisorState.PREPARED
             return prepared
@@ -627,23 +698,68 @@ class _CodexSupervisor:
                 transaction.add(owner_to_retain.close)
             return self._abort(transaction, error)
 
-    def close(self) -> None:
+    def close(self, timeout_seconds: object = _DEFAULT_TRANSPORT_TIMEOUT) -> None:
         with _SPAWN_LOCK:
+            if self._pending is not None:
+                try:
+                    self._pending.rollback()
+                except Exception as error:
+                    raise _AcquisitionError(self._pending) from error
+                self._pending = None
+                if (
+                    self._prepared is None
+                    and self._helper is None
+                    and self._terminal_error is None
+                ):
+                    self._state = _SupervisorState.CLOSED
+                    return
             if self._state is _SupervisorState.CLOSED:
                 return
-            if self._prepared is None:
-                if self._pending is not None:
-                    try:
-                        self._pending.rollback()
-                    except Exception as error:
-                        raise _AcquisitionError(self._pending) from error
-                self._pending, self._state = None, _SupervisorState.CLOSED
+            if self._prepared is not None:
+                try:
+                    self._prepared.rollback()
+                except Exception as error:
+                    self._pending = self._prepared._transaction
+                    self._prepared = None
+                    self._state = _SupervisorState.BROKEN
+                    raise _AcquisitionError(self._pending) from error
+                self._prepared = None
+                self._state = _SupervisorState.CLOSED
                 return
-            try:
-                self._prepared.rollback()
-            except Exception as error:
-                self._pending = self._prepared._transaction
+            failures: list[Exception] = []
+            for resource, closer in (
+                (self._helper, lambda: self._helper.close(timeout_seconds)),
+                (self._data, lambda: self._data._close(self._owner)),
+                (self._gate, lambda: self._gate._close(self._owner)),
+            ):
+                if resource is None:
+                    continue
+                try:
+                    closer()
+                except Exception as error:  # noqa: BLE001 - retry bounded cleanup
+                    failures.append(error)
+                terminal = self._terminal_for(resource)
+                if terminal is not None and self._terminal_error is None:
+                    self._terminal_error = terminal
+            if self._terminal_error is not None:
                 self._state = _SupervisorState.BROKEN
-                raise _AcquisitionError(self._pending) from error
-            self._prepared, self._pending = None, None
+                raise _AcquisitionError(
+                    self,
+                    primary=self._terminal_error,
+                    cleanup=failures[0] if failures else None,
+                ) from self._terminal_error
+            if failures:
+                self._state = _SupervisorState.BROKEN
+                raise _AcquisitionError(self) from failures[0]
+            self._helper = self._gate = self._data = self._owner = self._nonce = None
             self._state = _SupervisorState.CLOSED
+
+    @staticmethod
+    def _terminal_for(resource: object) -> Exception | None:
+        for endpoint in (
+            getattr(resource, "_read", None),
+            getattr(resource, "_write", None),
+        ):
+            if endpoint is not None and endpoint._state.value == "terminal":
+                return getattr(endpoint, "_terminal_error", None)
+        return None
