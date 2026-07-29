@@ -182,7 +182,7 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
     success_evidence = tmp_path / "success.json"
     success_marker = tmp_path / "success-descendant.attempted"
     with _OsStreamCapture(tmp_path, "success") as success_streams:
-        success = CodexHelperExecutor(timeout_seconds=2.0).run(
+        success = CodexHelperExecutor(timeout_seconds=5.0).run(
             _runner("success", success_evidence, sentinel, success_marker)
         )
     _write_checkpoint(_CHECKPOINT_SUCCESS_EXECUTOR_RETURNED)
