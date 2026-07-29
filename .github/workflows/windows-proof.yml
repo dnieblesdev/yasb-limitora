@@ -1,0 +1,125 @@
+name: Native Windows proof
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  native-proof:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      YASB_NATIVE_EVIDENCE_PATH: native-proof.json
+      PYTHONUTF8: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install the pinned runtime and test tools
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "limitora==0.1.0"
+          python -m pip install -e ".[opencode-go,test]"
+      - name: Execute the selected native proof
+        shell: pwsh
+        run: |
+          $rawLog = "native-proof.raw.log"
+          & python -m pytest -q --strict-markers tests/test_windows_native_proof.py --junitxml=native-proof.xml *> $rawLog
+          $proofExit = $LASTEXITCODE
+          $unsafe = $false
+          foreach ($candidate in @($rawLog, "native-proof.xml", "native-proof.json")) {
+            if (Test-Path $candidate) {
+              $content = [IO.File]::ReadAllText((Resolve-Path $candidate))
+              if ($content.Contains("native-redaction-sentinel")) {
+                Remove-Item -Force $candidate
+                $unsafe = $true
+              }
+            }
+          }
+          if ($unsafe) {
+            throw "Native proof output was withheld by the safety scan"
+          }
+          if (Test-Path $rawLog) {
+            Get-Content $rawLog
+            Remove-Item -Force $rawLog
+          }
+          if ($proofExit -ne 0) {
+            throw "Native proof test failed"
+          }
+          try {
+            $report = [xml](Get-Content native-proof.xml -Raw)
+          } catch {
+            throw "Native proof JUnit report was invalid"
+          }
+          $suites = @($report.testsuites.testsuite)
+          if ($suites.Count -eq 0 -and $report.testsuite) {
+            $suites = @($report.testsuite)
+          }
+          $tests = 0
+          $skipped = 0
+          $failures = 0
+          $errors = 0
+          foreach ($suite in $suites) {
+            $tests += [int]$suite.tests
+            $skipped += [int]$suite.skipped
+            $failures += [int]$suite.failures
+            $errors += [int]$suite.errors
+          }
+          if ($suites.Count -eq 0 -or $tests -lt 1 -or $skipped -ne 0 -or $failures -ne 0 -or $errors -ne 0) {
+            throw "Native proof was skipped, deselected, or failed"
+          }
+          try {
+            $evidence = Get-Content native-proof.json -Raw | ConvertFrom-Json
+          } catch {
+            throw "Native proof evidence was invalid"
+          }
+          if ($evidence.native -ne $true -or $evidence.ready_authorized -ne $true -or $evidence.tree_terminated -ne $true -or $evidence.streams_clean -ne $true) {
+            throw "Native proof did not publish complete product evidence"
+          }
+      - name: Run the complete test suite
+        shell: pwsh
+        run: |
+          $rawLog = "full-suite.raw.log"
+          & python -m pytest -q --strict-markers tests *> $rawLog
+          $suiteExit = $LASTEXITCODE
+          $content = [IO.File]::ReadAllText((Resolve-Path $rawLog))
+          if ($content.Contains("native-redaction-sentinel")) {
+            Remove-Item -Force $rawLog
+            throw "Full-suite output was withheld by the safety scan"
+          }
+          Get-Content $rawLog
+          Remove-Item -Force $rawLog
+          if ($suiteExit -ne 0) {
+            throw "Full test suite failed"
+          }
+      - name: Validate artifacts before publication
+        if: always()
+        shell: pwsh
+        run: |
+          $unsafe = $false
+          foreach ($candidate in @("native-proof.json", "native-proof.xml")) {
+            if (Test-Path $candidate) {
+              $content = [IO.File]::ReadAllText((Resolve-Path $candidate))
+              if ($content.Contains("native-redaction-sentinel")) {
+                Remove-Item -Force $candidate
+                $unsafe = $true
+              }
+            }
+          }
+          if ($unsafe) {
+            throw "Native proof artifacts were withheld by the safety scan"
+          }
+      - name: Publish safe native evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-windows-proof
+          path: |
+            native-proof.json
+            native-proof.xml
