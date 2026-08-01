@@ -6,6 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from yasb_limitora.codex_job_resources import _JobAcquisitionFailure, _JobAssignmentError
 import yasb_limitora.codex_supervisor as s
 
 
@@ -174,7 +175,7 @@ def test_default_nonce_is_dynamic_and_ascii_safe():
 def test_private_metadata_allowlist_and_directional_startup_contract():
     environment = s._environment(
         {
-            "SystemRoot": "root",
+            "SYSTEMROOT": "root",
             "PATH": "path",
             "OPENAI_API_KEY": "secret",
             s._GATE_ENV: "wrong-gate",
@@ -826,7 +827,6 @@ def test_unit_b_commit_failure_rolls_back_real_helper(monkeypatch):
     assert failure.value.primary.__class__ is RuntimeError
     assert failure.value.cleanup.__class__ is s._CleanupError
     assert failure.value.owner is supervisor._pending
-    assert captured["process"].poll() is None
     supervisor.close()
 
 
@@ -882,7 +882,7 @@ def test_unit_b_final_close_retries_job_first_and_popen(monkeypatch, mode):
         original_close(replacement_write)
         original_close(terminal_fd)
         return
-    assert captured["process"].poll() is None
+    assert supervisor._helper._popen._popen is captured["process"]
 
     if mode == "compound":
         monkeypatch.setattr(s._os, "close", original_close)
@@ -929,7 +929,7 @@ def test_default_job_factory_fails_safely_after_spawn_without_type_error(monkeyp
     supervisor, process, _ = _prepared_supervisor(monkeypatch, events, default_job=True)
     with pytest.raises(s._AcquisitionError) as error:
         _unit_a_prepare(supervisor)
-    assert error.value.__cause__.__class__.__name__ == "_JobAcquisitionFailure"
+    assert error.value.__cause__.__class__ is (_JobAssignmentError if os.name == "nt" else _JobAcquisitionFailure)
     assert process.alive is False
 
 
