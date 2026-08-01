@@ -27,11 +27,25 @@ from yasb_limitora.model import (
 )
 
 
-def _snapshot(state=limitora.ProviderState.AVAILABLE, freshness=limitora.Freshness.FRESH):
+def _snapshot(
+    state=limitora.ProviderState.AVAILABLE,
+    freshness=limitora.Freshness.FRESH,
+    *,
+    provider="codex",
+    source="test",
+    windows=(),
+    observed_at=None,
+    fetched_at=None,
+    data_at=None,
+):
     now = datetime.now(timezone.utc)
-    status = limitora.ProviderStatus(limitora.ProviderId("codex"), state, now)
+    observed_at = now if observed_at is None else observed_at
+    fetched_at = observed_at if fetched_at is None else fetched_at
+    data_at = observed_at if data_at is None else data_at
+    provider_id = ProviderId(provider)
+    status = ProviderStatus(provider_id, state, observed_at)
     snapshot = limitora.ProviderSnapshot(
-        limitora.ProviderId("codex"), status, now, now, limitora.SourceMetadata("test")
+        provider_id, status, fetched_at, data_at, SourceMetadata(source), tuple(windows)
     )
     return limitora.StatusSnapshotResult(snapshot, freshness)
 
@@ -54,14 +68,170 @@ def test_adapter_uses_root_public_api_and_maps_success_unavailable_stale_and_err
 
     clients = iter((Client(), Client(), Client(), Client(), Client()))
     adapter = CodexLimitoraAdapter(lambda config: next(clients))
-    assert adapter.read(("C:\\codex.exe",)).state is ProviderState.SUCCESS
-    assert adapter.read(("C:\\codex.exe",)).state is ProviderState.UNAVAILABLE
-    assert adapter.read(("C:\\codex.exe",)).state is ProviderState.UNAVAILABLE
-    assert adapter.read(("C:\\codex.exe",)).error.code is SafeErrorCode.PROVIDER_ERROR
-    assert adapter.read(("C:\\codex.exe",)).error.code is SafeErrorCode.TIMEOUT
+    assert adapter.read(("C:\\codex.exe",)).outcome is ProviderOutcome.SNAPSHOT
+    assert adapter.read(("C:\\codex.exe",)).outcome is ProviderOutcome.SNAPSHOT
+    assert adapter.read(("C:\\codex.exe",)).outcome is ProviderOutcome.SNAPSHOT
+    provider_error_view = adapter.read(("C:\\codex.exe",))
+    timeout_view = adapter.read(("C:\\codex.exe",))
+    assert provider_error_view.error.code is SafeErrorCode.PROVIDER_ERROR
+    assert provider_error_view.outcome is ProviderOutcome.EXECUTION_ERROR
+    assert timeout_view.error.code is SafeErrorCode.TIMEOUT
     view = read_opencode_go("private-workspace", {})
     assert view.state is ProviderState.UNAVAILABLE
+    assert view.outcome is ProviderOutcome.NOT_RUN
     assert "private-workspace" not in repr(view)
+
+
+def _quantity(value: str, metric=limitora.MetricKind.COMMERCIAL_QUOTA, unit="percentage_points"):
+    return Quantity(Decimal(value), metric, unit)
+
+
+def test_adapter_preserves_snapshot_state_freshness_windows_and_safe_sources():
+    observed_at = datetime(2026, 8, 1, 12, tzinfo=timezone.utc)
+    fetched_at = datetime(2026, 8, 1, 12, 1, tzinfo=timezone.utc)
+    data_at = datetime(2026, 8, 1, 12, 0, 30, tzinfo=timezone.utc)
+    reset_at = datetime(2026, 8, 1, 16, tzinfo=timezone.utc)
+    windows = (
+        QuotaWindow(
+            WindowKind.COMMERCIAL_QUOTA,
+            "account",
+            "five_hour",
+            "plus",
+            ValueAvailability.KNOWN,
+            SourceMetadata("codex-app-server-v2"),
+            _quantity("100.00"),
+            _quantity("25.00"),
+            _quantity("75.00"),
+            reset_at,
+        ),
+        QuotaWindow(
+            WindowKind.COMMERCIAL_QUOTA,
+            "account",
+            "weekly",
+            None,
+            ValueAvailability.UNAVAILABLE,
+            SourceMetadata("private-provider-detail"),
+        ),
+    )
+    client = SimpleNamespace(read_status=lambda request: _snapshot(
+        state=limitora.ProviderState.PARTIAL,
+        source="codex-app-server-v2",
+        windows=windows,
+        observed_at=observed_at,
+        fetched_at=fetched_at,
+        data_at=data_at,
+    ))
+
+    view = CodexLimitoraAdapter(lambda config: client).read(("C:\\codex.exe",))
+
+    assert view.outcome is ProviderOutcome.SNAPSHOT
+    assert view.state is ProviderState.SUCCESS
+    assert view.error is None
+    assert view.snapshot is not None
+    assert view.snapshot.public_state is PublicProviderState.PARTIAL
+    assert view.snapshot.freshness.value == "fresh"
+    assert (view.snapshot.status_observed_at, view.snapshot.fetched_at, view.snapshot.data_at) == (
+        observed_at,
+        fetched_at,
+        data_at,
+    )
+    assert view.snapshot.source_id == "codex-app-server-v2"
+    assert len(view.snapshot.windows) == 2
+    known, unavailable = view.snapshot.windows
+    assert (known.scope, known.period, known.plan_id, known.reset_at) == ("account", "five_hour", "plus", reset_at)
+    assert str(known.limit.value) == "100"
+    assert str(known.used.value) == "25"
+    assert str(known.remaining.value) == "75"
+    assert known.source_id == "codex-app-server-v2"
+    assert unavailable.source_id is None
+    assert "private-provider-detail" not in repr(view)
+
+
+def test_adapter_retains_stale_and_empty_snapshots_as_snapshots():
+    results = iter((
+        _snapshot(state=limitora.ProviderState.AVAILABLE, freshness=limitora.Freshness.STALE),
+        _snapshot(state=limitora.ProviderState.UNAVAILABLE, windows=()),
+    ))
+    client = SimpleNamespace(read_status=lambda request: next(results))
+    adapter = CodexLimitoraAdapter(lambda config: client)
+
+    stale = adapter.read(("C:\\codex.exe",))
+    empty = adapter.read(("C:\\codex.exe",))
+
+    assert stale.state is ProviderState.UNAVAILABLE
+    assert stale.outcome is ProviderOutcome.SNAPSHOT
+    assert stale.snapshot is not None and stale.snapshot.freshness.value == "stale"
+    assert stale.snapshot.public_state is PublicProviderState.AVAILABLE
+    assert empty.outcome is ProviderOutcome.SNAPSHOT
+    assert empty.snapshot is not None and empty.snapshot.windows == ()
+    assert empty.snapshot.public_state is PublicProviderState.UNAVAILABLE
+
+
+def test_adapter_keeps_undetected_distinct_from_an_unavailable_snapshot():
+    client = SimpleNamespace(read_status=lambda request: limitora.StatusUndetectedResult())
+
+    view = CodexLimitoraAdapter(lambda config: client).read(("C:\\codex.exe",))
+
+    assert view.state is ProviderState.UNAVAILABLE
+    assert view.outcome is ProviderOutcome.UNDETECTED
+    assert view.snapshot is None
+
+
+def test_adapter_fails_closed_for_unknown_state_and_unsupported_metric():
+    now = datetime.now(timezone.utc)
+    unknown_status = ProviderStatus(ProviderId("codex"), "future_state", now)
+    unknown_snapshot = limitora.ProviderSnapshot(
+        ProviderId("codex"), unknown_status, now, now, SourceMetadata("test")
+    )
+    unsupported_window = QuotaWindow(
+        WindowKind.OTHER,
+        "account",
+        "future",
+        None,
+        ValueAvailability.KNOWN,
+        SourceMetadata("codex-app-server-v2"),
+        _quantity("10", limitora.MetricKind.TOKENS, "tokens"),
+    )
+    invalid_snapshot = _snapshot(windows=(unsupported_window,)).snapshot
+    results = iter((
+        limitora.StatusSnapshotResult(unknown_snapshot, limitora.Freshness.FRESH),
+        limitora.StatusSnapshotResult(invalid_snapshot, limitora.Freshness.FRESH),
+    ))
+    client = SimpleNamespace(read_status=lambda request: next(results))
+    adapter = CodexLimitoraAdapter(lambda config: client)
+
+    unknown = adapter.read(("C:\\codex.exe",))
+    invalid = adapter.read(("C:\\codex.exe",))
+
+    assert unknown.outcome is ProviderOutcome.EXECUTION_ERROR
+    assert unknown.error.code is SafeErrorCode.UNKNOWN_PROVIDER_STATE
+    assert unknown.snapshot is None
+    assert invalid.outcome is ProviderOutcome.EXECUTION_ERROR
+    assert invalid.error.code is SafeErrorCode.INVALID_PROVIDER_DATA
+    assert invalid.snapshot is None
+
+
+@pytest.mark.parametrize(
+    ("state", "legacy_state"),
+    (
+        (limitora.ProviderState.PARTIAL, ProviderState.SUCCESS),
+        (limitora.ProviderState.UNAUTHORIZED, ProviderState.UNAVAILABLE),
+        (limitora.ProviderState.RATE_LIMITED, ProviderState.UNAVAILABLE),
+        (limitora.ProviderState.TRANSIENT_ERROR, ProviderState.UNAVAILABLE),
+        (limitora.ProviderState.INVALID_DATA, ProviderState.UNAVAILABLE),
+    ),
+)
+def test_valid_non_available_public_states_remain_snapshot_outcomes(state, legacy_state):
+    result = _snapshot(state=state)
+    client = SimpleNamespace(read_status=lambda request: result)
+
+    view = CodexLimitoraAdapter(lambda config: client).read(("C:\\codex.exe",))
+
+    assert view.state is legacy_state
+    assert view.error is None
+    assert view.outcome is ProviderOutcome.SNAPSHOT
+    assert view.snapshot is not None
+    assert view.snapshot.public_state.value == state.value
 
 
 def test_model_accepts_positive_exponent_place_value_zeroes_but_rejects_over_256_rendering():
