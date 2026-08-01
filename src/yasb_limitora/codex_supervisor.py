@@ -64,6 +64,24 @@ def _peek_named_pipe(fd: int) -> tuple[int, bool]:
     raise _TransportError("peek_failed") from None
 
 
+def _peek_named_pipe_handle(handle: int) -> tuple[int, bool]:
+    """Peek a pipe using a previously adapted native handle."""
+    try:
+        import ctypes
+
+        available = ctypes.c_ulong()
+        ok = ctypes.windll.kernel32.PeekNamedPipe(
+            handle, None, 0, None, ctypes.byref(available), None
+        )
+        if ok:
+            return int(available.value), False
+        if ctypes.windll.kernel32.GetLastError() == _ERROR_BROKEN_PIPE:
+            return 0, True
+    except Exception:
+        pass
+    raise _TransportError("peek_failed") from None
+
+
 class _PipeTransport:
     """Bounded byte transport for the private gate/data control frames."""
 

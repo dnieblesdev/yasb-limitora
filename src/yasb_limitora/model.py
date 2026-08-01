@@ -7,6 +7,10 @@ from enum import Enum
 from unicodedata import normalize
 
 SAFE_SOURCE_IDS = frozenset({"codex-app-server-v2", "opencode-go-dashboard"})
+MAX_DISPLAY_LABEL_LENGTH = 64
+MAX_QUOTA_WINDOWS = 32
+MAX_QUANTITY_SIGNIFICANT_DIGITS = 128
+MAX_QUANTITY_TEXT_LENGTH = 256
 
 class ProviderKey(str, Enum):
     CODEX = "codex"
@@ -83,7 +87,7 @@ def _enum(enum: type[Enum], value: object, message: str) -> Enum:
 def _label(value: object) -> str | None:
     if value is None:
         return None
-    if not isinstance(value, str) or not value or len(value) > 64 or any(ord(char) < 32 for char in value):
+    if not isinstance(value, str) or not value or len(value) > MAX_DISPLAY_LABEL_LENGTH or any(ord(char) < 32 for char in value):
         raise ValueError("invalid provider label") from None
     return value
 
@@ -127,13 +131,27 @@ def _canonical_decimal(value: object) -> Decimal:
         if position >= len(digits)
         else len(digits) + 1
     )
-    if len(digits) > 128 or rendered_length > 256:
+    if len(digits) > MAX_QUANTITY_SIGNIFICANT_DIGITS or rendered_length > MAX_QUANTITY_TEXT_LENGTH:
         raise ValueError("quota quantity exceeds canonical limits") from None
     fixed = format(Decimal((0, digits, exponent)), "f")
     canonical = fixed.rstrip("0").rstrip(".") if "." in fixed else fixed
-    if len(canonical) > 256:
+    if len(canonical) > MAX_QUANTITY_TEXT_LENGTH:
         raise ValueError("quota quantity exceeds canonical limits") from None
     return Decimal(canonical)
+
+
+def _parse_canonical_decimal(value: object) -> Decimal:
+    if type(value) is not str or not value or len(value) > MAX_QUANTITY_TEXT_LENGTH:
+        raise ValueError("invalid quota quantity") from None
+    try:
+        value.encode("ascii")
+        parsed = Decimal(value)
+    except (ArithmeticError, UnicodeEncodeError, ValueError):
+        raise ValueError("invalid quota quantity") from None
+    canonical = _canonical_decimal(parsed)
+    if format(canonical, "f") != value:
+        raise ValueError("invalid quota quantity") from None
+    return canonical
 
 
 def _source_id(value: object) -> str | None:
@@ -228,7 +246,7 @@ class ProviderSnapshotView:
         object.__setattr__(self, "source_id", _source_id(self.source_id))
         if not isinstance(self.windows, tuple) or not all(isinstance(window, QuotaWindowView) for window in self.windows):
             raise TypeError("windows must contain immutable quota window values")
-        if len(self.windows) > 32:
+        if len(self.windows) > MAX_QUOTA_WINDOWS:
             raise ValueError("snapshot contains too many quota windows")
         identities = tuple((window.kind, window.scope, window.period) for window in self.windows)
         if len(set(identities)) != len(identities):
@@ -237,6 +255,16 @@ class ProviderSnapshotView:
             window.kind is not QuotaWindowKind.TECHNICAL_RATE_LIMIT for window in self.windows
         ):
             raise ValueError("rate-limited snapshots can only contain technical windows")
+
+
+def _legacy_state_for_snapshot(snapshot: ProviderSnapshotView) -> ProviderState:
+    if snapshot.freshness is SnapshotFreshness.STALE:
+        return ProviderState.UNAVAILABLE
+    if snapshot.public_state is PublicProviderState.AVAILABLE:
+        return ProviderState.SUCCESS
+    if snapshot.public_state is PublicProviderState.UNAVAILABLE:
+        return ProviderState.UNAVAILABLE
+    return ProviderState.SUCCESS if snapshot.public_state is PublicProviderState.PARTIAL else ProviderState.UNAVAILABLE
 
 @dataclass(frozen=True, slots=True)
 class ProviderView:
