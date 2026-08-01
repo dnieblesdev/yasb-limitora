@@ -207,6 +207,8 @@ class _IpcPair:
         retry: _CleanupError | None = None
         other: _ResourceError | None = None
         for endpoint in (self._write, self._read):
+            if endpoint._state is _EndpointState.TERMINAL:
+                continue
             try:
                 endpoint._close()
             except _IndeterminateCleanupError as error:

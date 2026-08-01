@@ -20,13 +20,19 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
-dependencies = ["limitora[opencode-go]==0.1.0"]
+dependencies = ["limitora==0.1.0"]
 
 [project.optional-dependencies]
+opencode-go = ["httpx<1,>=0.27"]
 test = ["pytest>=8,<9"]
 
+[tool.pytest.ini_options]
+markers = [
+    "windows_native: executable native Windows process-tree proof",
+]
+
 [project.scripts]
-# The machine-JSON entry point is added with the runtime CLI in slice 05.
+yasb-limitora = "yasb_limitora.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
