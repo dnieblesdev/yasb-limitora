@@ -657,6 +657,7 @@ class _CodexSupervisor:
                 "stdout": _subprocess.DEVNULL,
                 "stderr": _subprocess.DEVNULL,
             }
+            if _os.name == "nt": popen_kwargs["creationflags"] = _subprocess.CREATE_BREAKAWAY_FROM_JOB
             if _os.name != "nt":
                 popen_kwargs["pass_fds"] = (gate_read, data_write)
             popen = self._popen_factory(

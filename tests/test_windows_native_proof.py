@@ -169,7 +169,6 @@ def _assert_artifacts_are_sentinel_free(paths: tuple[Path, ...], sentinel: str) 
 def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path) -> None:
     sentinel = "native-redaction-sentinel"
     _write_checkpoint(_CHECKPOINT_START)
-
     success_evidence = tmp_path / "success.json"
     success_marker = tmp_path / "success-descendant.attempted"
     with _OsStreamCapture(tmp_path, "success") as success_streams:
