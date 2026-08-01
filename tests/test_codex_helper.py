@@ -234,6 +234,121 @@ def test_valid_non_available_public_states_remain_snapshot_outcomes(state, legac
     assert view.snapshot.public_state.value == state.value
 
 
+def test_provider_view_rejects_snapshot_error_contradictions_but_keeps_other_outcomes_legal():
+    valid = _snapshot()
+    client = SimpleNamespace(read_status=lambda request: valid)
+    snapshot = CodexLimitoraAdapter(lambda config: client).read(("C:\\codex.exe",)).snapshot
+    assert snapshot is not None
+
+    with pytest.raises(ValueError, match="snapshot cannot carry"):
+        ProviderView(
+            ProviderKey.CODEX,
+            ProviderState.SAFE_ERROR,
+            SafeError(SafeErrorCode.PROVIDER_ERROR),
+            outcome=ProviderOutcome.SNAPSHOT,
+            snapshot=snapshot,
+        )
+    with pytest.raises(ValueError, match="only safe_error"):
+        ProviderView(
+            ProviderKey.CODEX,
+            ProviderState.SUCCESS,
+            SafeError(SafeErrorCode.PROVIDER_ERROR),
+            outcome=ProviderOutcome.SNAPSHOT,
+            snapshot=snapshot,
+        )
+
+    execution_error = ProviderView(
+        ProviderKey.CODEX,
+        ProviderState.SAFE_ERROR,
+        SafeError(SafeErrorCode.PROVIDER_ERROR),
+        outcome=ProviderOutcome.EXECUTION_ERROR,
+    )
+    not_run = ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN)
+    assert execution_error.outcome is ProviderOutcome.EXECUTION_ERROR
+    assert not_run.outcome is ProviderOutcome.NOT_RUN
+
+
+def test_model_and_adapter_share_nfc_identity_normalization():
+    decomposed = "cafe\u0301"
+    normalized = "café"
+    direct_quantity = QuotaQuantity(Decimal("1"), QuotaMetricKind.COMMERCIAL_QUOTA, decomposed)
+    direct_window = QuotaWindowView(
+        QuotaWindowKind.COMMERCIAL_QUOTA,
+        decomposed,
+        decomposed,
+        decomposed,
+        QuotaAvailability.KNOWN,
+        None,
+        limit=direct_quantity,
+    )
+    assert direct_quantity.unit == normalized
+    assert (direct_window.scope, direct_window.period, direct_window.plan_id) == (
+        normalized,
+        normalized,
+        normalized,
+    )
+
+    public_window = QuotaWindow(
+        WindowKind.COMMERCIAL_QUOTA,
+        decomposed,
+        decomposed,
+        decomposed,
+        ValueAvailability.KNOWN,
+        SourceMetadata("test"),
+        _quantity("1", unit=decomposed),
+    )
+    result = _snapshot(windows=(public_window,))
+    client = SimpleNamespace(read_status=lambda request: result)
+    view = CodexLimitoraAdapter(lambda config: client).read(("C:\\codex.exe",))
+
+    assert view.snapshot is not None
+    adapter_window = view.snapshot.windows[0]
+    assert (adapter_window.scope, adapter_window.period, adapter_window.plan_id) == (
+        normalized,
+        normalized,
+        normalized,
+    )
+    assert adapter_window.limit.unit == normalized
+
+
+def _read_single_quantity(raw: str):
+    window = QuotaWindow(
+        WindowKind.COMMERCIAL_QUOTA,
+        "account",
+        "five_hour",
+        "plus",
+        ValueAvailability.KNOWN,
+        SourceMetadata("test"),
+        _quantity(raw),
+    )
+    result = _snapshot(windows=(window,))
+    client = SimpleNamespace(read_status=lambda request: result)
+    return CodexLimitoraAdapter(lambda config: client).read(("C:\\codex.exe",))
+
+
+def test_adapter_uses_fixed_point_canonical_quantities_and_normalizes_negative_zero():
+    window = QuotaWindow(
+        WindowKind.COMMERCIAL_QUOTA,
+        "account",
+        "five_hour",
+        "plus",
+        ValueAvailability.KNOWN,
+        SourceMetadata("test"),
+        _quantity("1E+2"),
+        _quantity("-0"),
+    )
+    result = _snapshot(windows=(window,))
+    client = SimpleNamespace(read_status=lambda request: result)
+
+    view = CodexLimitoraAdapter(lambda config: client).read(("C:\\codex.exe",))
+
+    assert view.snapshot is not None
+    limit, used = view.snapshot.windows[0].limit, view.snapshot.windows[0].used
+    assert str(limit.value) == "100"
+    assert str(used.value) == "0"
+    assert not used.value.is_signed()
+
+
 def test_model_accepts_positive_exponent_place_value_zeroes_but_rejects_over_256_rendering():
     accepted = QuotaQuantity(Decimal("1E+200"), QuotaMetricKind.COMMERCIAL_QUOTA, "units")
 
@@ -241,6 +356,40 @@ def test_model_accepts_positive_exponent_place_value_zeroes_but_rejects_over_256
     assert len(format(accepted.value, "f")) == 201
     with pytest.raises(ValueError, match="canonical limits"):
         QuotaQuantity(Decimal("1E+256"), QuotaMetricKind.COMMERCIAL_QUOTA, "units")
+
+
+def test_adapter_preserves_positive_exponent_quantity_and_rejects_over_256_rendering():
+    accepted = _read_single_quantity("1E+200")
+    rejected = _read_single_quantity("1E+256")
+
+    assert accepted.outcome is ProviderOutcome.SNAPSHOT
+    assert accepted.snapshot is not None
+    assert str(accepted.snapshot.windows[0].limit.value) == "1" + "0" * 200
+    assert rejected.outcome is ProviderOutcome.EXECUTION_ERROR
+    assert rejected.error.code is SafeErrorCode.INVALID_PROVIDER_DATA
+    assert rejected.snapshot is None
+
+
+@pytest.mark.parametrize(
+    ("raw", "rendered_length"),
+    (("9" * 128, 128), ("0." + "0" * 126 + "9" * 128, 256)),
+)
+def test_adapter_accepts_quantity_boundary_limits(raw, rendered_length):
+    view = _read_single_quantity(raw)
+
+    assert view.outcome is ProviderOutcome.SNAPSHOT
+    assert view.snapshot is not None
+    rendered = format(view.snapshot.windows[0].limit.value, "f")
+    assert "E" not in rendered and len(rendered) == rendered_length
+
+
+@pytest.mark.parametrize("raw", ("9" * 129, "0." + "0" * 127 + "9" * 128))
+def test_adapter_rejects_quantity_values_over_normative_limits(raw):
+    view = _read_single_quantity(raw)
+
+    assert view.outcome is ProviderOutcome.EXECUTION_ERROR
+    assert view.error.code is SafeErrorCode.INVALID_PROVIDER_DATA
+    assert view.snapshot is None
 
 
 def test_concurrent_cleanup_ownership_is_atomic():
