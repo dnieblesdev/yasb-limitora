@@ -2,9 +2,11 @@ import inspect
 import os
 import subprocess
 import sys
+from unittest.mock import Mock
 
 import pytest
 
+from yasb_limitora.codex_job_resources import _JobAcquisitionFailure, _JobAssignmentError
 import yasb_limitora.codex_supervisor as s
 
 
@@ -173,7 +175,7 @@ def test_default_nonce_is_dynamic_and_ascii_safe():
 def test_private_metadata_allowlist_and_directional_startup_contract():
     environment = s._environment(
         {
-            "SystemRoot": "root",
+            "SYSTEMROOT": "root",
             "PATH": "path",
             "OPENAI_API_KEY": "secret",
             s._GATE_ENV: "wrong-gate",
@@ -577,3 +579,404 @@ def test_handle_reset_attempts_all_retains_failures_retries_and_owns_lock():
         assert all(depth == 1 for depth in lock.observed)
     finally:
         s._SPAWN_LOCK = original
+
+
+@pytest.mark.parametrize("retry", (True, False))
+def test_close_retries_or_retains_pending_owner(retry):
+    supervisor = s._CodexSupervisor()
+    transaction = s._AcquisitionTransaction()
+    error = s._CleanupError
+    transaction.rollback = Mock(side_effect=(error(), None if retry else error()))
+    with pytest.raises(s._AcquisitionError):
+        supervisor._abort(transaction, RuntimeError("acquisition failed"))
+    if retry:
+        supervisor.close()
+    else:
+        with pytest.raises(s._AcquisitionError):
+            supervisor.close()
+    assert supervisor._pending is (None if retry else transaction)
+    assert supervisor._state.value == ("closed" if retry else "broken")
+
+
+def test_empty_nonce_is_rejected_without_generating_a_replacement(monkeypatch):
+    supervisor, _, _ = _prepared_supervisor(monkeypatch, [])
+    monkeypatch.setattr(s, "_new_ready_nonce", pytest.fail)
+    pytest.raises(s._AcquisitionError, supervisor.acquire, nonce=b"")
+
+
+class _PreparedProcess:
+    def __init__(self, events, handle="native"):
+        self.events, self.handle, self.alive = events, handle, True
+
+    @property
+    def _handle(self):
+        self.events.append("adapt")
+        return self.handle
+
+    def poll(self):
+        self.events.append("poll")
+        return None if self.alive else 0
+
+    def terminate(self):
+        self.events.append("terminate")
+        self.alive = False
+
+    def wait(self, timeout):
+        self.events.append("wait")
+        self.alive = False
+
+
+class _PreparedJob:
+    def __init__(self, events, assign_error=None, fail_close=False):
+        self.events = events
+        self.assign_error, self.fail_close = assign_error, fail_close
+
+    def assign_borrowed_handle(self, handle):
+        self.events.append(("assign", handle))
+        if self.assign_error is not None:
+            raise self.assign_error
+
+    def close(self, timeout=2.0):
+        self.events.append("job")
+        if self.fail_close:
+            self.fail_close = False
+            raise RuntimeError("job cleanup")
+
+
+def _prepared_supervisor(
+    monkeypatch, events, job=None, default_job=False, transport_factory=None
+):
+    process = _PreparedProcess(events)
+    job = None if default_job else job or _PreparedJob(events)
+    pairs = iter(((10, 11), (12, 13)))
+
+    def popen(command, **kwargs):
+        events.append("popen")
+        return process
+
+    def set_inheritable(handle, value):
+        events.append(("inherit", handle, value))
+
+    def job_factory(api):
+        events.append(("job_api", api))
+        return job
+
+    monkeypatch.setattr(s._os, "close", lambda fd: s._CloseOutcome.CLOSED)
+    supervisor = s._CodexSupervisor(
+        popen_factory=popen,
+        pipe_factory=lambda: next(pairs),
+        handle_adapter=lambda fd: 1000 + fd,
+        set_inheritable=set_inheritable,
+        job_factory=job_factory if not default_job else None,
+        transport_factory=transport_factory or s._PipeTransport,
+        startup_factory=lambda: type("Startup", (), {})(),
+    )
+    return supervisor, process, job
+
+
+def _unit_a_prepare(supervisor, nonce=b"unit-a"):
+    with s._SPAWN_LOCK:
+        if (
+            supervisor._state is not s._SupervisorState.OPEN
+            or supervisor._pending is not None
+        ):
+            raise s._OwnershipError from None
+        return supervisor._acquire_locked(None, nonce)
+
+
+class _RealProcessProxy:
+    def __init__(self, process, events):
+        self._process = process
+        self._handle, self._events = getattr(process, "_handle", process.pid), events
+
+    def poll(self):
+        self._events.append("poll")
+        return self._process.poll()
+
+    def terminate(self):
+        self._events.append("terminate")
+        return self._process.terminate()
+
+    def wait(self, timeout):
+        self._events.append("wait")
+        return self._process.wait(timeout=timeout)
+
+
+def _real_supervisor(monkeypatch, events, job=None):
+    captured = {}
+    if os.name == "nt":
+        command = [sys.executable, "-I", "-S", "-E", "-c", s._BOOTSTRAP]
+        handle_adapter, set_inheritable = s._fd_handle, s._set_inheritable
+        peek = s._peek_named_pipe
+    else:
+        import array
+        import fcntl
+        import select
+        import termios
+
+        command = [
+            sys.executable,
+            "-I",
+            "-S",
+            "-E",
+            "-c",
+            _bootstrap_wrapper(),
+        ]
+        handle_adapter = lambda fd: fd
+        set_inheritable = lambda handle, value: None
+
+        def peek(fd):
+            if not select.select([fd], [], [], 0)[0]:
+                return 0, False
+            available = array.array("i", [0])
+            fcntl.ioctl(fd, termios.FIONREAD, available)
+            return (available[0], False) if available[0] else (0, True)
+
+    def popen(command, **kwargs):
+        captured["nonce"] = kwargs["env"][s._NONCE_ENV].encode("ascii")
+        process = subprocess.Popen(command, **kwargs)
+        proxy = _RealProcessProxy(process, events)
+        captured["process"] = proxy
+        return proxy
+
+    def transport(read_fd, write_fd, *, nonblocking):
+        events.append("transport")
+        return s._PipeTransport(
+            read_fd,
+            write_fd,
+            peek=peek,
+            nonblocking=nonblocking,
+        )
+
+    supervisor = s._CodexSupervisor(
+        command=command,
+        popen_factory=popen,
+        handle_adapter=handle_adapter,
+        set_inheritable=set_inheritable,
+        job_factory=lambda api: job or _PreparedJob(events),
+        transport_factory=transport,
+    )
+    return supervisor, captured
+
+
+def test_unit_b_real_bootstrap_commits_after_containment_and_exact_ready(monkeypatch):
+    events = []
+    supervisor, captured = _real_supervisor(monkeypatch, events)
+
+    supervisor.acquire()
+
+    assert supervisor._state is s._SupervisorState.ACQUIRED
+    assert supervisor._pending is None and supervisor._prepared is None
+    assert captured["nonce"] == supervisor._nonce
+    assign = ("assign", captured["process"]._handle)
+    assert events.index(assign) < events.index("transport")
+    supervisor.close()
+    assert captured["process"].poll() is not None
+    assert events.index("job") < events.index("poll")
+
+
+@pytest.mark.parametrize(
+    ("factory_error", "write_error", "read_error", "response"),
+    (
+        (RuntimeError("transport_factory"), None, None, None),
+        (None, s._TransportError("write_failed"), None, None),
+        (None, None, s._TransportTimeout("timeout"), None),
+        (None, None, s._TransportError("eof"), None),
+        (None, None, None, b"READY:wrong"),
+        (None, None, s._TransportError("trailing_data"), None),
+    ),
+)
+def test_unit_b_readiness_failures_rollback_without_orphan(
+    monkeypatch, factory_error, write_error, read_error, response
+):
+    events = []
+    transport = Mock()
+    transport.write_control.side_effect = write_error
+    transport.read_frame.side_effect = read_error
+    transport.read_frame.return_value = response
+
+    def transport_factory(*args, **kwargs):
+        if factory_error is not None:
+            raise factory_error
+        return transport
+
+    supervisor, process, _ = _prepared_supervisor(
+        monkeypatch, events, transport_factory=transport_factory
+    )
+
+    with pytest.raises(s._AcquisitionError):
+        supervisor.acquire()
+
+    assert supervisor._state is s._SupervisorState.OPEN
+    assert process.alive is False
+
+
+def test_unit_b_commit_failure_rolls_back_real_helper(monkeypatch):
+    events = []
+    job = _PreparedJob(events, fail_close=True)
+    supervisor, captured = _real_supervisor(monkeypatch, events, job=job)
+
+    def fail_commit(self, entries=()):
+        raise RuntimeError("commit failed")
+
+    monkeypatch.setattr(s._AcquisitionTransaction, "commit", fail_commit)
+    with pytest.raises(s._AcquisitionError) as failure:
+        supervisor.acquire()
+
+    assert supervisor._state is s._SupervisorState.BROKEN
+    assert failure.value.primary.__class__ is RuntimeError
+    assert failure.value.cleanup.__class__ is s._CleanupError
+    assert failure.value.owner is supervisor._pending
+    supervisor.close()
+
+
+@pytest.mark.parametrize("mode", ("retry", "compound", "terminal"))
+def test_unit_b_final_close_retries_job_first_and_popen(monkeypatch, mode):
+    events = []
+    job = _PreparedJob(events, fail_close=mode != "terminal")
+    supervisor, captured = _real_supervisor(monkeypatch, events, job=job)
+    supervisor.acquire()
+    original_close = s._os.close
+    if mode == "compound":
+        monkeypatch.setattr(s._os, "close", lambda fd: s._CloseOutcome.RETRY)
+    elif mode == "terminal":
+        supervisor._data._close(supervisor._owner)
+        extra_gate, replacement, _, data_descriptors = s._pipes(
+            os.pipe, supervisor._owner
+        )
+        extra_gate._close(supervisor._owner)
+        supervisor._data = replacement
+        terminal_fd, sibling_fd = data_descriptors
+        terminal_once = sibling_once = True
+
+        def close_fd(fd):
+            nonlocal sibling_once, terminal_once
+            if fd == terminal_fd and terminal_once:
+                terminal_once = False
+                original_close(fd)
+                raise OSError("indeterminate endpoint close")
+            if fd == sibling_fd and sibling_once:
+                sibling_once = False
+                return s._CloseOutcome.RETRY
+            return original_close(fd)
+
+        monkeypatch.setattr(s._os, "close", close_fd)
+
+    with pytest.raises(s._AcquisitionError) as failure:
+        supervisor.close()
+    assert supervisor._state is s._SupervisorState.BROKEN
+    assert events.count("job") == 1
+    if mode == "terminal":
+        assert captured["process"].poll() is not None
+        replacement_read, replacement_write = os.pipe()
+        if replacement_read != terminal_fd:
+            os.dup2(replacement_read, terminal_fd)
+            original_close(replacement_read)
+        monkeypatch.setattr(s._os, "close", original_close)
+        with pytest.raises(s._AcquisitionError) as repeated:
+            supervisor.close()
+        assert supervisor._state is s._SupervisorState.BROKEN
+        assert repeated.value.primary is failure.value.primary
+        os.write(replacement_write, b"x")
+        assert os.read(terminal_fd, 1) == b"x"
+        original_close(replacement_write)
+        original_close(terminal_fd)
+        return
+    assert supervisor._helper._popen._popen is captured["process"]
+
+    if mode == "compound":
+        monkeypatch.setattr(s._os, "close", original_close)
+    supervisor.close()
+    assert supervisor._state is s._SupervisorState.CLOSED
+    assert captured["process"].poll() is not None
+    assert events.count("job") == 2
+
+
+def test_prepared_acquisition_owns_exact_handles_and_job_before_return(monkeypatch):
+    events = []
+    supervisor, process, _ = _prepared_supervisor(monkeypatch, events)
+    prepared = _unit_a_prepare(supervisor)
+    inheritance = [
+        event for event in events if isinstance(event, tuple) and event[0] == "inherit"
+    ]
+    assert inheritance == [
+        ("inherit", 1010, True),
+        ("inherit", 1013, True),
+        ("inherit", 1010, False),
+        ("inherit", 1013, False),
+    ]
+    api_index = next(
+        index for index, event in enumerate(events) if event[0] == "job_api"
+    )
+    assert (
+        events.index("popen")
+        < events.index("adapt")
+        < api_index
+        < events.index(("assign", "native"))
+    )
+    assert prepared._helper._popen._popen is process
+    assert prepared._descriptors == ((10, 11), (12, 13))
+    assert supervisor._state is s._SupervisorState.PREPARED
+    supervisor.close()
+    assert (
+        events.index("job") < events.index("poll")
+        and supervisor._state is s._SupervisorState.CLOSED
+    )
+
+
+def test_default_job_factory_fails_safely_after_spawn_without_type_error(monkeypatch):
+    events = []
+    supervisor, process, _ = _prepared_supervisor(monkeypatch, events, default_job=True)
+    with pytest.raises(s._AcquisitionError) as error:
+        _unit_a_prepare(supervisor)
+    assert error.value.__cause__.__class__ is (_JobAssignmentError if os.name == "nt" else _JobAcquisitionFailure)
+    assert process.alive is False
+
+
+def test_prepared_acquisition_serializes_acquire_and_close_state(monkeypatch):
+    events = []
+    supervisor, _, _ = _prepared_supervisor(monkeypatch, events)
+    entered, release = s._threading.Event(), s._threading.Event()
+    original = supervisor._popen_factory
+
+    def blocked_popen(command, **kwargs):
+        entered.set()
+        release.wait(1)
+        return original(command, **kwargs)
+
+    supervisor._popen_factory = blocked_popen
+    results = []
+
+    def acquire():
+        try:
+            results.append(_unit_a_prepare(supervisor))
+        except Exception as error:  # noqa: BLE001 - retain concurrent failure evidence
+            results.append(error)
+
+    first = s._threading.Thread(target=acquire)
+    second = s._threading.Thread(target=acquire)
+    first.start()
+    assert entered.wait(1)
+    second.start()
+    release.set()
+    first.join(2)
+    second.join(2)
+    assert sum(isinstance(result, s._PreparedAcquisition) for result in results) == 1
+    assert sum(isinstance(result, s._OwnershipError) for result in results) == 1
+    closer = s._threading.Thread(target=supervisor.close)
+    again = s._threading.Thread(target=acquire)
+    closer.start()
+    again.start()
+    closer.join(2)
+    again.join(2)
+    assert supervisor._state is s._SupervisorState.CLOSED
+
+
+def test_prepared_helper_attachment_failure_rolls_back_or_retains_owner(monkeypatch):
+    events = []
+    job = _PreparedJob(events, assign_error=RuntimeError("assign"))
+    supervisor, process, _ = _prepared_supervisor(monkeypatch, events, job=job)
+    with pytest.raises(s._AcquisitionError) as error:
+        _unit_a_prepare(supervisor)
+    assert process.alive is False
+    assert error.value.owner is None or error.value.owner._entries
