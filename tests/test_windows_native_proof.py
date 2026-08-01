@@ -46,7 +46,6 @@ _CHECKPOINT_ENV = "YASB_NATIVE_CHECKPOINT_PATH"
 ) = range(1, 10)
 _CHECKPOINT_PAYLOADS = {f"{stage}\n".encode("ascii"): str(stage) for stage in range(1, 10)}
 
-
 class _OsStreamCapture:
     def __init__(self, root: Path, label: str) -> None:
         self.stdout_path = root / f"{label}-stdout.log"
@@ -80,11 +79,9 @@ class _OsStreamCapture:
         self.stdout_bytes = self.stdout_path.read_bytes()
         self.stderr_bytes = self.stderr_path.read_bytes()
 
-
 def _assert_streams_clean(capture: _OsStreamCapture) -> None:
     if capture.stdout_bytes or capture.stderr_bytes:
         raise AssertionError("native proof stream isolation failed")
-
 
 def _assert_descendant_output_attempted(marker: Path) -> None:
     deadline = time.monotonic() + 5.0
@@ -92,7 +89,6 @@ def _assert_descendant_output_attempted(marker: Path) -> None:
         time.sleep(0.05)
     if not marker.exists() or marker.read_text(encoding="utf-8") != _DESCENDANT_ATTEMPT:
         raise AssertionError("native descendant output attempt was not observed")
-
 
 def _write_checkpoint(stage: int) -> None:
     if f"{stage}\n".encode("ascii") not in _CHECKPOINT_PAYLOADS:
@@ -112,13 +108,11 @@ def _write_checkpoint(stage: int) -> None:
         temporary.unlink(missing_ok=True)
         raise AssertionError("native proof checkpoint unavailable") from error
 
-
 def _classify_checkpoint(path: Path) -> str:
     try:
         return _CHECKPOINT_PAYLOADS.get(path.read_bytes(), "unknown")
     except FileNotFoundError:
         return "unknown"
-
 
 def _process_is_running(pid: int) -> bool:
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -141,7 +135,6 @@ def _process_is_running(pid: int) -> bool:
     finally:
         kernel32.CloseHandle(handle)
 
-
 def _read_evidence(path: Path, timeout: float = 5.0) -> dict[str, object]:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -155,13 +148,11 @@ def _read_evidence(path: Path, timeout: float = 5.0) -> dict[str, object]:
         time.sleep(0.05)
     pytest.fail("native fixture did not reach the post-READY protocol boundary")
 
-
 def _assert_gone(pids: list[int]) -> None:
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline and any(_process_is_running(pid) for pid in pids):
         time.sleep(0.05)
     assert all(not _process_is_running(pid) for pid in pids)
-
 
 def _runner(mode: str, evidence: Path, sentinel: str, descendant_marker: Path) -> tuple[str, ...]:
     return (sys.executable, str(_FIXTURE), mode, str(evidence), sentinel, str(descendant_marker))
@@ -182,7 +173,7 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
     success_evidence = tmp_path / "success.json"
     success_marker = tmp_path / "success-descendant.attempted"
     with _OsStreamCapture(tmp_path, "success") as success_streams:
-        success = CodexHelperExecutor(timeout_seconds=5.0).run(
+        success = CodexHelperExecutor(timeout_seconds=2.0).run(
             _runner("success", success_evidence, sentinel, success_marker)
         )
     _write_checkpoint(_CHECKPOINT_SUCCESS_EXECUTOR_RETURNED)

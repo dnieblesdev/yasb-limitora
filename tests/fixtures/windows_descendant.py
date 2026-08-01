@@ -9,7 +9,6 @@ import subprocess
 import sys
 import time
 
-
 _RATE_LIMITS = {
     "rateLimits": {
         "limitId": "codex",
@@ -19,12 +18,10 @@ _RATE_LIMITS = {
     }
 }
 
-
 def _write(path: Path, values: dict[str, object]) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(values, sort_keys=True), encoding="utf-8")
     temporary.replace(path)
-
 
 def _descendant(marker: Path, sentinel: str) -> None:
     os.write(2, sentinel.encode("ascii") + b"\n")
@@ -32,11 +29,9 @@ def _descendant(marker: Path, sentinel: str) -> None:
     while True:
         time.sleep(1)
 
-
 def _response(identifier: int, result: dict[str, object]) -> None:
     sys.stdout.write(json.dumps({"id": identifier, "result": result}, separators=(",", ":")) + "\n")
     sys.stdout.flush()
-
 
 def _run(mode: str, evidence: Path, sentinel: str, descendant_marker: Path) -> None:
     descendant = subprocess.Popen(
@@ -46,6 +41,11 @@ def _run(mode: str, evidence: Path, sentinel: str, descendant_marker: Path) -> N
         stderr=subprocess.DEVNULL,
         close_fds=True,
     )
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline and not descendant_marker.exists():
+        time.sleep(0.01)
+    if not descendant_marker.exists():
+        raise SystemExit(1)
     record = {
         "fixture_pid": os.getpid(),
         "helper_pid": os.getppid(),
