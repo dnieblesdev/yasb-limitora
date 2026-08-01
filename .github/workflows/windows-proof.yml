@@ -32,8 +32,7 @@ jobs:
         run: |
           . .github/workflows/windows-proof-functions.ps1
           $rawLog = "native-proof.raw.log"
-          & python -m pytest -q --strict-markers tests/test_windows_native_proof.py --junitxml=native-proof.xml *> $rawLog
-          $proofExit = $LASTEXITCODE
+          $proofExit = Invoke-NativePytestWmi -Mode "selected" -Phase "Native proof" -RawLogName $rawLog
           $exitClass = if ($proofExit -eq 0) { "zero" } else { "nonzero" }
           "YASB_NATIVE_PYTEST_EXIT=$exitClass" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           $scan = Scan-Candidates @(
@@ -61,8 +60,7 @@ jobs:
           try { $evidence = Get-Content native-proof.json -Raw | ConvertFrom-Json } catch { throw "Native proof evidence was invalid" }
           if ($evidence.native -ne $true -or $evidence.ready_authorized -ne $true -or $evidence.tree_terminated -ne $true -or $evidence.streams_clean -ne $true) { throw "Native proof did not publish complete product evidence" }
           $rawLog = "full-suite.raw.log"
-          & python -m pytest -q --strict-markers tests *> $rawLog
-          $suiteExit = $LASTEXITCODE
+          $suiteExit = Invoke-NativePytestWmi -Mode "full" -Phase "Full-suite" -RawLogName $rawLog
           $exitClass = if ($suiteExit -eq 0) { "zero" } else { "nonzero" }
           "YASB_NATIVE_PYTEST_EXIT=$exitClass" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           $scan = Scan-Candidates @(

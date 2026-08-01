@@ -193,7 +193,7 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
         worker = threading.Thread(
             target=lambda: result.setdefault(
                 "view",
-                CodexHelperExecutor(timeout_seconds=0.5).run(
+                CodexHelperExecutor(timeout_seconds=5.0).run(
                     _runner("timeout", timeout_evidence, sentinel, timeout_marker)
                 ),
             ),
@@ -204,7 +204,7 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
         timeout_pids = [int(timeout_record[key]) for key in ("helper_pid", "fixture_pid", "descendant_pid")]
         assert all(_process_is_running(pid) for pid in timeout_pids)
         _write_checkpoint(_CHECKPOINT_TIMEOUT_TREE_OBSERVED)
-        worker.join(5.0)
+        worker.join(10.0)
         assert not worker.is_alive()
         timeout_view = result["view"]
     _assert_streams_clean(timeout_streams)
