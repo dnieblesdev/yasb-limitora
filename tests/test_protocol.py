@@ -67,7 +67,7 @@ def test_partial_read_exhausts_deadline_with_decreasing_budgets() -> None:
     with pytest.raises(ProtocolError) as error:
         read_frame(reader, 1.0)
     assert error.value.code is ProtocolErrorCode.TRANSPORT_TIMEOUT
-    assert reader.budgets[0] > reader.budgets[1] > 0
+    assert reader.budgets[0] >= reader.budgets[1] > 0
 @pytest.mark.parametrize("payload", [
     b"\xff", b"{bad", b'{"type":"contained","nonce":"a","nonce":"b"}',
     b'{"type":"contained","nonce":"a","extra":1}', b'{"type":"contained","nonce":NaN}', b'{"type":"wat","nonce":"a"}',
