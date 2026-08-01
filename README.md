@@ -1,8 +1,8 @@
 # yasb-limitora
 
-A lightweight YASB widget that consumes the [Limitora](https://github.com/dnieblesdev/limitora) library for provider-agnostic LLM interaction.
+A native-Windows machine-JSON boundary that consumes the [Limitora](https://github.com/dnieblesdev/limitora) library for provider-agnostic status data. A visual YASB widget remains a future consumer.
 
-> **Current status**: scaffolding and research. No widget logic, provider code, or network implementation exists yet.
+> **Current status**: the native Windows JSON runtime and process-isolated Codex proof are implemented. Widget and popover integration remain out of scope.
 
 ## Purpose
 
@@ -16,8 +16,8 @@ YASB never talks to providers directly; Limitora never imports YASB, PyQt, or an
 
 ## What this repository is
 
-- A future YASB widget for selecting a provider and showing LLM output.
-- A thin Python package that imports Limitora at runtime once it is installed separately (no package dependency is declared).
+- A future YASB widget seam backed by a versioned machine-JSON document.
+- A thin Python package with the exact `limitora==0.1.0` runtime dependency and an optional `opencode-go` installation extra.
 - A place to research how Limitora fits into the official YASB extension model.
 
 ## What this repository is not
@@ -37,10 +37,9 @@ See [`docs/design/ai-usage/README.md`](docs/design/ai-usage/README.md) for the c
 
 | In scope | Out of scope |
 |----------|--------------|
-| YASB widget scaffolding and research | Provider adapters, API clients, and rate-limit logic |
-| Native YASB component layout and styling | PyQt / Qtile / system tray code |
-| Consuming Limitora's public API once stable | Auth, token, session, or endpoint management |
-| Documentation and integration research | Tests, CI, network calls, and release automation in this phase |
+| Native Windows machine-JSON boundary and proof | Visual YASB widget/popover implementation |
+| Consuming Limitora's released public API | Private Limitora imports or duplicated provider logic |
+| Documentation, hermetic tests, and Windows CI proof | Auth, token, session, or endpoint storage |
 
 ## Provider support
 
@@ -48,36 +47,31 @@ Providers are handled by Limitora. This widget only consumes whatever Limitora e
 
 | Phase | Provider | Status |
 |-------|----------|--------|
-| 1 | Codex | planned via Limitora |
-| 1 | OpenCode Go | planned via Limitora |
+| 1 | Codex | available through the machine-JSON boundary |
+| 1 | OpenCode Go | available through the machine-JSON boundary |
 | 2 | Claude | future via Limitora |
 | 2 | Gemini | future via Limitora |
 
-## Installation (future)
+## Native Windows installation
 
-Once published:
+On native Windows 10/11:
 
 ```bash
-python -m pip install yasb-limitora
+py -m pip install "limitora==0.1.0"
+py -m pip install "yasb-limitora[opencode-go]"
 ```
 
-This will pull `limitora` as a dependency. No manual provider setup is required from this package.
+See [`docs/windows-json.md`](docs/windows-json.md) for configuration, environment-only `LIMITORA_AUTH_COOKIE`, execution, streams, exit codes, fail-safe behavior, and verified limitations.
 
 ## Local development
 
-`yasb-limitora` declares no package dependencies in `pyproject.toml`; it expects `limitora` to be installed separately. For local development against an unpublished sibling checkout:
-
-1. Install the `limitora` checkout in editable mode.
-2. Install this package in editable mode.
+Install the package and its minimal contract-test tooling in an isolated environment:
 
 ```bash
-python -m pip install -e ..\limitora
-python -m pip install -e .
+python -m pip install -e ".[opencode-go,test]"
 ```
 
-The first command installs the unpublished `limitora` checkout; the second installs `yasb-limitora` only.
-
-> These commands assume both repositories share the same parent directory on Windows. Adjust the path separator when working on Linux or macOS.
+The package resolves the released Limitora dependency from its declared metadata.
 
 ## Architecture
 
@@ -94,7 +88,7 @@ Key constraints:
 
 - Official YASB widget/extension API and lifecycle.
 - How Limitora's public surface maps to YASB callbacks and signals.
-- Whether the widget runs in-process with YASB or as a thin external helper.
+- Whether the future widget runs in-process with YASB or consumes this JSON as a thin external helper.
 
 See [`docs/research/README.md`](docs/research/README.md) for the full research tracker.
 
@@ -108,10 +102,9 @@ See [`docs/research/README.md`](docs/research/README.md) for the full research t
 ## Roadmap
 
 1. Confirm the official YASB integration model.
-2. Define the widget contract and native component layout.
-3. Wire the widget to Limitora's public API once it is stable.
-4. Validate Codex and OpenCode Go flows through Limitora.
-5. Evaluate Claude and Gemini when Limitora adds support.
+2. Define the future widget contract and native component layout.
+3. Consume the versioned JSON seam from a YASB widget.
+4. Evaluate Claude and Gemini when Limitora adds support.
 
 ## License
 
