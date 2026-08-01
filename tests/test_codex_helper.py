@@ -1,14 +1,30 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 from types import SimpleNamespace
 
 import limitora
+import pytest
+from limitora.models import Quantity, ProviderId, ProviderStatus, QuotaWindow, SourceMetadata, ValueAvailability, WindowKind
 
 from yasb_limitora.codex_helper import CodexHelperExecutor
 from yasb_limitora.limitora_api import (
     CodexLimitoraAdapter,
     read_opencode_go,
 )
-from yasb_limitora.model import ProviderState, SafeErrorCode
+from yasb_limitora.model import (
+    ProviderKey,
+    ProviderOutcome,
+    ProviderState,
+    ProviderView,
+    PublicProviderState,
+    QuotaAvailability,
+    QuotaMetricKind,
+    QuotaQuantity,
+    QuotaWindowKind,
+    QuotaWindowView,
+    SafeError,
+    SafeErrorCode,
+)
 
 
 def _snapshot(state=limitora.ProviderState.AVAILABLE, freshness=limitora.Freshness.FRESH):
@@ -46,6 +62,15 @@ def test_adapter_uses_root_public_api_and_maps_success_unavailable_stale_and_err
     view = read_opencode_go("private-workspace", {})
     assert view.state is ProviderState.UNAVAILABLE
     assert "private-workspace" not in repr(view)
+
+
+def test_model_accepts_positive_exponent_place_value_zeroes_but_rejects_over_256_rendering():
+    accepted = QuotaQuantity(Decimal("1E+200"), QuotaMetricKind.COMMERCIAL_QUOTA, "units")
+
+    assert str(accepted.value) == "1" + "0" * 200
+    assert len(format(accepted.value, "f")) == 201
+    with pytest.raises(ValueError, match="canonical limits"):
+        QuotaQuantity(Decimal("1E+256"), QuotaMetricKind.COMMERCIAL_QUOTA, "units")
 
 
 def test_concurrent_cleanup_ownership_is_atomic():
