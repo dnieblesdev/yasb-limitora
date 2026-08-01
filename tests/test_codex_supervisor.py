@@ -185,8 +185,9 @@ def test_private_metadata_allowlist_and_directional_startup_contract():
         nonce=b"nonce-04d1",
     )
     assert environment == {
-        "SystemRoot": "root",
+        "SYSTEMROOT": "root",
         "PATH": "path",
+        "OPENAI_API_KEY": "secret",
         s._GATE_ENV: "41",
         s._DATA_ENV: "42",
         s._NONCE_ENV: "nonce-04d1",
@@ -199,6 +200,25 @@ def test_private_metadata_allowlist_and_directional_startup_contract():
     assert f"os.environ.pop({s._DATA_ENV!r})" in s._BOOTSTRAP
     assert f"os.environ.pop({s._NONCE_ENV!r})" in s._BOOTSTRAP
     assert f"len(nonce)>{s._NONCE_LIMIT}" in s._BOOTSTRAP
+
+
+def test_environment_source_is_copied_even_when_empty():
+    supervisor = s._CodexSupervisor(environment_source={})
+
+    assert supervisor._environment_source == {}
+
+
+def test_transport_accepts_complete_frame_without_waiting_for_eof():
+    available = iter(((1, False), (0, False)))
+    transport = s._PipeTransport(
+        1,
+        2,
+        peek=lambda fd: next(available),
+        read=lambda fd, size: b"a",
+        nonblocking=True,
+    )
+
+    assert transport.read_frame(expected_size=1) == b"a"
 
 
 def test_windows_cleanup_resets_handles_before_closing_descriptors():
@@ -438,6 +458,38 @@ def test_acquisition_pipes_create_gate_then_data_and_clean_partial_creation(monk
     assert len(failure.value.owner._pending) == 1
     failure.value.owner.close()
     assert closed == [11, 10, 11] and not failure.value.owner._pending
+
+
+def test_acquisition_pipes_close_gate_endpoints_when_first_pair_construction_fails(monkeypatch):
+    closed = []
+    monkeypatch.setattr(s._os, "close", lambda fd: (closed.append(fd), s._CloseOutcome.CLOSED)[1])
+    monkeypatch.setattr(s, "_new_ipc_pair", Mock(side_effect=s._OwnershipError()))
+
+    with pytest.raises(s._OwnershipError):
+        s._pipes(lambda: (10, 11), s._OwnerToken())
+
+    assert closed == [11, 10]
+
+
+def test_acquisition_pipes_close_data_and_gate_endpoints_when_second_pair_fails(monkeypatch):
+    closed = []
+    pairs = iter(((10, 11), (12, 13)))
+    original = s._new_ipc_pair
+    calls = [0]
+
+    def fail_second(*args):
+        calls[0] += 1
+        if calls[0] == 2:
+            raise s._OwnershipError
+        return original(*args)
+
+    monkeypatch.setattr(s._os, "close", lambda fd: (closed.append(fd), s._CloseOutcome.CLOSED)[1])
+    monkeypatch.setattr(s, "_new_ipc_pair", fail_second)
+
+    with pytest.raises(s._OwnershipError):
+        s._pipes(lambda: next(pairs), s._OwnerToken())
+
+    assert closed == [13, 12, 11, 10]
 
 
 def test_transaction_rolls_back_in_reverse_order_and_attempts_every_entry():

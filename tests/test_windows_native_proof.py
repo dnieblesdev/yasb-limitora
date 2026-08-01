@@ -20,7 +20,7 @@ from yasb_limitora.isolation.windows_job import (
     JobErrorCode,
     WindowsJobBoundary,
 )
-from yasb_limitora.model import ProviderState, SafeErrorCode
+from yasb_limitora.model import ProviderOutcome, ProviderState, PublicProviderState, SafeErrorCode, SnapshotFreshness
 
 
 pytestmark = [
@@ -177,6 +177,14 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
         )
     _write_checkpoint(_CHECKPOINT_SUCCESS_EXECUTOR_RETURNED)
     assert success.state is ProviderState.SUCCESS
+    assert success.outcome is ProviderOutcome.SNAPSHOT
+    assert success.snapshot is not None
+    assert success.snapshot.public_state is PublicProviderState.AVAILABLE
+    assert success.snapshot.freshness is SnapshotFreshness.FRESH
+    assert success.snapshot.source_id == "codex-app-server-v2"
+    assert len(success.snapshot.windows) == 2
+    assert success.snapshot.windows[0].limit is not None
+    assert success.snapshot.windows[0].remaining is not None
     _assert_streams_clean(success_streams)
     success_record = _read_evidence(success_evidence)
     assert success_record["fixture_stderr_attempted"] is True
@@ -213,6 +221,8 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
     _write_checkpoint(_CHECKPOINT_TIMEOUT_VALIDATED)
     assert timeout_view.state is ProviderState.SAFE_ERROR
     assert timeout_view.error.code is SafeErrorCode.TIMEOUT
+    assert timeout_view.outcome is ProviderOutcome.EXECUTION_ERROR
+    assert timeout_view.snapshot is None
     _write_checkpoint(_CHECKPOINT_TIMEOUT_STATE_VALIDATED)
     _assert_gone(timeout_pids)
     _write_checkpoint(_CHECKPOINT_TIMEOUT_TREE_GONE)

@@ -49,6 +49,7 @@ from .model import (
     ProviderView,
     SafeError,
     SafeErrorCode,
+    _legacy_state_for_snapshot,
     canonical_identity,
 )
 
@@ -155,35 +156,14 @@ def _snapshot(provider: ProviderKey, result: StatusSnapshotResult) -> tuple[Publ
 
 def _snapshot_view(provider: ProviderKey, result: StatusSnapshotResult) -> ProviderView:
     try:
-        public_state, snapshot = _snapshot(provider, result)
+        _, snapshot = _snapshot(provider, result)
     except _UnknownProviderState:
         return _error(provider, SafeErrorCode.UNKNOWN_PROVIDER_STATE)
     except (TypeError, ValueError):
         return _error(provider, SafeErrorCode.INVALID_PROVIDER_DATA)
-    if snapshot.freshness is SnapshotFreshness.STALE:
-        return ProviderView(
-            provider,
-            ProviderState.UNAVAILABLE,
-            outcome=ProviderOutcome.SNAPSHOT,
-            snapshot=snapshot,
-        )
-    if public_state is PublicProviderState.AVAILABLE:
-        return ProviderView(
-            provider,
-            ProviderState.SUCCESS,
-            outcome=ProviderOutcome.SNAPSHOT,
-            snapshot=snapshot,
-        )
-    if public_state is PublicProviderState.UNAVAILABLE:
-        return ProviderView(
-            provider,
-            ProviderState.UNAVAILABLE,
-            outcome=ProviderOutcome.SNAPSHOT,
-            snapshot=snapshot,
-        )
     return ProviderView(
         provider,
-        ProviderState.SUCCESS if public_state is PublicProviderState.PARTIAL else ProviderState.UNAVAILABLE,
+        _legacy_state_for_snapshot(snapshot),
         outcome=ProviderOutcome.SNAPSHOT,
         snapshot=snapshot,
     )
