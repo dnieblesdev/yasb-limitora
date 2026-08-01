@@ -56,7 +56,8 @@ def test_timeout_errors_are_finite_deterministic_and_safe(timeout: object) -> No
 
 def test_models_have_closed_states_codes_and_safe_validation() -> None:
     assert {code.value for code in SafeErrorCode} == {
-        "timeout", "provider_error", "internal_error", "configuration_invalid", "invocation_invalid"
+        "timeout", "provider_error", "internal_error", "configuration_invalid", "invocation_invalid",
+        "invalid_provider_data", "unknown_provider_state",
     }
     assert {state.value for state in ProviderState} == {"loading", "success", "unavailable", "safe_error"}
     document = DocumentView.ordered(

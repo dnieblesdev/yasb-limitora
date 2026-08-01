@@ -2,24 +2,24 @@
 
 This is the product source of truth for the approved R1-R11 order. The 0.2
 integration is exclusively `YASB CustomWidget -> yasb-limitora CLI / JSON v2 ->
-Limitora public API`. R1 and R2 are the only local review units authorized in
-this worktree.
+Limitora public API`. R3 is the current local review unit; later units remain
+out of scope until their ordered turn.
 
 ## Delivery order
 
 | Order | Unit | Outcome | Status |
 |------:|------|---------|--------|
-| R1 | Product source of truth | Correct architecture, scope, CustomWidget limits, exclusions, and roadmap order | This review unit |
-| R2 | Normative contract and frozen v1 tests | Specify JSON v2, acceptance criteria, structural support, and byte-for-byte v1 fixtures | This review unit |
-| R3 | JSON v2 runtime | Implement the accepted v2 model, projection, and CLI selection | **BLOCKED** until the R2 gate passes |
-| R4 | Public Limitora quota adapter | Preserve provider outcomes, exact public state, freshness, windows, quantities, resets, plans, and safe source context | Planned after R3 |
-| R5 | Execution safety | Apply the cross-process execution guard, one absolute deadline, bounded IPC, and eventual cleanup | Planned after R3 |
-| R6 | v2 CLI and configuration | Add explicit v2 selection, v2-only config fallback, diagnostics, and exact exit semantics | Planned after R3 |
-| R7 | Presentation projection | Produce bounded compact/alternate/tooltip text and the per-provider depleted-window heuristic | Planned after R4 |
-| R8 | Deterministic fixture integration | Exercise the real CLI seam with partial, stale, window changes, invalid JSON, and overlap fixtures | Planned after R4-R6 |
-| R9 | Pinned YASB validation | Validate real YASB CustomWidget v2.0.5 deterministically, then run separate live-provider smoke | Planned after R7-R8 |
-| R10 | Packaging and installed-artifact proof | Verify package contents, pinned runtime dependencies, and native Windows distribution behavior | Planned after R9 |
-| R11 | Release readiness | Final security, reliability, acceptance, documentation, and technical review gate | Planned after R10 |
+| R1 | Product source of truth | Correct architecture, scope, CustomWidget limits, exclusions, and roadmap order | Complete |
+| R2 | Normative contract and frozen v1 tests | Specify JSON v2, acceptance criteria, structural support, and byte-for-byte v1 fixtures | Complete |
+| R3 | Preserve public quota snapshots and dimensions | Preserve provider outcomes, exact public state, freshness, timestamps, quota windows, quantities, resets, plans, and safe source context | Current authorized unit |
+| R4 | Migrate rich Codex helper IPC | Migrate the rich snapshot boundary through the Codex helper process | Planned after R3 |
+| R5 | Project and negotiate JSON v2 | Add the accepted JSON v2 projection and explicit CLI negotiation | Planned after R4 |
+| R6 | Add truthful presentation projection | Produce bounded compact, alternate, and tooltip fields from preserved evidence | Planned after R5 |
+| R7 | Resolve default Windows configuration | Add the accepted default Windows configuration resolution | Planned after R6 |
+| R8 | Add the cross-process execution guard | Add bounded guard acquisition, deadlines, and cleanup behavior | Planned after R7 |
+| R9 | Package CustomWidget examples and static CSS | Package the CustomWidget examples and static presentation assets | Planned after R8 |
+| R10 | Prove pinned YASB integration on Windows | Validate the pinned YASB CustomWidget integration on Windows | Planned after R9 |
+| R11 | Release and smoke-test 0.2.0 | Complete release readiness and the final smoke test | Planned after R10 |
 
 ## Official architecture
 
@@ -40,7 +40,7 @@ units must not promise those capabilities.
   extension research, and native popover work are removed from expected
   roadmap scope.
 - Limitora remains a public-API dependency only.
-- The R1-R11 order and the R3 block are visible from this document.
+- The R1-R11 order and the current R3 unit are visible from this document.
 - Immutable Open Design exports are not changed.
 
 ## R2 acceptance gate
@@ -58,13 +58,13 @@ R2 is accepted only when all of the following are reviewable and passing:
 - A final technical review confirms the R2 contract does not require R3 code to
   be present.
 
-Until this gate passes, the product state is **R3 BLOCKED**. No runtime v2
-implementation, implementation issue, branch, commit, or release work is
-authorized by R1 or R2.
+This gate has passed for the current roadmap state. R3 is the authorized
+implementation unit; later runtime, integration, packaging, and release work
+must wait for its ordered unit.
 
 ## Explicit exclusions for 0.2
 
 The roadmap does not include native or upstream YASB work, fixed provider-window
 assumptions, absent-as-zero behavior, Claude, Gemini, costs, tokens, history,
-predictions, `usage`, `rate_limit_reset_credits`, or R3 implementation before
-the R2 gate.
+predictions, `usage`, or `rate_limit_reset_credits`. Later units must not be
+implemented before their ordered turn.
