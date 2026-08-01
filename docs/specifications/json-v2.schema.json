@@ -1,0 +1,640 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/dnieblesdev/yasb-limitora/docs/specifications/json-v2.schema.json",
+  "title": "yasb-limitora JSON v2",
+  "description": "Structural support for the normative R2 JSON v2 specification. Semantic and deadline rules remain normative in json-v2.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "execution_state", "execution_error", "providers"],
+  "properties": {
+    "version": {"const": 2},
+    "execution_state": {"enum": ["complete", "partial", "not_run", "execution_error"]},
+    "execution_error": {"$ref": "#/$defs/executionErrorOrNull"},
+    "providers": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {"$ref": "#/$defs/codexProvider"},
+        {"$ref": "#/$defs/opencodeProvider"}
+      ],
+      "items": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["execution_state"],
+        "properties": {"execution_state": {"const": "complete"}}
+      },
+      "then": {
+        "properties": {
+          "execution_error": {"type": "null"},
+          "providers": {
+            "items": {
+              "required": ["outcome"],
+              "properties": {"outcome": {"enum": ["snapshot", "undetected"]}}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["execution_state"],
+        "properties": {"execution_state": {"const": "partial"}}
+      },
+      "then": {
+        "properties": {
+          "execution_error": {"type": "null"},
+          "providers": {
+            "allOf": [
+              {"contains": {"required": ["outcome"], "properties": {"outcome": {"enum": ["snapshot", "undetected"]}}}},
+              {"contains": {"required": ["outcome"], "properties": {"outcome": {"enum": ["not_run", "execution_error"]}}}}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["execution_state"],
+        "properties": {"execution_state": {"const": "not_run"}}
+      },
+      "then": {
+        "properties": {
+          "execution_error": {
+            "anyOf": [
+              {"type": "null"},
+              {
+                "type": "object",
+                "oneOf": [
+                  {
+                    "required": ["code", "phase"],
+                    "properties": {
+                      "code": {"const": "guard_wait_timeout"},
+                      "phase": {"const": "guard_wait"}
+                    }
+                  },
+                  {
+                    "required": ["code", "phase"],
+                    "properties": {
+                      "code": {"const": "deadline_exhausted"},
+                      "phase": {"const": "document"}
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "providers": {
+            "items": {
+              "required": ["outcome"],
+              "properties": {"outcome": {"const": "not_run"}}
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": ["execution_error"],
+              "properties": {"execution_error": {"type": "null"}}
+            },
+            "then": {
+              "properties": {
+                "providers": {
+                  "items": {
+                    "required": ["not_run_reason"],
+                    "properties": {"not_run_reason": {"const": "disabled"}}
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": ["execution_error"],
+              "properties": {
+                "execution_error": {
+                  "type": "object",
+                  "required": ["code"],
+                  "properties": {"code": {"const": "guard_wait_timeout"}}
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "providers": {
+                  "items": {
+                    "required": ["not_run_reason"],
+                    "properties": {"not_run_reason": {"const": "guard_wait_timeout"}}
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": ["execution_error"],
+              "properties": {
+                "execution_error": {
+                  "type": "object",
+                  "required": ["code"],
+                  "properties": {"code": {"const": "deadline_exhausted"}}
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "providers": {
+                  "allOf": [
+                    {
+                      "contains": {
+                        "required": ["not_run_reason"],
+                        "properties": {"not_run_reason": {"const": "deadline_exhausted"}}
+                      }
+                    },
+                    {
+                      "items": {
+                        "required": ["not_run_reason"],
+                        "properties": {"not_run_reason": {"enum": ["disabled", "deadline_exhausted"]}}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "required": ["execution_state"],
+        "properties": {"execution_state": {"const": "execution_error"}}
+      },
+      "then": {
+        "properties": {
+          "execution_error": {"$ref": "#/$defs/executionError"}
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": ["execution_error"],
+              "properties": {
+                "execution_error": {
+                  "required": ["code"],
+                  "properties": {"code": {"const": "cleanup_failed"}}
+                }
+              }
+            },
+            "then": {},
+            "else": {
+              "properties": {
+                "providers": {
+                  "items": {
+                    "required": ["outcome"],
+                    "properties": {"outcome": {"enum": ["not_run", "execution_error"]}}
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": ["execution_error"],
+              "properties": {
+                "execution_error": {
+                  "required": ["code"],
+                  "properties": {"code": {"const": "deadline_exhausted"}}
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "providers": {
+                  "allOf": [
+                    {
+                      "contains": {
+                        "required": ["outcome", "not_run_reason"],
+                        "properties": {
+                          "outcome": {"const": "not_run"},
+                          "not_run_reason": {"const": "deadline_exhausted"}
+                        }
+                      }
+                    },
+                    {
+                      "items": {
+                        "required": ["outcome"],
+                        "properties": {"outcome": {"enum": ["not_run", "execution_error"]}}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": ["execution_error"],
+              "properties": {
+                "execution_error": {
+                  "required": ["code"],
+                  "properties": {"code": {"const": "provider_failed"}}
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "providers": {
+                  "allOf": [
+                    {
+                      "contains": {
+                        "required": ["outcome"],
+                        "properties": {"outcome": {"const": "execution_error"}}
+                      }
+                    },
+                    {
+                      "not": {
+                        "contains": {
+                          "required": ["not_run_reason"],
+                          "properties": {"not_run_reason": {"const": "deadline_exhausted"}}
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": ["execution_error"],
+              "properties": {
+                "execution_error": {
+                  "required": ["code"],
+                  "properties": {
+                    "code": {"const": "configuration_invalid"},
+                    "phase": {"const": "configuration"}
+                  }
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "providers": {
+                  "items": {
+                    "required": ["outcome", "not_run_reason"],
+                    "properties": {
+                      "outcome": {"const": "not_run"},
+                      "not_run_reason": {"const": "invalid_configuration"}
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": ["execution_error"],
+              "properties": {
+                "execution_error": {
+                  "required": ["code"],
+                  "properties": {
+                    "code": {"const": "invocation_invalid"},
+                    "phase": {"const": "configuration"}
+                  }
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "providers": {
+                  "items": {
+                    "required": ["outcome", "not_run_reason"],
+                    "properties": {
+                      "outcome": {"const": "not_run"},
+                      "not_run_reason": {"const": "invocation_invalid"}
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": ["execution_error"],
+              "properties": {
+                "execution_error": {
+                  "required": ["code"],
+                  "properties": {"code": {"const": "guard_acquisition_failed"}}
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "providers": {
+                  "items": {
+                    "required": ["outcome", "not_run_reason"],
+                    "properties": {
+                      "outcome": {"const": "not_run"},
+                      "not_run_reason": {"const": "document_aborted"}
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": ["execution_error"],
+              "properties": {
+                "execution_error": {
+                  "required": ["code"],
+                  "properties": {"code": {"const": "internal_error"}}
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "providers": {
+                  "items": {
+                    "required": ["outcome"],
+                    "properties": {"outcome": {"enum": ["not_run", "execution_error"]}}
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "identity": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "sourceId": {
+      "type": ["string", "null"],
+      "enum": ["codex-app-server-v2", "opencode-go-dashboard", null]
+    },
+    "timestampOrNull": {
+      "type": ["string", "null"],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+    },
+    "quantityDecimal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "x-maxSignificantDigits": 128,
+      "x-renderedLength": 256,
+      "pattern": "^(0|[1-9][0-9]*(\\.[0-9]+)?)$"
+    },
+    "percentageDecimal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "x-maxSignificantDigits": 34,
+      "x-renderedLength": 128,
+      "pattern": "^(0|[1-9][0-9]*(\\.[0-9]+)?)$"
+    },
+    "providerState": {
+      "enum": ["available", "partial", "unavailable", "unauthorized", "rate_limited", "transient_error", "invalid_data"]
+    },
+    "availability": {
+      "enum": ["known", "unlimited", "disabled", "unavailable", "unknown", "not_authorized", "not_applicable", "invalid", "error"]
+    },
+    "executionError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "phase"],
+      "properties": {
+        "code": {
+          "enum": ["invocation_invalid", "configuration_invalid", "guard_acquisition_failed", "guard_wait_timeout", "deadline_exhausted", "provider_timeout", "provider_failed", "ipc_failed", "cleanup_failed", "invalid_provider_data", "unknown_provider_state", "internal_error"]
+        },
+        "phase": {"enum": ["configuration", "guard_wait", "provider", "ipc", "cleanup", "document"]}
+      },
+      "allOf": [
+        {
+          "if": {"required": ["code"], "properties": {"code": {"enum": ["invocation_invalid", "configuration_invalid"]}}},
+          "then": {"properties": {"phase": {"const": "configuration"}}}
+        },
+        {
+          "if": {"required": ["code"], "properties": {"code": {"enum": ["guard_acquisition_failed", "guard_wait_timeout"]}}},
+          "then": {"properties": {"phase": {"const": "guard_wait"}}}
+        },
+        {
+          "if": {"required": ["code"], "properties": {"code": {"const": "deadline_exhausted"}}},
+          "then": {"properties": {"phase": {"const": "document"}}}
+        },
+        {
+          "if": {"required": ["code"], "properties": {"code": {"enum": ["provider_timeout", "provider_failed", "invalid_provider_data", "unknown_provider_state"]}}},
+          "then": {"properties": {"phase": {"const": "provider"}}}
+        },
+        {
+          "if": {"required": ["code"], "properties": {"code": {"const": "ipc_failed"}}},
+          "then": {"properties": {"phase": {"const": "ipc"}}}
+        },
+        {
+          "if": {"required": ["code"], "properties": {"code": {"const": "cleanup_failed"}}},
+          "then": {"properties": {"phase": {"const": "cleanup"}}}
+        },
+        {
+          "if": {"required": ["code"], "properties": {"code": {"const": "internal_error"}}},
+          "then": {"properties": {"phase": {"const": "document"}}}
+        }
+      ]
+    },
+    "executionErrorOrNull": {
+      "anyOf": [
+        {"$ref": "#/$defs/executionError"},
+        {"type": "null"}
+      ]
+    },
+    "notRunReasonOrNull": {
+      "type": ["string", "null"],
+      "enum": ["disabled", "invalid_configuration", "invocation_invalid", "document_aborted", "deadline_exhausted", "guard_wait_timeout", null]
+    },
+    "quantity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "metric", "unit"],
+      "properties": {
+        "value": {"$ref": "#/$defs/quantityDecimal"},
+        "metric": {"enum": ["commercial_quota", "technical_rate_limit", "tokens", "balance"]},
+        "unit": {"$ref": "#/$defs/identity"}
+      }
+    },
+    "quantityOrNull": {
+      "anyOf": [
+        {"$ref": "#/$defs/quantity"},
+        {"type": "null"}
+      ]
+    },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "scope", "period", "plan_id", "availability", "source_id", "limit", "used", "remaining", "reset_at"],
+      "properties": {
+        "kind": {"enum": ["commercial_quota", "technical_rate_limit", "other"]},
+        "scope": {"$ref": "#/$defs/identity"},
+        "period": {"$ref": "#/$defs/identity"},
+        "plan_id": {"anyOf": [{"$ref": "#/$defs/identity"}, {"type": "null"}]},
+        "availability": {"$ref": "#/$defs/availability"},
+        "source_id": {"$ref": "#/$defs/sourceId"},
+        "limit": {"$ref": "#/$defs/quantityOrNull"},
+        "used": {"$ref": "#/$defs/quantityOrNull"},
+        "remaining": {"$ref": "#/$defs/quantityOrNull"},
+        "reset_at": {"$ref": "#/$defs/timestampOrNull"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"availability": {"const": "known"}}},
+          "then": {
+            "anyOf": [
+              {"properties": {"limit": {"type": "object"}}},
+              {"properties": {"used": {"type": "object"}}},
+              {"properties": {"remaining": {"type": "object"}}}
+            ]
+          },
+          "else": {
+            "properties": {
+              "limit": {"type": "null"},
+              "used": {"type": "null"},
+              "remaining": {"type": "null"},
+              "reset_at": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "commercial_quota"}}},
+          "then": {
+            "properties": {
+              "limit": {"anyOf": [{"type": "null"}, {"properties": {"metric": {"const": "commercial_quota"}}}]},
+              "used": {"anyOf": [{"type": "null"}, {"properties": {"metric": {"const": "commercial_quota"}}}]},
+              "remaining": {"anyOf": [{"type": "null"}, {"properties": {"metric": {"const": "commercial_quota"}}}]}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "technical_rate_limit"}}},
+          "then": {
+            "properties": {
+              "limit": {"anyOf": [{"type": "null"}, {"properties": {"metric": {"const": "technical_rate_limit"}}}]},
+              "used": {"anyOf": [{"type": "null"}, {"properties": {"metric": {"const": "technical_rate_limit"}}}]},
+              "remaining": {"anyOf": [{"type": "null"}, {"properties": {"metric": {"const": "technical_rate_limit"}}}]}
+            }
+          }
+        }
+      ]
+    },
+    "depletedWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "scope", "period", "plan_id", "unit", "source_id", "remaining_percentage"],
+      "properties": {
+        "kind": {"enum": ["commercial_quota", "technical_rate_limit", "other"]},
+        "scope": {"$ref": "#/$defs/identity"},
+        "period": {"$ref": "#/$defs/identity"},
+        "plan_id": {"anyOf": [{"$ref": "#/$defs/identity"}, {"type": "null"}]},
+        "unit": {"$ref": "#/$defs/identity"},
+        "source_id": {"$ref": "#/$defs/sourceId"},
+        "remaining_percentage": {"$ref": "#/$defs/percentageDecimal"}
+      }
+    },
+    "providerBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "outcome", "public_state", "freshness", "status_observed_at", "fetched_at", "data_at", "source_id", "windows", "execution_error", "not_run_reason", "most_depleted_window", "compact_text", "alternate_text", "tooltip_text"],
+      "properties": {
+        "provider": {"enum": ["codex", "opencode_go"]},
+        "outcome": {"enum": ["snapshot", "undetected", "not_run", "execution_error"]},
+        "public_state": {"anyOf": [{"$ref": "#/$defs/providerState"}, {"type": "null"}]},
+        "freshness": {"enum": ["fresh", "stale", null]},
+        "status_observed_at": {"$ref": "#/$defs/timestampOrNull"},
+        "fetched_at": {"$ref": "#/$defs/timestampOrNull"},
+        "data_at": {"$ref": "#/$defs/timestampOrNull"},
+        "source_id": {"$ref": "#/$defs/sourceId"},
+        "windows": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/window"}},
+        "execution_error": {"$ref": "#/$defs/executionErrorOrNull"},
+        "not_run_reason": {"$ref": "#/$defs/notRunReasonOrNull"},
+        "most_depleted_window": {"anyOf": [{"$ref": "#/$defs/depletedWindow"}, {"type": "null"}]},
+        "compact_text": {"type": "string", "maxLength": 128, "pattern": "^(?![\\s\\S]*[\\u0000-\\u001f\\u007f])[\\s\\S]*$"},
+        "alternate_text": {"type": "string", "maxLength": 128, "pattern": "^(?![\\s\\S]*[\\u0000-\\u001f\\u007f])[\\s\\S]*$"},
+        "tooltip_text": {"type": "string", "maxLength": 4096, "pattern": "^(?![\\s\\S]*[\\u0000-\\u0009\\u000b-\\u001f\\u007f])[\\s\\S]*$"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"outcome": {"const": "snapshot"}}},
+          "then": {
+            "required": ["public_state", "freshness", "status_observed_at", "fetched_at", "data_at"],
+            "properties": {
+              "public_state": {"type": "string"},
+              "freshness": {"enum": ["fresh", "stale"]},
+              "status_observed_at": {"type": "string"},
+              "fetched_at": {"type": "string"},
+              "data_at": {"type": "string"},
+              "execution_error": {"type": "null"},
+              "not_run_reason": {"type": "null"}
+            }
+          },
+          "else": {
+            "properties": {
+              "public_state": {"type": "null"},
+              "freshness": {"type": "null"},
+              "status_observed_at": {"type": "null"},
+              "fetched_at": {"type": "null"},
+              "data_at": {"type": "null"},
+              "source_id": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"outcome": {"const": "undetected"}}},
+          "then": {
+            "properties": {
+              "windows": {"maxItems": 0},
+              "execution_error": {"type": "null"},
+              "not_run_reason": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"outcome": {"const": "not_run"}}},
+          "then": {
+            "properties": {
+              "windows": {"maxItems": 0},
+              "execution_error": {"type": "null"},
+              "not_run_reason": {"type": "string"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"outcome": {"const": "execution_error"}}},
+          "then": {
+            "properties": {
+              "windows": {"maxItems": 0},
+              "execution_error": {"type": "object"},
+              "not_run_reason": {"type": "null"}
+            }
+          }
+        }
+      ]
+    },
+    "codexProvider": {
+      "allOf": [
+        {"$ref": "#/$defs/providerBase"},
+        {"properties": {"provider": {"const": "codex"}}}
+      ]
+    },
+    "opencodeProvider": {
+      "allOf": [
+        {"$ref": "#/$defs/providerBase"},
+        {"properties": {"provider": {"const": "opencode_go"}}}
+      ]
+    }
+  }
+}
