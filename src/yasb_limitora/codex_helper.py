@@ -235,37 +235,16 @@ def _child_main() -> None:
 class _PersistentTransport(_PipeTransport):
     """The READY frame is a prefix; worker responses are length framed."""
 
-    def read_frame(self, *, expected_size: int, timeout_seconds=2.0, max_size=4096, reject_trailing=True) -> bytes:
-        if type(expected_size) is not int or not 0 < expected_size <= max_size:
-            raise _TransportError("invalid_frame_size")
-        deadline = self._deadline(timeout_seconds)
-        result = bytearray()
-        while len(result) < expected_size:
-            available, eof = self._peek(self._read_fd)
-            if eof:
-                raise _TransportError("eof")
-            if available:
-                result.extend(self._read(self._read_fd, min(available, expected_size - len(result))))
-            else:
-                self._backoff(deadline)
-        if reject_trailing and self._peek(self._read_fd)[0]:
-            raise _TransportError("trailing_data")
-        return bytes(result)
-
     def read_response(self, timeout_seconds=2.0) -> bytes:
         header = self.read_frame(expected_size=4, timeout_seconds=timeout_seconds, reject_trailing=False)
         size = struct.unpack(">I", header)[0]
         if not 0 < size <= _MAX_RESPONSE:
             raise _TransportError("response_oversize")
         payload = self.read_frame(expected_size=size, timeout_seconds=timeout_seconds, max_size=_MAX_RESPONSE, reject_trailing=False)
-        deadline = self._deadline(timeout_seconds)
-        while True:
-            available, eof = self._peek(self._read_fd)
-            if available:
-                raise _TransportError("trailing_data")
-            if eof:
-                return payload
-            self._backoff(deadline)
+        available, _ = self._peek(self._read_fd)
+        if available:
+            raise _TransportError("trailing_data")
+        return payload
 
 
 class CodexHelperExecutor:
@@ -278,8 +257,10 @@ class CodexHelperExecutor:
     def run(self, runner: Sequence[str]) -> ProviderView:
         if isinstance(runner, (str, bytes)) or not isinstance(runner, Sequence) or not all(isinstance(item, str) for item in runner):
             return _error(SafeErrorCode.INVOCATION_INVALID)
-        if len(json.dumps({"nonce": "x" * 128, "runner": list(runner)}).encode("utf-8")) > _MAX_REQUEST:
+        if len(json.dumps({"nonce": "x" * _NONCE_LIMIT, "runner": list(runner)}).encode("utf-8")) > _MAX_REQUEST:
             return _error(SafeErrorCode.INVOCATION_INVALID)
+        if not self.retry_cleanup():
+            return _error(SafeErrorCode.INTERNAL_ERROR)
         with self._lifecycle:
             if self._pending_supervisor is not None or self._active or self._retrying:
                 return _error(SafeErrorCode.INTERNAL_ERROR)
@@ -287,11 +268,15 @@ class CodexHelperExecutor:
         transport_box: list[_PersistentTransport] = []
 
         def transport_factory(read_fd, write_fd, *, nonblocking):
-            transport = _PersistentTransport(read_fd, write_fd, nonblocking=nonblocking)
+            peek = _peek_named_pipe
+            if os.name == "nt":
+                read_handle = _fd_handle(read_fd)
+                peek = lambda _fd: _peek_named_pipe_handle(read_handle)
+            transport = _PersistentTransport(read_fd, write_fd, peek=peek, nonblocking=nonblocking)
             transport_box.append(transport)
             return transport
 
-        supervisor, result = None, ProviderView(ProviderKey.CODEX, ProviderState.SAFE_ERROR, SafeError(SafeErrorCode.INTERNAL_ERROR))
+        supervisor, result = None, _error(SafeErrorCode.INTERNAL_ERROR)
         try:
             supervisor = self._factory(
                 command=(sys.executable, "-I", "-E", "-c", _CHILD_BOOTSTRAP),

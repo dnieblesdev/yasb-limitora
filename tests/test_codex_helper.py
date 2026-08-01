@@ -406,8 +406,12 @@ def test_concurrent_cleanup_ownership_is_atomic():
     threads = [threading.Thread(target=work, args=(index,)) for index in range(2)]
     [thread.start() for thread in threads]; started.wait(); release.set(); [thread.join() for thread in threads]
     assert len(created) == 1 and all(result.error.code is SafeErrorCode.INTERNAL_ERROR for result in results)
-    assert executor.retry_cleanup() is False; fail[0] = False
-    assert executor.retry_cleanup() and executor.run(("C:\\codex.exe",)).error.code is SafeErrorCode.PROVIDER_ERROR and len(created) == 2
+    pending = executor._pending_supervisor
+    assert pending is not None
+    assert executor.run(("C:\\codex.exe",)).error.code is SafeErrorCode.INTERNAL_ERROR
+    assert executor._pending_supervisor is pending and len(created) == 1
+    fail[0] = False
+    assert executor.run(("C:\\codex.exe",)).error.code is SafeErrorCode.PROVIDER_ERROR and len(created) == 2
 
 
 def test_ready_trailing_data_fails_before_dispatch():
@@ -423,3 +427,63 @@ def test_ready_trailing_data_fails_before_dispatch():
     result = CodexHelperExecutor(lambda **kwargs: supervisor).run(("C:\\codex.exe",))
     assert result.error.code is SafeErrorCode.PROVIDER_ERROR
     assert rejected == [True]
+
+
+def test_ready_frame_is_accepted_without_waiting_for_worker_eof():
+    from yasb_limitora.codex_helper import _PersistentTransport
+
+    available = iter(((7, False), (0, False)))
+    transport = _PersistentTransport(
+        1,
+        2,
+        peek=lambda fd: next(available),
+        read=lambda fd, size: b"READY:n",
+        nonblocking=True,
+    )
+
+    assert transport.read_frame(expected_size=7) == b"READY:n"
+
+
+def test_persistent_transport_uses_bounded_nonblocking_partial_read_rules():
+    from yasb_limitora.codex_helper import _PersistentTransport
+
+    clock = type("Clock", (), {"now": 0.0, "sleep": lambda self, seconds: setattr(self, "now", self.now + seconds)})()
+    available = iter(((1, False), (1, False), (0, False), (2, False), (0, False)))
+    reads = iter((b"a", BlockingIOError(), b"bc"))
+
+    def read(fd, size):
+        value = next(reads)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    transport = _PersistentTransport(
+        1,
+        2,
+        peek=lambda fd: next(available),
+        read=read,
+        clock=lambda: clock.now,
+        sleep=clock.sleep,
+        nonblocking=True,
+    )
+
+    assert transport.read_frame(expected_size=3, timeout_seconds=1) == b"abc"
+
+
+def test_persistent_response_reader_accepts_header_and_payload_in_one_write():
+    from yasb_limitora.codex_helper import _PersistentTransport
+    import struct
+
+    stream = bytearray(struct.pack(">I", 3) + b"abc")
+
+    def peek(fd):
+        return len(stream), False
+
+    def read(fd, size):
+        chunk = bytes(stream[:size])
+        del stream[:size]
+        return chunk
+
+    transport = _PersistentTransport(1, 2, peek=peek, read=read, nonblocking=True)
+
+    assert transport.read_response() == b"abc"

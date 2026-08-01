@@ -51,14 +51,7 @@ def _peek_named_pipe(fd: int) -> tuple[int, bool]:
         import ctypes
         import msvcrt
 
-        available = ctypes.c_ulong()
-        ok = ctypes.windll.kernel32.PeekNamedPipe(
-            msvcrt.get_osfhandle(fd), None, 0, None, ctypes.byref(available), None
-        )
-        if ok:
-            return int(available.value), False
-        if ctypes.windll.kernel32.GetLastError() == _ERROR_BROKEN_PIPE:
-            return 0, True
+        return _peek_named_pipe_handle(msvcrt.get_osfhandle(fd))
     except Exception:
         pass
     raise _TransportError("peek_failed") from None
@@ -130,6 +123,7 @@ class _PipeTransport:
         expected_size: int,
         timeout_seconds: object = _DEFAULT_TRANSPORT_TIMEOUT,
         max_size: int = _CONTROL_CAPACITY,
+        reject_trailing: bool = True,
     ) -> bytes:
         if type(expected_size) is not int or not 0 < expected_size <= max_size:
             raise _TransportError("invalid_frame_size") from None
@@ -140,10 +134,13 @@ class _PipeTransport:
             if eof:
                 raise _TransportError("eof") from None
             remaining = expected_size - len(result)
-            if available < 0 or available > max_size - len(result):
+            if available < 0:
                 raise _TransportError("frame_oversize") from None
-            if available > remaining:
-                raise _TransportError("trailing_data") from None
+            if reject_trailing:
+                if available > max_size - len(result):
+                    raise _TransportError("frame_oversize") from None
+                if available > remaining:
+                    raise _TransportError("trailing_data") from None
             if not available:
                 self._backoff(deadline)
                 continue
@@ -157,13 +154,11 @@ class _PipeTransport:
             if not chunk or len(chunk) > remaining:
                 raise _TransportError("partial_read") from None
             result.extend(chunk)
-        while True:
-            available, eof = self._peek(self._read_fd)
+        if reject_trailing:
+            available, _ = self._peek(self._read_fd)
             if available:
                 raise _TransportError("trailing_data") from None
-            if eof:
-                return bytes(result)
-            self._backoff(deadline)
+        return bytes(result)
 
     def write_control(
         self,
@@ -219,19 +214,7 @@ _BOOTSTRAP = "\n".join(
         "    raise SystemExit(1)",
     )
 )
-_ENV_KEYS = (
-    "SystemRoot",
-    "WINDIR",
-    "COMSPEC",
-    "PATH",
-    "PATHEXT",
-    "TEMP",
-    "TMP",
-    "USERPROFILE",
-    "APPDATA",
-    "LOCALAPPDATA",
-    "CODEX_HOME",
-)
+_PROTOCOL_ENV_KEYS = (_GATE_ENV, _DATA_ENV, _NONCE_ENV)
 
 
 def _environment(
@@ -241,22 +224,19 @@ def _environment(
     data_write: int,
     nonce: bytes,
 ) -> dict[str, str]:
-    """Build the child environment without inheriting unrelated metadata."""
+    """Copy the supplied environment and replace only private protocol keys."""
     if type(nonce) is not bytes or not 0 < len(nonce) <= _NONCE_LIMIT:
         raise ValueError("invalid readiness nonce")
     try:
         nonce_text = nonce.decode("ascii")
     except UnicodeDecodeError:
         raise ValueError("invalid readiness nonce") from None
-    normalized_source = {name.casefold(): value for name, value in source.items()}
-    environment = {key: normalized_source[key.casefold()] for key in _ENV_KEYS if key.casefold() in normalized_source}
-    environment.update(
-        {
-            _GATE_ENV: str(gate_read),
-            _DATA_ENV: str(data_write),
-            _NONCE_ENV: nonce_text,
-        }
-    )
+    environment = dict(source)
+    for protocol_key in _PROTOCOL_ENV_KEYS:
+        for existing_key in tuple(environment):
+            if existing_key.casefold() == protocol_key.casefold():
+                environment.pop(existing_key)
+    environment.update({_GATE_ENV: str(gate_read), _DATA_ENV: str(data_write), _NONCE_ENV: nonce_text})
     return environment
 
 
@@ -436,6 +416,9 @@ class _FdCleanup:
         self._pending = list(closers)
         self._cause: Exception | None = None
 
+    def add(self, closer: _typing.Callable[[], None]) -> None:
+        self._pending.append(closer)
+
     def close(self) -> None:
         failed: list[_typing.Callable[[], None]] = []
         for closer in self._pending:
@@ -463,11 +446,31 @@ def _pipes(
         result = _os.close(identity._number)
         return result if result is _CloseOutcome.RETRY else _CloseOutcome.CLOSED
 
+    def close_raw(number: int) -> None:
+        result = _os.close(number)
+        if result is _CloseOutcome.RETRY:
+            raise _CleanupError from None
+
+    def close_unique(
+        numbers: _typing.Iterable[int], excluded: _typing.Iterable[int] = ()
+    ) -> _FdCleanup:
+        seen: set[int] = set(excluded)
+        closers = []
+        for number in numbers:
+            if number not in seen:
+                seen.add(number)
+                closers.append(lambda number=number: close_raw(number))
+        return _FdCleanup(closers)
+
     gate_specs = (
         _new_endpoint_spec(gate_read, _GenerationToken(), close_fd),
         _new_endpoint_spec(gate_write, _GenerationToken(), close_fd),
     )
-    gate = _new_ipc_pair(gate_specs[0], gate_specs[1], owner, registry)
+    try:
+        gate = _new_ipc_pair(gate_specs[0], gate_specs[1], owner, registry)
+    except Exception:
+        close_unique((gate_write, gate_read)).close()
+        raise
     try:
         data_read, data_write = factory()
     except Exception:
@@ -478,14 +481,11 @@ def _pipes(
         _new_endpoint_spec(data_write, _GenerationToken(), close_fd),
     )
     try:
-        data = _new_ipc_pair(
-            data_specs[0],
-            data_specs[1],
-            owner,
-            registry,
-        )
+        data = _new_ipc_pair(data_specs[0], data_specs[1], owner, registry)
     except Exception:
-        _FdCleanup([lambda: gate._close(owner)]).close()
+        cleanup = close_unique((data_write, data_read), (gate_read, gate_write))
+        cleanup.add(lambda: gate._close(owner))
+        cleanup.close()
         raise
     return gate, data, (gate_read, gate_write), (data_read, data_write)
 
@@ -551,7 +551,7 @@ class _CodexSupervisor:
         self._job_factory = job_factory or _acquire_job_owner
         self._transport_factory = transport_factory
         self._startup_factory = startup_factory
-        self._environment_source = environment_source or dict(_os.environ)
+        self._environment_source = dict(_os.environ) if environment_source is None else environment_source
         self._timeout_seconds = timeout_seconds
         self._state = _SupervisorState.OPEN
         self._prepared: _PreparedAcquisition | None = None
