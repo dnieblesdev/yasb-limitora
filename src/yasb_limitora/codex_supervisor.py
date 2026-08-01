@@ -230,7 +230,8 @@ def _environment(
         nonce_text = nonce.decode("ascii")
     except UnicodeDecodeError:
         raise ValueError("invalid readiness nonce") from None
-    environment = {key: source[key] for key in _ENV_KEYS if key in source}
+    normalized_source = {name.casefold(): value for name, value in source.items()}
+    environment = {key: normalized_source[key.casefold()] for key in _ENV_KEYS if key.casefold() in normalized_source}
     environment.update(
         {
             _GATE_ENV: str(gate_read),
@@ -656,6 +657,7 @@ class _CodexSupervisor:
                 "stdout": _subprocess.DEVNULL,
                 "stderr": _subprocess.DEVNULL,
             }
+            if _os.name == "nt": popen_kwargs["creationflags"] = _subprocess.CREATE_BREAKAWAY_FROM_JOB
             if _os.name != "nt":
                 popen_kwargs["pass_fds"] = (gate_read, data_write)
             popen = self._popen_factory(
