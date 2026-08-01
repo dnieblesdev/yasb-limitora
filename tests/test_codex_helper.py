@@ -1,17 +1,21 @@
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import json
 from types import SimpleNamespace
 
 import limitora
 import pytest
 from limitora.models import Quantity, ProviderId, ProviderStatus, QuotaWindow, SourceMetadata, ValueAvailability, WindowKind
 
-from yasb_limitora.codex_helper import CodexHelperExecutor
+from yasb_limitora.codex_helper import CodexHelperExecutor, _decode, _decode_timestamp, _payload, _timestamp
 from yasb_limitora.limitora_api import (
     CodexLimitoraAdapter,
     read_opencode_go,
 )
 from yasb_limitora.model import (
+    MAX_DISPLAY_LABEL_LENGTH,
+    _legacy_state_for_snapshot,
     ProviderKey,
     ProviderOutcome,
     ProviderState,
@@ -24,6 +28,8 @@ from yasb_limitora.model import (
     QuotaWindowView,
     SafeError,
     SafeErrorCode,
+    ProviderSnapshotView,
+    SnapshotFreshness,
 )
 
 
@@ -266,6 +272,214 @@ def test_provider_view_rejects_snapshot_error_contradictions_but_keeps_other_out
     not_run = ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN)
     assert execution_error.outcome is ProviderOutcome.EXECUTION_ERROR
     assert not_run.outcome is ProviderOutcome.NOT_RUN
+
+
+def _rich_view(*, freshness=SnapshotFreshness.FRESH, public_state=PublicProviderState.PARTIAL):
+    observed_at = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+    fetched_at = datetime(2026, 8, 1, 12, 1, 2, 345678, tzinfo=timezone.utc)
+    data_at = datetime(2026, 8, 1, 12, 0, 30, tzinfo=timezone.utc)
+    known = QuotaWindowView(
+        QuotaWindowKind.COMMERCIAL_QUOTA,
+        "account",
+        "five_hour",
+        "plus",
+        QuotaAvailability.KNOWN,
+        "codex-app-server-v2",
+        limit=QuotaQuantity(Decimal("100"), QuotaMetricKind.COMMERCIAL_QUOTA, "percentage_points"),
+        used=QuotaQuantity(Decimal("25"), QuotaMetricKind.COMMERCIAL_QUOTA, "percentage_points"),
+        remaining=QuotaQuantity(Decimal("75"), QuotaMetricKind.COMMERCIAL_QUOTA, "percentage_points"),
+        reset_at=datetime(2026, 8, 1, 16, tzinfo=timezone.utc),
+    )
+    unavailable = QuotaWindowView(
+        QuotaWindowKind.COMMERCIAL_QUOTA,
+        "account",
+        "weekly",
+        None,
+        QuotaAvailability.UNAVAILABLE,
+        None,
+    )
+    snapshot = ProviderSnapshotView(
+        public_state,
+        freshness,
+        observed_at,
+        fetched_at,
+        data_at,
+        "codex-app-server-v2",
+        (known, unavailable),
+    )
+    return ProviderView(
+        ProviderKey.CODEX,
+        _legacy_state_for_snapshot(snapshot),
+        display_label="Quota café 日本",
+        outcome=ProviderOutcome.SNAPSHOT,
+        snapshot=snapshot,
+    )
+
+
+def test_rich_private_payload_round_trips_all_snapshot_dimensions_without_float_conversion():
+    view = _rich_view(freshness=SnapshotFreshness.STALE)
+
+    payload = _payload(view)
+    decoded = _decode(payload)
+
+    assert decoded == view
+    assert "Quota café 日本".encode("utf-8") in payload
+    assert b'"value":"100"' in payload
+    assert b"e+" not in payload.lower()
+    assert decoded.snapshot is not None
+    assert decoded.snapshot.windows[0].limit.value == Decimal("100")
+    assert decoded.snapshot.windows[0].reset_at == datetime(2026, 8, 1, 16, tzinfo=timezone.utc)
+
+
+def test_wire_label_and_timestamp_limits_are_named_and_enforced_at_boundaries():
+    source = _rich_view()
+    bounded = ProviderView(
+        ProviderKey.CODEX,
+        source.state,
+        display_label="x" * MAX_DISPLAY_LABEL_LENGTH,
+        outcome=source.outcome,
+        snapshot=source.snapshot,
+    )
+
+    assert _decode(_payload(bounded)) == bounded
+    oversized = json.loads(_payload(bounded).decode("utf-8"))
+    oversized["display_label"] += "x"
+    rejected = _decode(json.dumps(oversized, separators=(",", ":")).encode("utf-8"))
+    assert rejected.error.code is SafeErrorCode.INTERNAL_ERROR
+
+
+def test_rich_timestamps_normalize_equal_offset_instants_to_identical_canonical_bytes():
+    source = _rich_view()
+    offset = timezone(timedelta(hours=2))
+    snapshot = source.snapshot
+    assert snapshot is not None
+    shifted_window = replace(
+        snapshot.windows[0],
+        reset_at=datetime(2026, 8, 1, 18, tzinfo=offset),
+    )
+    shifted_snapshot = replace(
+        snapshot,
+        status_observed_at=datetime(2026, 8, 1, 14, tzinfo=offset),
+        fetched_at=datetime(2026, 8, 1, 14, 1, 2, 345678, tzinfo=offset),
+        data_at=datetime(2026, 8, 1, 14, 0, 30, tzinfo=offset),
+        windows=(shifted_window, snapshot.windows[1]),
+    )
+    shifted = replace(source, snapshot=shifted_snapshot)
+
+    assert _timestamp(datetime(2026, 8, 1, 14, 1, 2, 345678, tzinfo=offset)) == (
+        "2026-08-01T12:01:02.345678Z"
+    )
+    assert _payload(shifted) == _payload(source)
+    assert _decode_timestamp("2026-08-01T12:01:02.345678Z") == datetime(
+        2026, 8, 1, 12, 1, 2, 345678, tzinfo=timezone.utc
+    )
+
+
+@pytest.mark.parametrize(
+    "wire",
+    (
+        "2026-08-01T12:01:02.345678+00:00",
+        "2026-08-01T12:01:02.123Z",
+        "2026-08-01T12:01:02.345678",
+        "2026-08-01T12:01:02.3456787Z",
+        "2026-02-30T12:01:02.345678Z",
+    ),
+)
+def test_decoder_rejects_noncanonical_or_malformed_timestamp_wire_forms(wire):
+    with pytest.raises(ValueError, match="invalid timestamp"):
+        _decode_timestamp(wire)
+
+
+def test_executor_returns_the_rich_child_result_after_authenticated_dispatch(monkeypatch):
+    expected = _rich_view()
+    writes = []
+
+    class Transport:
+        def write_control(self, payload, *, timeout_seconds):
+            writes.append(payload)
+
+        def read_response(self, timeout_seconds):
+            return _payload(expected)
+
+    monkeypatch.setattr("yasb_limitora.codex_helper._PersistentTransport", lambda *args, **kwargs: Transport())
+
+    def factory(**kwargs):
+        kwargs["transport_factory"](1, 2, nonblocking=True)
+        return SimpleNamespace(_nonce=b"nonce", acquire=lambda: None, close=lambda timeout: None)
+
+    result = CodexHelperExecutor(factory).run(("C:\\codex.exe",))
+
+    assert result == expected
+    assert b'"nonce":"nonce"' in writes[0]
+
+
+@pytest.mark.parametrize(
+    ("view", "state", "outcome"),
+    (
+        (_rich_view(), ProviderState.SUCCESS, ProviderOutcome.SNAPSHOT),
+        (_rich_view(freshness=SnapshotFreshness.STALE), ProviderState.UNAVAILABLE, ProviderOutcome.SNAPSHOT),
+        (_rich_view(public_state=PublicProviderState.UNAVAILABLE), ProviderState.UNAVAILABLE, ProviderOutcome.SNAPSHOT),
+        (ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED), ProviderState.UNAVAILABLE, ProviderOutcome.UNDETECTED),
+        (ProviderView(ProviderKey.CODEX, ProviderState.SAFE_ERROR, SafeError(SafeErrorCode.PROVIDER_ERROR), outcome=ProviderOutcome.EXECUTION_ERROR), ProviderState.SAFE_ERROR, ProviderOutcome.EXECUTION_ERROR),
+    ),
+)
+def test_rich_helper_round_trip_preserves_r3_outcome_mapping(view, state, outcome):
+    decoded = _decode(_payload(view))
+
+    assert decoded.state is state
+    assert decoded.outcome is outcome
+    assert decoded.snapshot == view.snapshot
+
+
+@pytest.mark.parametrize("mutation", ("missing", "unknown", "enum", "naive", "quantity", "source", "contradiction"))
+def test_rich_decoder_rejects_malformed_or_contradictory_worker_output(mutation):
+    value = json.loads(_payload(_rich_view()).decode("utf-8"))
+    if mutation == "missing":
+        del value["snapshot"]
+    elif mutation == "unknown":
+        value["unexpected"] = True
+    elif mutation == "enum":
+        value["state"] = "future"
+    elif mutation == "naive":
+        value["snapshot"]["fetched_at"] = "2026-08-01T12:01:02.345678"
+    elif mutation == "quantity":
+        value["snapshot"]["windows"][0]["limit"]["value"] = "1.00"
+    elif mutation == "source":
+        value["snapshot"]["source_id"] = "private-secret-source"
+    else:
+        value["state"] = "safe_error"
+        value["error"] = {"code": "provider_error"}
+    decoded = _decode(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+    assert decoded.state is ProviderState.SAFE_ERROR
+    assert decoded.error.code is SafeErrorCode.INTERNAL_ERROR
+    assert decoded.outcome is ProviderOutcome.EXECUTION_ERROR
+    assert decoded.snapshot is None
+
+
+def test_rich_decoder_rejects_duplicate_fields_and_oversized_or_duplicate_windows():
+    payload = _payload(_rich_view()).decode("utf-8").replace('"state":"success"', '"state":"success","state":"success"', 1)
+    duplicate = _decode(payload.encode("utf-8"))
+    assert duplicate.error.code is SafeErrorCode.INTERNAL_ERROR
+
+    value = json.loads(_payload(_rich_view()).decode("utf-8"))
+    value["snapshot"]["windows"] = value["snapshot"]["windows"] * 33
+    oversized = _decode(json.dumps(value, separators=(",", ":")).encode("utf-8"))
+    assert oversized.error.code is SafeErrorCode.INTERNAL_ERROR
+
+    value = json.loads(_payload(_rich_view()).decode("utf-8"))
+    value["snapshot"]["windows"].append(value["snapshot"]["windows"][0])
+    duplicate_window = _decode(json.dumps(value, separators=(",", ":")).encode("utf-8"))
+    assert duplicate_window.error.code is SafeErrorCode.INTERNAL_ERROR
+
+
+def test_rich_decoder_rejects_snapshot_state_that_does_not_match_freshness_or_public_state():
+    value = json.loads(_payload(_rich_view(freshness=SnapshotFreshness.STALE)).decode("utf-8"))
+    value["state"] = "success"
+
+    decoded = _decode(json.dumps(value, separators=(",", ":")).encode("utf-8"))
+
+    assert decoded.error.code is SafeErrorCode.INTERNAL_ERROR
 
 
 def test_model_and_adapter_share_nfc_identity_normalization():

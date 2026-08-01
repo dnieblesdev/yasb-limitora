@@ -2,10 +2,12 @@ import io
 import json
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
 from yasb_limitora.cli import main
+from yasb_limitora.codex_helper import CodexHelperExecutor, _payload
 from yasb_limitora.config import LocalConfig
 from yasb_limitora.coordinator import RuntimeCoordinator
 from yasb_limitora.model import DocumentView, ProviderKey, ProviderState, ProviderView, SafeError, SafeErrorCode
@@ -36,6 +38,42 @@ def test_coordinator_preserves_mixed_outcomes_and_fixed_order():
     ).run(enabled_config(), {"LIMITORA_AUTH_COOKIE": "cookie"})
     assert tuple(v.provider for v in document.providers) == (ProviderKey.CODEX, ProviderKey.OPENCODE_GO)
     assert tuple(v.state for v in document.providers) == (ProviderState.SUCCESS, ProviderState.SAFE_ERROR)
+
+
+def test_coordinator_retries_retained_codex_cleanup_before_next_normal_invocation(monkeypatch):
+    response = view(ProviderKey.CODEX, ProviderState.SAFE_ERROR, SafeErrorCode.PROVIDER_ERROR)
+    created, close_calls = [], []
+
+    class Transport:
+        def write_control(self, payload, *, timeout_seconds):
+            return None
+
+        def read_response(self, timeout_seconds):
+            return _payload(response)
+
+    monkeypatch.setattr("yasb_limitora.codex_helper._PersistentTransport", lambda *args, **kwargs: Transport())
+
+    def factory(**kwargs):
+        kwargs["transport_factory"](1, 2, nonblocking=True)
+        index = len(created)
+
+        def close(timeout):
+            close_calls.append(index)
+            if index == 0 and close_calls.count(0) == 1:
+                raise RuntimeError("cleanup failure")
+
+        supervisor = SimpleNamespace(_nonce=b"nonce", acquire=lambda: None, close=close)
+        created.append(supervisor)
+        return supervisor
+
+    coordinator = RuntimeCoordinator(CodexHelperExecutor(factory, timeout_seconds=0.01))
+    first = coordinator.run(enabled_config(opencode=False), {})
+    second = coordinator.run(enabled_config(opencode=False), {})
+
+    assert first.providers[0].error.code is SafeErrorCode.INTERNAL_ERROR
+    assert second.providers[0].error.code is SafeErrorCode.PROVIDER_ERROR
+    assert close_calls == [0, 0, 1]
+    assert len(created) == 2
 
 
 def test_opencode_timeout_discards_late_completion():

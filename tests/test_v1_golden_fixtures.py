@@ -1,10 +1,28 @@
 import io
 import json
+from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
-from yasb_limitora.model import DocumentView, ProviderKey, ProviderState, ProviderView, SafeError, SafeErrorCode
+from yasb_limitora.model import (
+    DocumentView,
+    ProviderKey,
+    ProviderOutcome,
+    ProviderSnapshotView,
+    ProviderState,
+    ProviderView,
+    PublicProviderState,
+    QuotaAvailability,
+    QuotaMetricKind,
+    QuotaQuantity,
+    QuotaWindowKind,
+    QuotaWindowView,
+    SafeError,
+    SafeErrorCode,
+    SnapshotFreshness,
+)
 from yasb_limitora.projection import project_bytes
 from yasb_limitora.cli import main
 
@@ -70,3 +88,33 @@ def test_v1_no_argument_behavior_is_the_frozen_all_disabled_document():
     assert main((), environment={"YASB_LIMITORA_CONFIG": "must-not-be-read"}, stdout=stdout, stderr=stderr) == 0
     assert stdout.getvalue() == (FIXTURES / "json_v1_unavailable.json").read_bytes()
     assert stderr.getvalue() == ""
+
+
+def test_v1_projection_ignores_rich_snapshot_fields():
+    timestamp = datetime(2026, 8, 1, 12, tzinfo=timezone.utc)
+    quantity = QuotaQuantity(Decimal("100"), QuotaMetricKind.COMMERCIAL_QUOTA, "percentage_points")
+    window = QuotaWindowView(
+        QuotaWindowKind.COMMERCIAL_QUOTA,
+        "account",
+        "five_hour",
+        "plus",
+        QuotaAvailability.KNOWN,
+        "codex-app-server-v2",
+        limit=quantity,
+        reset_at=datetime(2026, 8, 1, 16, tzinfo=timezone.utc),
+    )
+    snapshot = ProviderSnapshotView(
+        PublicProviderState.AVAILABLE,
+        SnapshotFreshness.FRESH,
+        timestamp,
+        timestamp,
+        timestamp,
+        "codex-app-server-v2",
+        (window,),
+    )
+    document = DocumentView.ordered(
+        ProviderView(ProviderKey.CODEX, ProviderState.SUCCESS, outcome=ProviderOutcome.SNAPSHOT, snapshot=snapshot),
+        ProviderView(ProviderKey.OPENCODE_GO, ProviderState.SUCCESS),
+    )
+
+    assert project_bytes(document) == (FIXTURES / "json_v1_success.json").read_bytes()
