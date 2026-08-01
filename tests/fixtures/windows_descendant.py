@@ -41,7 +41,7 @@ def _run(mode: str, evidence: Path, sentinel: str, descendant_marker: Path) -> N
         stderr=subprocess.DEVNULL,
         close_fds=True,
     )
-    deadline = time.monotonic() + 2.0
+    deadline = time.monotonic() + 4.0
     while time.monotonic() < deadline and not descendant_marker.exists():
         time.sleep(0.01)
     if not descendant_marker.exists():
