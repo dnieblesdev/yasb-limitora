@@ -1,110 +1,104 @@
 # yasb-limitora
 
-A native-Windows machine-JSON boundary that consumes the [Limitora](https://github.com/dnieblesdev/limitora) library for provider-agnostic status data. A visual YASB widget remains a future consumer.
+`yasb-limitora` is a Windows command and JSON boundary for the YASB
+`CustomWidget`. It reads quota-focused data through the released public
+[Limitora](https://github.com/dnieblesdev/limitora) API and never makes provider
+calls from YASB.
 
-> **Current status**: the native Windows JSON runtime and process-isolated Codex proof are implemented. Widget and popover integration remain out of scope.
+> **Current status:** R1 product source of truth and R2 JSON v2 specification
+> work are the only approved 0.2 units. R3 runtime implementation is blocked.
 
-## Purpose
-
-`yasb-limitora` is the YASB-side integration for Limitora. It keeps all LLM provider concerns inside Limitora and only renders native YASB components on this side. The dependency is unidirectional:
+## Official architecture
 
 ```text
-yasb-limitora -> limitora
+YASB CustomWidget -> yasb-limitora CLI / JSON v2 -> Limitora public API
 ```
 
-YASB never talks to providers directly; Limitora never imports YASB, PyQt, or any UI framework.
+The dependency direction is one-way. Limitora owns provider selection,
+authentication, transport, and provider-specific interpretation. The CLI owns
+configuration resolution, execution safety, sanitized projection, and the
+versioned machine boundary. YASB owns only CustomWidget lifecycle and display.
 
-## What this repository is
+The v1 document remains frozen for existing consumers. JSON v2 is specified in
+[`docs/specifications/json-v2.md`](docs/specifications/json-v2.md), but is not
+implemented by this review unit.
 
-- A future YASB widget seam backed by a versioned machine-JSON document.
-- A thin Python package with the exact `limitora==0.1.0` runtime dependency and an optional `opencode-go` installation extra.
-- A place to research how Limitora fits into the official YASB extension model.
+## CustomWidget boundary
 
-## What this repository is not
+The supported product path is the existing YASB CustomWidget. Its honest 0.2
+capabilities are:
 
-- It does not duplicate auth, endpoints, rate limiting, or provider logic from Limitora.
-- It is not a standalone LLM client.
-- It does not ship PyQt, network, or provider-specific code.
-- It does not store credentials, tokens, sessions, or cookies.
+| Supported | Not promised by CustomWidget |
+|-----------|------------------------------|
+| Compact label and alternate label | Dynamic state-dependent CSS |
+| Multiline tooltip | Intermediate `refreshing` output |
+| Static CSS classes | Native popover or tabs |
+| Periodic refresh | Interactive progress controls |
+| Manual/callback refresh | Termination of a running YASB subprocess |
 
-## Design references
-
-Reference material lives in `docs/design/ai-usage/`. The directory is reserved for Open Design exports such as `widget.html`, `styles.css`, `critique.json`, and `reference-final.png`. Any assets copied there are byte-for-byte exports; source files are never edited.
-
-See [`docs/design/ai-usage/README.md`](docs/design/ai-usage/README.md) for the current asset inventory, provenance, and the list of native pieces to reproduce.
+The adapter must therefore publish safe quota-focused evidence, including
+truthful partial, undetected, not-run, and error outcomes, or safe fallback text.
+It must not invent a native widget, a native popover, a severity class, or an
+in-progress state that CustomWidget cannot render or cancel.
 
 ## Scope
 
 | In scope | Out of scope |
 |----------|--------------|
-| Native Windows machine-JSON boundary and proof | Visual YASB widget/popover implementation |
-| Consuming Limitora's released public API | Private Limitora imports or duplicated provider logic |
-| Documentation, hermetic tests, and Windows CI proof | Auth, token, session, or endpoint storage |
+| Windows CLI, JSON v1 compatibility, and JSON v2 contract | Native YASB widget code |
+| Limitora public API integration | YASB upstream contribution or maintainer approval |
+| Hermetic fixtures, contract tests, and pinned CustomWidget validation | Native popover, tabs, history, predictions, or interactive progress |
+| Sanitized configuration and process execution | Credentials, tokens, sessions, or duplicated provider logic |
 
-## Provider support
+Only Codex and OpenCode Go are current 0.2 provider inputs because they are the
+public provider sources verified in Limitora 0.1.0. Claude and Gemini are not
+roadmap work for this contract.
 
-Providers are handled by Limitora. This widget only consumes whatever Limitora exposes.
-
-| Phase | Provider | Status |
-|-------|----------|--------|
-| 1 | Codex | available through the machine-JSON boundary |
-| 1 | OpenCode Go | available through the machine-JSON boundary |
-| 2 | Claude | future via Limitora |
-| 2 | Gemini | future via Limitora |
-
-## Native Windows installation
+## Installation and v1 runtime
 
 On native Windows 10/11:
 
-```bash
+```powershell
 py -m pip install "limitora==0.1.0"
 py -m pip install "yasb-limitora[opencode-go]"
 ```
 
-See [`docs/windows-json.md`](docs/windows-json.md) for configuration, environment-only `LIMITORA_AUTH_COOKIE`, execution, streams, exit codes, fail-safe behavior, and verified limitations.
+The current v1 command and its environment-only `LIMITORA_AUTH_COOKIE` rule are
+documented in [`docs/windows-json.md`](docs/windows-json.md). No-argument v1
+execution remains all-disabled and must not consult a default configuration
+path. Do not place credentials in configuration, argv, stdout, stderr, or test
+artifacts.
 
-## Local development
+## Documentation map
 
-Install the package and its minimal contract-test tooling in an isolated environment:
+- [`docs/roadmap.md`](docs/roadmap.md): official 0.2 R1-R11 order and gates.
+- [`docs/architecture/README.md`](docs/architecture/README.md): ownership and
+  boundary decisions.
+- [`docs/research/README.md`](docs/research/README.md): verified CustomWidget
+  and Limitora evidence.
+- [`docs/specifications/json-v2.md`](docs/specifications/json-v2.md): normative
+  R2 contract, acceptance criteria, and R3 block.
+- [`docs/specifications/json-v2.schema.json`](docs/specifications/json-v2.schema.json):
+  structural machine-checkable support for the normative specification.
 
-```bash
-python -m pip install -e ".[opencode-go,test]"
-```
+Open Design exports remain immutable, byte-for-byte reference artifacts. They do
+not authorize native YASB implementation work.
 
-The package resolves the released Limitora dependency from its declared metadata.
+## Security invariants
 
-## Architecture
+- Provider secrets and request logic remain inside Limitora.
+- Credential-like configuration keys are rejected.
+- Workspace identifiers, raw provider payloads, runner details, and exceptions
+  never cross the machine boundary.
+- Unknown provider states and invalid data fail closed without raw-value leakage.
+- The cross-process execution guard is bounded and scoped to the Windows user
+  and canonical effective configuration path; it is not request coalescing.
 
-The high-level direction is documented in [`docs/architecture/README.md`](docs/architecture/README.md).
+## Roadmap gate
 
-Key constraints:
-
-- `yasb_limitora` imports `limitora` only.
-- HTML/CSS reference exports become native YASB components; no webview or embedded browser.
-- Provider selection and request lifecycle stay inside Limitora.
-- No auth, endpoint, or provider logic is duplicated here.
-
-## Pending research
-
-- Official YASB widget/extension API and lifecycle.
-- How Limitora's public surface maps to YASB callbacks and signals.
-- Whether the future widget runs in-process with YASB or consumes this JSON as a thin external helper.
-
-See [`docs/research/README.md`](docs/research/README.md) for the full research tracker.
-
-## Security and privacy
-
-- Never store tokens, cookies, sessions, credentials, or provider cache data in this repository.
-- Do not commit `.env` files, private keys, or unredacted diagnostic dumps.
-- Redacted artifacts must use the names `*.redacted.json` or `*.redacted.txt`.
-- All provider secrets and request logic remain inside Limitora.
-
-## Roadmap
-
-1. Confirm the official YASB integration model.
-2. Define the future widget contract and native component layout.
-3. Consume the versioned JSON seam from a YASB widget.
-4. Evaluate Claude and Gemini when Limitora adds support.
+R3 is explicitly blocked until R2 has an accepted normative specification,
+passing v1 golden fixtures, traceable acceptance criteria, and a final
+technical review pass. See [`docs/roadmap.md`](docs/roadmap.md).
 
 ## License
 

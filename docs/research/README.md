@@ -1,36 +1,65 @@
-# yasb-limitora research
+# Research Decisions
 
-This document tracks open investigations and sanitized reference material for
-the YASB integration.
+This record contains the evidence that fixes the 0.2 product boundary. It is
+not an open investigation into native YASB extensibility: that path is
+explicitly rejected.
 
-## Active investigations
+## Verified decisions
 
-| Topic | Goal | Status |
-|-------|------|--------|
-| Official YASB widget API | Identify the supported integration model (in-process, external, socket) | open |
-| YASB widget lifecycle | Document init, update, destroy, and refresh semantics | open |
-| Native component mapping | Map reference HTML/CSS to YASB native widgets | open |
-| Limitora public API | Determine how YASB will call Limitora once the core is stable | open |
-| Configuration pattern | Decide how Limitora settings appear in YASB config | open |
-| Codex via Limitora | Validate end-to-end flow once Limitora implements Codex | pending |
-| OpenCode Go via Limitora | Validate end-to-end flow once Limitora implements OpenCode Go | pending |
-| Claude via Limitora | Evaluate when Limitora adds support | future |
-| Gemini via Limitora | Evaluate when Limitora adds support | future |
+| Evidence | Decision |
+|----------|----------|
+| YASB CustomWidget v2.0.5 source | Use `CustomWidget` with JSON return data, `label`, `label_alt`, tooltip text, static CSS, periodic refresh, and manual/callback refresh. |
+| YASB CustomWidget worker | `stop()` stops result publication but does not terminate the running `Popen`; process cleanup belongs to the CLI boundary and must be bounded. |
+| Limitora public API 0.1.0 | Preserve `available`, `partial`, `unavailable`, `unauthorized`, `rate_limited`, `transient_error`, and `invalid_data` exactly. |
+| Limitora domain model | Preserve variable quota windows, availability, source metadata, plan identifiers, reset timestamps, and Decimal `limit`/`used`/`remaining` quantities. |
+| Limitora comparability | Window identity is `(kind, scope, period)`; compatibility additionally requires `plan_id` and `unit`, plus a sanitized non-null source match for planless commercial quota. |
+| Existing YASB-side runtime | v1 is a fixed `codex`, then `opencode_go` envelope and must remain byte-for-byte stable. |
+| Existing Codex IPC | Control payloads are bounded at 16 KiB and response payloads at 64 KiB; v2 must not silently enlarge those limits. |
 
-## Sanitized samples
+## Product implications
 
-All samples checked into this repository must be redacted. Use the file
-extensions `*.redacted.json` or `*.redacted.txt`.
+- A stale snapshot is not unavailable. Freshness is an independent field.
+- An undetected provider is not unavailable. It has no public provider state or
+  freshness because no usable source was detected.
+- A provider that was not called is not unavailable. It carries an explicit
+  safe reason such as disabled, configuration failure, document abort, or
+  deadline exhaustion.
+- Missing numeric evidence is never zero. Nullable quantities remain `null`.
+- Percentages are derived presentation data only; canonical windows retain all
+  safe quota quantities and their context.
+- A mutex serializes execution but does not coalesce requests or promise
+  instantaneous process death when YASB closes.
 
-Rules for samples:
+## Verification still required
 
-- Replace tokens, cookies, sessions, and credentials with placeholders.
-- Remove hostnames, user IDs, and project IDs unless they are public examples.
-- Never include `.env` files, private keys, or unredacted dumps.
+R9 will validate the seam against pinned YASB v2.0.5 in two separate layers:
 
-## Notes
+1. Deterministic integration with the real CustomWidget and a fixture
+   executable covering complete, partial, stale, window disappearance and
+   reappearance, invalid JSON, and overlapping invocations.
+2. A separate live-provider smoke for current Codex and OpenCode Go evidence.
 
-- Keep provider-specific research in the `limitora` repository, not here.
-- Link external references rather than copying sensitive content.
-- Record YASB API findings in provider-agnostic terms so they remain valid as
-  Limitora evolves.
+Both layers must record the exact YASB version/commit, environment, commands,
+stdout/stderr, exit code, and bounded eventual process termination. Compatibility
+claims are limited to the pinned evidence; they are not indefinite support.
+
+## Rejected research paths
+
+- Native YASB widget implementation, upstream contribution, and maintainer
+  approval.
+- Official extension/plugin API research as a product dependency.
+- Native popover, tabs, interactive progress, dynamic severity CSS, and a
+  synthetic cross-provider minimum.
+- Claude, Gemini, costs, tokens, history, predictions, usage, and reset credits
+  for 0.2.
+
+Provider-specific implementation research belongs in the Limitora repository.
+This repository records only the public API evidence needed at the boundary.
+
+## Sanitized evidence rules
+
+- Never commit cookies, tokens, sessions, credentials, private payloads, or raw
+  provider diagnostics.
+- Redacted samples use `*.redacted.json` or `*.redacted.txt`.
+- Source identifiers are allowlisted and normalized by the R2 contract; raw
+  source references never reach output.
