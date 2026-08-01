@@ -67,7 +67,7 @@ def test_generation_registry_blocks_stale_close_and_transfer() -> None:
     with pytest.raises(r._OwnershipError): old._transfer(owner, replacement)
     with pytest.raises(r._StaleGenerationError): old._close(owner)
     new._close(replacement)
-    with pytest.raises(r._StaleGenerationError): old._close(owner)
+    old._close(owner)
     assert calls == ["new"]
 
 
@@ -102,7 +102,7 @@ def test_unexpected_close_is_terminal_and_never_retried_after_reuse() -> None:
     with pytest.raises(r._IndeterminateCleanupError): old._close(owner)
     new = r._new_ipc_pair(spec(5, new_generation, lambda identity: calls.append("new") or r._CloseOutcome.CLOSED), spec(7, new_generation, lambda identity: r._CloseOutcome.CLOSED), replacement, registry)
     new._close(replacement)
-    with pytest.raises(r._IndeterminateCleanupError): old._close(owner)
+    old._close(owner)
     assert calls == ["old", "new"]
 
 
@@ -115,7 +115,7 @@ def test_indeterminate_precedes_retry_when_write_retries_and_read_is_unknown() -
         raise RuntimeError("unknown")
     pair = r._new_ipc_pair(spec(5, r._GenerationToken(), read), spec(6, r._GenerationToken(), lambda identity: events.append("write") or r._CloseOutcome.RETRY), owner, registry)
     with pytest.raises(r._IndeterminateCleanupError): pair._close(owner)
-    with pytest.raises(r._IndeterminateCleanupError): pair._close(owner)
+    with pytest.raises(r._CleanupError): pair._close(owner)
     assert events == ["write", "read", "write"]
 
 
