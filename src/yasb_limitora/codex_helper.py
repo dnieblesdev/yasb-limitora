@@ -2,23 +2,61 @@
 
 import json
 import os
+import re
 import struct
 import sys
 import threading
 from collections.abc import Callable, Sequence
+from datetime import datetime, timezone
 
 from .codex_supervisor import (
+    _CONTROL_CAPACITY,
     _CodexSupervisor,
+    _NONCE_LIMIT,
     _PipeTransport,
     _TransportError,
     _TransportTimeout,
+    _fd_handle,
+    _peek_named_pipe,
+    _peek_named_pipe_handle,
 )
-from .model import ProviderKey, ProviderState, ProviderView, SafeError, SafeErrorCode
+from .model import (
+    MAX_DISPLAY_LABEL_LENGTH,
+    MAX_QUOTA_WINDOWS,
+    _legacy_state_for_snapshot,
+    _parse_canonical_decimal,
+    SAFE_SOURCE_IDS,
+    ProviderKey,
+    ProviderOutcome,
+    ProviderSnapshotView,
+    ProviderState,
+    ProviderView,
+    PublicProviderState,
+    QuotaAvailability,
+    QuotaMetricKind,
+    QuotaQuantity,
+    QuotaWindowKind,
+    QuotaWindowView,
+    SafeError,
+    SafeErrorCode,
+    SnapshotFreshness,
+    canonical_identity,
+)
 
-_MAX_REQUEST = 4096
+_MAX_REQUEST = _CONTROL_CAPACITY
 _MAX_RESPONSE = 64 * 1024
+_CANONICAL_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z")
 _GATE = "_YASB_CODEX_GATE_HANDLE"
 _DATA = "_YASB_CODEX_DATA_HANDLE"
+_WIRE_FIELDS = frozenset(("provider", "state", "outcome", "display_label", "error", "snapshot"))
+_SNAPSHOT_FIELDS = frozenset(
+    ("public_state", "freshness", "status_observed_at", "fetched_at", "data_at", "source_id", "windows")
+)
+_WINDOW_FIELDS = frozenset(
+    ("kind", "scope", "period", "plan_id", "availability", "source_id", "reset_at", "limit", "used", "remaining")
+)
+_QUANTITY_FIELDS = frozenset(("metric", "value", "unit"))
+_ERROR_FIELDS = frozenset(("code",))
 _CHILD_BOOTSTRAP = f"""import os,runpy
 try:
     gate=int(os.environ.pop({_GATE!r})); data=int(os.environ.pop({_DATA!r}))
@@ -56,11 +94,116 @@ def _write_all(fd: int, payload: bytes) -> None:
         offset += written
 
 
+def _reject_duplicate_pairs(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON field")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError("invalid JSON number")
+
+
+def _load_json(payload: bytes) -> object:
+    if type(payload) is not bytes or not 0 < len(payload) <= _MAX_RESPONSE:
+        raise ValueError("invalid JSON payload")
+    return json.loads(
+        payload.decode("utf-8"),
+        object_pairs_hook=_reject_duplicate_pairs,
+        parse_constant=_reject_json_constant,
+    )
+
+
+def _object(value: object, fields: frozenset[str]) -> dict[str, object]:
+    if type(value) is not dict or frozenset(value) != fields:
+        raise ValueError("invalid JSON object")
+    return value
+
+
+def _enum_value(enum, value: object):
+    if type(value) is not str:
+        raise ValueError("invalid enum")
+    try:
+        return enum(value)
+    except (TypeError, ValueError):
+        raise ValueError("invalid enum") from None
+
+
+def _timestamp(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def _decode_timestamp(value: object) -> datetime:
+    if type(value) is not str or not _CANONICAL_TIMESTAMP.fullmatch(value):
+        raise ValueError("invalid timestamp")
+    try:
+        parsed = datetime.strptime(value[:-1], "%Y-%m-%dT%H:%M:%S.%f").replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        raise ValueError("invalid timestamp") from None
+    return parsed
+
+
+def _wire_identity(value: object, message: str) -> str:
+    return canonical_identity(value, message)
+
+
+def _wire_source(value: object) -> str | None:
+    if value is not None and (type(value) is not str or value not in SAFE_SOURCE_IDS):
+        raise ValueError("invalid source id")
+    return value
+
+
+def _quantity_payload(quantity: QuotaQuantity) -> dict[str, str]:
+    return {
+        "metric": quantity.metric.value,
+        "value": format(quantity.value, "f"),
+        "unit": quantity.unit,
+    }
+
+
+def _window_payload(window: QuotaWindowView) -> dict[str, object]:
+    return {
+        "kind": window.kind.value,
+        "scope": window.scope,
+        "period": window.period,
+        "plan_id": window.plan_id,
+        "availability": window.availability.value,
+        "source_id": window.source_id,
+        "reset_at": None if window.reset_at is None else _timestamp(window.reset_at),
+        "limit": None if window.limit is None else _quantity_payload(window.limit),
+        "used": None if window.used is None else _quantity_payload(window.used),
+        "remaining": None if window.remaining is None else _quantity_payload(window.remaining),
+    }
+
+
+def _snapshot_payload(snapshot: ProviderSnapshotView) -> dict[str, object]:
+    return {
+        "public_state": snapshot.public_state.value,
+        "freshness": snapshot.freshness.value,
+        "status_observed_at": _timestamp(snapshot.status_observed_at),
+        "fetched_at": _timestamp(snapshot.fetched_at),
+        "data_at": _timestamp(snapshot.data_at),
+        "source_id": snapshot.source_id,
+        "windows": [_window_payload(window) for window in snapshot.windows],
+    }
+
+
 def _payload(view: ProviderView) -> bytes:
-    item = {"state": view.state.value}
-    if view.state is ProviderState.SAFE_ERROR:
-        item["error"] = {"code": view.error.code.value}  # type: ignore[union-attr]
-    return json.dumps(item, separators=(",", ":")).encode("ascii")
+    item = {
+        "provider": view.provider.value,
+        "state": view.state.value,
+        "outcome": None if view.outcome is None else view.outcome.value,
+        "display_label": view.display_label,
+        "error": None if view.error is None else {"code": view.error.code.value},
+        "snapshot": None if view.snapshot is None else _snapshot_payload(view.snapshot),
+    }
+    payload = json.dumps(item, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    if len(payload) > _MAX_RESPONSE:
+        raise ValueError("response oversize")
+    return payload
 
 
 def _child_main() -> None:
@@ -69,20 +212,21 @@ def _child_main() -> None:
         size = struct.unpack(">I", _read_exact(gate, 4))[0]
         if not 0 < size <= _MAX_REQUEST:
             raise ValueError
-        request = json.loads(_read_exact(gate, size).decode("utf-8"))
-        if not isinstance(request, dict) or set(request) != {"runner", "nonce"}:
+        request = _load_json(_read_exact(gate, size))
+        if type(request) is not dict or set(request) != {"runner", "nonce"}:
             raise ValueError
-        if request["nonce"] != os.environ.pop("_YASB_HELPER_NONCE"):
+        expected_nonce = os.environ.pop("_YASB_HELPER_NONCE")
+        if type(request["nonce"]) is not str or request["nonce"] != expected_nonce:
             raise ValueError
         runner = request["runner"]
-        if not isinstance(runner, list) or not all(isinstance(item, str) for item in runner):
+        if type(runner) is not list or not all(type(item) is str for item in runner):
             raise ValueError
         from .limitora_api import read_codex
 
         view = read_codex(runner)
         payload = _payload(view)
     except Exception:  # noqa: BLE001 - contain all worker failures
-        payload = _payload(ProviderView(ProviderKey.CODEX, ProviderState.SAFE_ERROR, SafeError(SafeErrorCode.INTERNAL_ERROR)))
+        payload = _payload(_error(SafeErrorCode.INTERNAL_ERROR))
     _write_all(data, struct.pack(">I", len(payload)) + payload)
     os.close(gate)
     os.close(data)
@@ -200,21 +344,101 @@ class CodexHelperExecutor:
 
 
 def _error(code: SafeErrorCode) -> ProviderView:
-    return ProviderView(ProviderKey.CODEX, ProviderState.SAFE_ERROR, SafeError(code))
+    return ProviderView(
+        ProviderKey.CODEX,
+        ProviderState.SAFE_ERROR,
+        SafeError(code),
+        outcome=ProviderOutcome.EXECUTION_ERROR,
+    )
 
 
 def _decode(payload: bytes) -> ProviderView:
     try:
-        value = json.loads(payload.decode("ascii"))
-        if not isinstance(value, dict) or set(value) not in ({"state"}, {"state", "error"}):
-            raise ValueError
-        state = ProviderState(value["state"])
-        if state is not ProviderState.SAFE_ERROR and set(value) != {"state"}:
-            raise ValueError
-        error = SafeError(value["error"]["code"]) if state is ProviderState.SAFE_ERROR else None
-        return ProviderView(ProviderKey.CODEX, state, error)
+        value = _object(_load_json(payload), _WIRE_FIELDS)
+        provider = _enum_value(ProviderKey, value["provider"])
+        if provider is not ProviderKey.CODEX:
+            raise ValueError("invalid helper provider")
+        state = _enum_value(ProviderState, value["state"])
+        outcome = None if value["outcome"] is None else _enum_value(ProviderOutcome, value["outcome"])
+        label = value["display_label"]
+        if label is not None:
+            if (
+                type(label) is not str
+                or len(label) > MAX_DISPLAY_LABEL_LENGTH
+                or any(ord(char) < 32 for char in label)
+            ):
+                raise ValueError("invalid display label")
+            label.encode("utf-8")
+        raw_error = value["error"]
+        error = None
+        if state is ProviderState.SAFE_ERROR:
+            error_item = _object(raw_error, _ERROR_FIELDS)
+            error = SafeError(_enum_value(SafeErrorCode, error_item["code"]))
+        elif raw_error is not None:
+            raise ValueError("unexpected helper error")
+        raw_snapshot = value["snapshot"]
+        snapshot = None if raw_snapshot is None else _decode_snapshot(raw_snapshot)
+        if outcome is ProviderOutcome.SNAPSHOT:
+            if snapshot is None or state is ProviderState.SAFE_ERROR or error is not None:
+                raise ValueError("contradictory helper snapshot")
+            if state is not _legacy_state_for_snapshot(snapshot):
+                raise ValueError("contradictory helper snapshot state")
+        elif snapshot is not None:
+            raise ValueError("unexpected helper snapshot")
+        if outcome in (ProviderOutcome.UNDETECTED, ProviderOutcome.NOT_RUN) and state is not ProviderState.UNAVAILABLE:
+            raise ValueError("contradictory helper outcome")
+        if outcome is ProviderOutcome.EXECUTION_ERROR and state is not ProviderState.SAFE_ERROR:
+            raise ValueError("contradictory helper error")
+        return ProviderView(provider, state, error, label, outcome, snapshot)
     except Exception:  # noqa: BLE001 - malformed worker output is safe_error
         return _error(SafeErrorCode.INTERNAL_ERROR)
+
+
+def _decode_quantity(value: object) -> QuotaQuantity:
+    item = _object(value, _QUANTITY_FIELDS)
+    metric = _enum_value(QuotaMetricKind, item["metric"])
+    unit = _wire_identity(item["unit"], "invalid quota unit")
+    return QuotaQuantity(_parse_canonical_decimal(item["value"]), metric, unit)
+
+
+def _decode_window(value: object) -> QuotaWindowView:
+    item = _object(value, _WINDOW_FIELDS)
+    plan_id = item["plan_id"]
+    if plan_id is not None:
+        plan_id = _wire_identity(plan_id, "invalid quota plan id")
+    reset_at = None if item["reset_at"] is None else _decode_timestamp(item["reset_at"])
+    return QuotaWindowView(
+        kind=_enum_value(QuotaWindowKind, item["kind"]),
+        scope=_wire_identity(item["scope"], "invalid quota scope"),
+        period=_wire_identity(item["period"], "invalid quota period"),
+        plan_id=plan_id,
+        availability=_enum_value(QuotaAvailability, item["availability"]),
+        source_id=_wire_source(item["source_id"]),
+        reset_at=reset_at,
+        limit=None if item["limit"] is None else _decode_quantity(item["limit"]),
+        used=None if item["used"] is None else _decode_quantity(item["used"]),
+        remaining=None if item["remaining"] is None else _decode_quantity(item["remaining"]),
+    )
+
+
+def _decode_snapshot(value: object) -> ProviderSnapshotView:
+    item = _object(value, _SNAPSHOT_FIELDS)
+    windows = item["windows"]
+    if type(windows) is not list or len(windows) > MAX_QUOTA_WINDOWS:
+        raise ValueError("invalid quota windows")
+    decoded_windows = tuple(_decode_window(window) for window in windows)
+    identities = tuple((window.kind, window.scope, window.period) for window in decoded_windows)
+    if len(set(identities)) != len(identities):
+        raise ValueError("duplicate quota window")
+    return ProviderSnapshotView(
+        public_state=_enum_value(PublicProviderState, item["public_state"]),
+        freshness=_enum_value(SnapshotFreshness, item["freshness"]),
+        status_observed_at=_decode_timestamp(item["status_observed_at"]),
+        fetched_at=_decode_timestamp(item["fetched_at"]),
+        data_at=_decode_timestamp(item["data_at"]),
+        source_id=_wire_source(item["source_id"]),
+        windows=decoded_windows,
+    )
 
 
 if __name__ == "__main__":
