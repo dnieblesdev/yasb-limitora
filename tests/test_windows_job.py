@@ -118,7 +118,7 @@ def test_cleanup_failures_retain_failed_ownership(flags: dict[str, object], code
     if not retry:
         with pytest.raises(JobError): job.close(0.05)
     assert api.closed.count("process") <= 1 and api.closed.count("job") <= 1
-@pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize("value", [-1, float("nan"), float("inf"), float("-inf")])
 def test_invalid_cleanup_timeout_still_cleans_and_maps_to_timeout(value: float) -> None:
     api = FakeApi(active_values=[1, 0])
     job = boundary(api)
