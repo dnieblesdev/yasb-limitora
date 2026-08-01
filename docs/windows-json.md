@@ -1,8 +1,10 @@
 # Native Windows JSON runtime
 
 `yasb-limitora` provides an executable native-Windows machine-JSON boundary for
-Codex and OpenCode Go. The current slice does **not** implement a YASB widget or
-popover. A future widget consumes the versioned JSON document described below.
+Codex and OpenCode Go. The official 0.2 consumer is YASB's existing
+`CustomWidget`; this repository does not implement a native YASB widget or
+popover. This page documents the frozen v1 runtime. The normative v2 contract
+is [`specifications/json-v2.md`](specifications/json-v2.md).
 
 ## Quick path
 
@@ -108,13 +110,14 @@ Object tree cleanup.
 OpenCode Go remains an independent direct provider call with its own configured
 timeout. A Codex timeout does not erase an OpenCode Go result, and vice versa.
 
-## Future YASB seam
+## YASB CustomWidget seam
 
-The sole handoff to a future native YASB widget is the versioned stdout JSON
-envelope. The widget must consume only documented fields (`version`, provider
-key, state, optional safe error code, and optional display label). Widget
-rendering, popovers, callbacks, and YASB lifecycle integration are deliberately
-not implemented here.
+The sole handoff to YASB CustomWidget is the versioned stdout JSON envelope. The
+CustomWidget configuration may use documented v1 fields (`version`, provider
+key, state, optional safe error code, and optional display label) through its
+compact/alternate labels and tooltip. Native widget code, popovers, tabs,
+interactive progress, dynamic state CSS, and subprocess termination are not
+part of this runtime boundary.
 
 ## Verified limitations and troubleshooting
 

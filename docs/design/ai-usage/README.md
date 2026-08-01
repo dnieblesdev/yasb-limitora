@@ -1,14 +1,10 @@
-# AI usage and design references
+# AI Usage and Design References
 
-This directory holds Open Design reference exports and records how generative AI
-tools were used to produce or refine this project.
+This directory records Open Design reference exports and their provenance. The
+exports are immutable visual references, not runtime code and not a roadmap
+authorization.
 
 ## Design reference assets
-
-The following files are reserved for Open Design exports and visual references.
-They are **specifications, not implementation**. They show the intended look and
-layout but must be reproduced with native YASB components; no webview, embedded
-browser, or copied DOM is allowed.
 
 | File | Purpose | Status | Source |
 |------|---------|--------|--------|
@@ -17,63 +13,37 @@ browser, or copied DOM is allowed.
 | `critique.json` | Design critique or feedback export | missing | Open Design export |
 | `reference-final.png` | Final reference image | missing | Open Design export |
 
-All assets are currently missing. They will be copied byte-for-byte from an Open
-Design session once available. Do not generate or invent missing assets.
+All assets are currently missing. If approved assets are added later, they must
+be copied byte-for-byte. Do not generate, edit, optimize, or invent missing
+exports.
+
+## Product boundary
+
+The 0.2 product uses YASB `CustomWidget` and the CLI/JSON seam defined by the
+roadmap and R2 specification. CustomWidget may render compact and alternate
+labels, multiline tooltip text, static CSS, and periodic/manual refresh.
+
+The Open Design references do **not** authorize implementation of a native
+popover, tabs, interactive progress, dynamic severity CSS, or any native YASB
+widget. Those capabilities exceed the verified CustomWidget boundary.
 
 ## Asset provenance
 
-No candidate visual references were found in the workspace during scaffold
-preparation. Searches covered:
-
-- `/home/dniebles/workplace/yasb-limitora`
-- `/home/dniebles/workplace/limitora`
-- `/home/dniebles/workplace/`
-- `/home/dniebles/` for `.png`, `.html`, `.css`, and `.json` files
-
-Only unrelated assets were discovered. No Open Design exports were present, so
-nothing was copied.
-
-## HTML/CSS disclaimer
-
-Reference HTML and CSS are **visual specifications only**. They describe the
-intended appearance and behavior of the widget but are not runnable code for this
-repository. The actual implementation must use native YASB components, layout
-primitives, and styling mechanisms.
-
-## Native pieces to reproduce
-
-When assets become available, reproduce the following functional pieces as
-native YASB components:
-
-- **Compact widget**: small status/selector shown in the YASB bar.
-- **Popup**: expanded view triggered from the compact widget.
-- **Tabs**: navigation between provider groups or categories.
-- **All view**: aggregate provider overview.
-- **Provider views**: per-provider detailed views.
-- **Quota rows**: usage/remaining quota display rows.
-- **States**: loading, idle, success, error, and disabled visual states.
-- **Alerts**: warning or error notifications.
-
-## Non-implemented decorative pieces
-
-The following decorative context pieces shown in the reference image must not be
-implemented as part of the widget:
-
-- Fake desktop background or wallpaper.
-- Code editor window or IDE chrome.
-- Demo scene, mock browser, or staged environment decorations.
+No candidate visual references were found during scaffold preparation. Searches
+covered this repository, the Limitora checkout, `/home/dniebles/workplace/`, and
+`/home/dniebles/` for `.png`, `.html`, `.css`, and `.json` files. No unrelated
+asset may be copied as a substitute.
 
 ## Rules for future assets
 
-- Copy approved assets byte-for-byte. Do not edit HTML, CSS, JSON metadata, or
-  image optimization.
 - Inspect every candidate for credentials or secrets before copying.
-- Document the exact source path in this readme.
-- Never invent or generate missing reference assets.
+- Document the exact source path when an asset is approved.
+- Preserve source bytes, metadata, and image encoding exactly.
+- Keep visual specifications separate from the JSON contract and runtime code.
 
 ## AI assistance record
 
-- The initial repository scaffold, README, and documentation were produced with
+- The initial repository scaffold and documentation were produced with
   assistance from an LLM coding agent.
-- No provider endpoints, auth logic, or network code were generated.
+- No provider endpoints, auth logic, or network code were generated here.
 - No credentials, tokens, or secrets were inserted into any file.
