@@ -2,8 +2,9 @@
 
 This is the product source of truth for the approved R1-R11 order. The 0.2
 integration is exclusively `YASB CustomWidget -> yasb-limitora CLI / JSON v2 ->
-Limitora public API`. R1-R5 are complete. R6 is the next authorized planning
-unit; later units remain out of scope until their ordered turn.
+Limitora public API`. R1-R5 are complete. R6 implementation is complete and
+verified on the integration branch; final publication remains pending. Later
+units remain out of scope until their ordered turn.
 
 ## Delivery order
 
@@ -14,7 +15,7 @@ unit; later units remain out of scope until their ordered turn.
 | R3 | Preserve public quota snapshots and dimensions | Preserve provider outcomes, exact public state, freshness, timestamps, quota windows, quantities, resets, plans, and safe source context | Complete |
 | R4 | Migrate rich Codex helper IPC | Migrate the rich snapshot boundary through the Codex helper process | Complete |
 | R5 | Project and negotiate JSON v2 | Add the accepted JSON v2 projection and explicit CLI negotiation | Complete |
-| R6 | Refine truthful presentation projection | Produce bounded compact, alternate, and tooltip fields from preserved evidence | Next authorized planning unit |
+| R6 | Refine truthful presentation projection | Produce bounded compact, alternate, and tooltip fields from preserved evidence | Complete — integration verified; publication pending |
 | R7 | Resolve default Windows configuration | Add the accepted default Windows configuration resolution | Planned after R6 |
 | R8 | Add the cross-process execution guard | Add bounded guard acquisition, deadlines, and cleanup behavior | Planned after R7 |
 | R9 | Package CustomWidget examples and static CSS | Package the CustomWidget examples and static presentation assets | Planned after R8 |
@@ -75,10 +76,38 @@ configuration behavior.
 
 Final evidence is 59 focused tests passed; 265 full-suite tests passed with 4
 skipped; native-proof succeeded for all three implementation PRs; and no
-critical findings or warnings were reported. R6 is the next authorized planning
-unit for presentation refinement. This closeout authorizes R6 planning only;
-it does not imply R6 implementation, R7 default-configuration resolution, or
-R8 execution guard, deadline, and cleanup machinery.
+critical findings or warnings were reported. At the time of this R5 closeout,
+R6 was the next authorized planning unit for presentation refinement. The R6
+closeout is recorded below; R7 default-configuration resolution and R8
+execution guard, deadline, and cleanup machinery remain future work.
+
+## R6 closeout
+
+R6 implementation is complete on the verified integration branch at merge
+commit `f70b82244787a259985f61c35ba2cc403ce6a5b7`. The closeout consists of two
+reviewed slices followed by post-merge integration verification:
+
+- The contract slice, commit `9ff3be2`, published the normative presentation
+  grammar, mappings, bounds, and contract tests.
+- The runtime slice, commit `8914881`, implemented the evidence-only,
+  provider-local projection and focused runtime/v1 proof.
+- The integration merge has the same tree as `8914881`, proving no
+  merge-resolution drift. The exact integrated scope remains four R6 files:
+  `docs/specifications/json-v2.md`, `tests/test_json_v2_spec.py`,
+  `src/yasb_limitora/projection_v2.py`, and
+  `tests/test_json_v2_projection.py`.
+
+Post-merge evidence is 60 focused tests passed; 281 full-suite tests passed
+with 4 skipped; `py_compile`, `compileall`, and `git diff --check` passed; and
+all 7 required R6 scenarios are compliant. Canonical v2 schema/model ordering
+and frozen v1 output remain unchanged, and no R7+ behavior is included.
+
+This entry records verified integration completion, not publication to `main`.
+PR3 must be freshly reviewed and merged into
+`feat/r6-truthful-presentation-projection` first. Only afterward should the
+approved tracker #37 and applicable R6 issues be updated, and the draft
+integration PR #75 be merged to `main`. R7 and later units remain future and
+unstarted.
 
 ## Explicit exclusions for 0.2
 
