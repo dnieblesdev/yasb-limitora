@@ -84,18 +84,21 @@ execution guard, deadline, and cleanup machinery remain future work.
 ## R6 closeout
 
 R6 implementation is complete on the verified integration branch at merge
-commit `f70b82244787a259985f61c35ba2cc403ce6a5b7`. The closeout consists of two
-reviewed slices followed by post-merge integration verification:
+commit `9e12d28ced6bcd484b59038e33fad83956f9e91d`. The closeout consists of
+three reviewed slices followed by post-merge integration verification:
 
 - The contract slice, commit `9ff3be2`, published the normative presentation
   grammar, mappings, bounds, and contract tests.
 - The runtime slice, commit `8914881`, implemented the evidence-only,
   provider-local projection and focused runtime/v1 proof.
-- The integration merge has the same tree as `8914881`, proving no
-  merge-resolution drift. The exact integrated scope remains four R6 files:
+- The roadmap closeout slice, commit `00a395e`, recorded the verified
+  integration state without claiming publication to `main`.
+- The integration merge has the same runtime tree as `8914881`, proving no
+  merge-resolution drift. The R6 implementation scope remains four files:
   `docs/specifications/json-v2.md`, `tests/test_json_v2_spec.py`,
   `src/yasb_limitora/projection_v2.py`, and
-  `tests/test_json_v2_projection.py`.
+  `tests/test_json_v2_projection.py`; the roadmap closeout is recorded in this
+  document.
 
 Post-merge evidence is 60 focused tests passed; 281 full-suite tests passed
 with 4 skipped; `py_compile`, `compileall`, and `git diff --check` passed; and
@@ -103,11 +106,10 @@ all 7 required R6 scenarios are compliant. Canonical v2 schema/model ordering
 and frozen v1 output remain unchanged, and no R7+ behavior is included.
 
 This entry records verified integration completion, not publication to `main`.
-PR3 must be freshly reviewed and merged into
-`feat/r6-truthful-presentation-projection` first. Only afterward should the
-approved tracker #37 and applicable R6 issues be updated, and the draft
-integration PR #75 be merged to `main`. R7 and later units remain future and
-unstarted.
+The three R6 slices are now reviewed and merged into the integration branch.
+The remaining publication gate is the approved tracker #37 and applicable R6
+issue closeout, followed by merging draft integration PR #75 to `main`. R7 and
+later units remain future and unstarted.
 
 ## Explicit exclusions for 0.2
 

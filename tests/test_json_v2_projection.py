@@ -46,6 +46,18 @@ def _large_document(period_length=64):
     return _document(provider(ProviderKey.CODEX, "codex-app-server-v2"), provider(ProviderKey.OPENCODE_GO, "opencode-go-dashboard"))
 def _document(codex, opencode):
     return DocumentView.ordered(codex, opencode)
+
+
+def _near_boundary_document(accent_count):
+    document = _large_document(64)
+    index = 0
+    for provider in document.providers:
+        for window in provider.snapshot.windows:
+            object.__setattr__(window, "plan_id", "p" * 64)
+            suffix = "é" if 1 <= index <= accent_count else "s"
+            object.__setattr__(window, "scope", "s" * 60 + suffix)
+            index += 1
+    return document
 def _assert_document(value):
     assert list(value) == ["version", "execution_state", "execution_error", "providers"]
     assert value["version"] == 2 and len(value["providers"]) == 2
@@ -317,21 +329,39 @@ def test_unknown_evidence_fails_closed_without_echoing_the_rejected_value():
     assert "future-secret-state" not in str(error.value)
 
 
-@pytest.mark.parametrize(("period_length", "adjustment", "candidate_size"), ((37, "source", 65_535), (37, "scope", 65_536), (64, "oversize", 65_696)))
-def test_document_byte_boundaries_are_allowed_or_replaced_whole(period_length, adjustment, candidate_size):
-    document = _large_document(period_length)
-    if adjustment == "source":
-        object.__setattr__(document.providers[0].snapshot, "source_id", "opencode-go-dashboard")
-        object.__setattr__(document.providers[0].snapshot.windows[31], "plan_id", "p")
-    if adjustment == "scope":
-        object.__setattr__(document.providers[0].snapshot.windows[31], "scope", "scope31é")
+@pytest.mark.parametrize(("adjustment", "candidate_size"), (("boundary_65535", 65_535), ("boundary_65536", 65_536), ("oversize", 65_696)))
+def test_document_byte_boundaries_are_allowed_or_replaced_whole(adjustment, candidate_size):
+    if adjustment == "boundary_65535":
+        document = _near_boundary_document(37)
+    elif adjustment == "boundary_65536":
+        document = _near_boundary_document(38)
+    else:
+        document = _large_document(64)
     if adjustment == "oversize":
         for provider in document.providers:
             for window in provider.snapshot.windows:
-                object.__setattr__(window, "plan_id", "oversize-plan-" + "x" * 50)
+                object.__setattr__(window, "plan_id", "p" * 64)
+                object.__setattr__(window, "scope", "s" * 64)
+    raw = json.dumps(
+        project_v2_document(V2ProjectionInput(document)),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8") + b"\n"
     encoded = project_v2_bytes(V2ProjectionInput(document))
     assert len(encoded) <= 65_536
-    if candidate_size > 65_536:
+    if candidate_size <= 65_536:
+        assert len(encoded) == candidate_size
+        value = json.loads(encoded)
+        assert value["execution_error"] is None
+        assert all(
+            provider["outcome"] == "snapshot"
+            and len(provider["windows"]) == 32
+            and provider["most_depleted_window"] is not None
+            for provider in value["providers"]
+        )
+        assert len(raw) > 65_536
+    else:
         value = json.loads(encoded)
         _assert_document(value)
         assert value["execution_state"] == "execution_error"
@@ -346,7 +376,7 @@ def test_document_byte_boundaries_are_allowed_or_replaced_whole(period_length, a
             and provider["tooltip_text"] == "Quota not run: document aborted"
             for provider in value["providers"]
         )
-        assert b"oversize-plan-" not in encoded
+        assert b'"outcome":"snapshot"' not in encoded
 
 
 def test_serialized_windows_follow_all_normative_sort_dimensions():

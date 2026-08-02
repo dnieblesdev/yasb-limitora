@@ -376,6 +376,20 @@ def test_r6_fallback_mappings_and_exclusions_are_normative():
     assert examples[4]["providers"][0]["tooltip_text"] == "Quota error"
 
 
+def test_r6_near_cap_presentation_budget_and_boundary_fallback_are_normative():
+    text = SPEC.read_text(encoding="utf-8")
+
+    for fragment in (
+        "The 65,536-byte document limit is applied after the complete canonical JSON v2",
+        "one deterministic,\ndocument-local tooltip scalar budget shared by all snapshot providers",
+        "MUST NOT remove or alter canonical `windows` evidence",
+        "The largest budget whose encoded document fits MUST be selected",
+        "valid near-cap document remains a provider snapshot at exactly 65,535 and\n65,536 bytes",
+        "only a genuinely over-cap document becomes a document failure",
+    ):
+        assert fragment in text
+
+
 def test_r6_preserves_schema_and_canonical_field_order():
     schema = _schema()
     assert tuple(schema["properties"]) == DOCUMENT_FIELD_ORDER
