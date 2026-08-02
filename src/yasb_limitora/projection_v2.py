@@ -146,68 +146,98 @@ def _percentage(window: dict[str, Any]) -> str | None:
     if window["availability"] != QuotaAvailability.KNOWN.value:
         return None
     limit, remaining = window["limit"], window["remaining"]
-    if limit is None or remaining is None or Decimal(limit["value"]) == 0:
+    if limit is None or remaining is None:
         return None
     if limit["metric"] != remaining["metric"] or limit["unit"] != remaining["unit"]:
         return None
     limit_value, remaining_value = Decimal(limit["value"]), Decimal(remaining["value"])
-    if remaining_value < 0 or remaining_value > limit_value:
-        raise ValueError("invalid v2 depleted window")
+    if limit_value <= 0 or remaining_value < 0 or remaining_value > limit_value:
+        return None
     with localcontext() as context:
         context.prec = 34
         context.rounding = ROUND_HALF_EVEN
         value = remaining_value / limit_value * Decimal("100")
     if not Decimal("0") <= value <= Decimal("100"):
-        raise ValueError("invalid v2 depleted percentage")
+        return None
     rendered = format(value, "f")
     if "." in rendered:
         rendered = rendered.rstrip("0").rstrip(".")
     rendered = rendered or "0"
     significant_digits = len(rendered.replace(".", "").lstrip("0")) or 1
     if len(rendered) > 128 or significant_digits > 34:
-        raise ValueError("invalid v2 depleted percentage")
+        return None
     return rendered
 
 
-def _bounded_summary(text: str, stale: bool) -> str:
-    suffix = " (stale)" if stale else ""
-    if len(text) + len(suffix) <= 128:
-        return text + suffix
-    return text[: 128 - len(suffix)] + suffix
+def _bounded_summary(base: str, qualifier: str) -> str:
+    if len(base) + len(qualifier) <= 128:
+        return base + qualifier
+    return base[: 128 - len(qualifier)] + qualifier
+def _evidenced_unit(window: dict[str, Any]) -> str | None:
+    units = {
+        quantity["unit"]
+        for quantity in (window["limit"], window["used"], window["remaining"])
+        if quantity is not None
+    }
+    return next(iter(units)) if len(units) == 1 else None
 
 
-def _presentation(outcome: str, windows: list[dict[str, Any]], stale: bool, reason: str | None = None) -> dict[str, Any]:
+def _presentation(
+    outcome: str,
+    windows: list[dict[str, Any]],
+    public_state: str | None,
+    freshness: str | None,
+    reason: str | None = None,
+) -> dict[str, Any]:
     if outcome != ProviderOutcome.SNAPSHOT.value:
         fallback = _fallback(outcome)
         if outcome == ProviderOutcome.NOT_RUN.value and reason in _NOT_RUN_TEXT:
             fallback["tooltip_text"] += f": {_NOT_RUN_TEXT[reason]}"
         return fallback
-    candidates = [(index, _percentage(window)) for index, window in enumerate(windows)]
-    eligible = [(index, percentage) for index, percentage in candidates if percentage is not None]
-    if not eligible:
-        return _fallback(outcome)
-    index, percentage = min(eligible, key=lambda candidate: (Decimal(candidate[1]), candidate[0]))
-    selected = windows[index]
-    depleted = {
-        "kind": selected["kind"],
-        "scope": selected["scope"],
-        "period": selected["period"],
-        "plan_id": selected["plan_id"],
-        "unit": selected["remaining"]["unit"],
-        "source_id": selected["source_id"],
-        "remaining_percentage": percentage,
-    }
-    compact = _bounded_summary(f"{selected['period']}: {percentage}% remaining", stale)
-    alternate = _bounded_summary(f"{selected['scope']} / {selected['period']}: {percentage}% remaining", stale)
-    lines = ["STALE"] if stale else []
-    for window in windows:
-        value = _percentage(window)
-        plan = f" / {window['plan_id']}" if window["plan_id"] is not None else ""
-        line = f"{window['kind']} / {window['scope']} / {window['period']}{plan}: "
-        line += f"{value}% remaining" if value is not None else "unavailable"
+    ordered_windows = sorted(windows, key=_window_sort_key)
+    eligible = [(window, _percentage(window)) for window in ordered_windows]
+    eligible = [(window, value) for window, value in eligible if value is not None]
+    if eligible:
+        selected, percentage = min(eligible, key=lambda candidate: (Decimal(candidate[1]), _window_sort_key(candidate[0])))
+        depleted = {
+            "kind": selected["kind"],
+            "scope": selected["scope"],
+            "period": selected["period"],
+            "plan_id": selected["plan_id"],
+            "unit": selected["remaining"]["unit"],
+            "source_id": selected["source_id"],
+            "remaining_percentage": percentage,
+        }
+        value = f"{percentage}% remaining"
+        compact_base = f"Quota {value}"
+        alternate_base = f"Quota {selected['scope']} / {selected['period']}: {value}"
+    else:
+        depleted = None
+        value = "percentage unavailable"
+        compact_base = alternate_base = "Quota percentage unavailable"
+    qualifier = f"; state={public_state}; freshness={freshness}"
+    compact = _bounded_summary(compact_base, qualifier)
+    alternate = _bounded_summary(alternate_base, qualifier)
+    lines = [f"State: {public_state}", f"Freshness: {freshness}", f"Quota: {value}"]
+    if depleted is None:
+        lines.append("No eligible percentage basis")
+    for window in ordered_windows:
+        percentage = _percentage(window)
+        if percentage is not None:
+            result = f"{percentage}% remaining"
+        elif window["availability"] == QuotaAvailability.KNOWN.value:
+            result = "percentage unavailable"
+        else:
+            result = f"availability={window['availability']}"
+        unit = _evidenced_unit(window)
+        line = (
+            f"Window: kind={window['kind']}; scope={window['scope']}; period={window['period']}; "
+            f"plan_id={json.dumps(window['plan_id'], ensure_ascii=False)}; unit={unit or 'null'}; "
+            f"source_id={json.dumps(window['source_id'], ensure_ascii=False)}; result={result}"
+        )
         lines.append(line)
-        if value is not None and window["reset_at"] is not None:
-            lines.append(f"Resets at {window['reset_at']}")
+        if window["reset_at"] is not None:
+            lines.append(f"Reset: {window['reset_at']}")
     tooltip = ""
     for line in lines:
         candidate = line if not tooltip else f"{tooltip}\n{line}"
@@ -268,7 +298,7 @@ def _provider(view: ProviderView, enabled: frozenset[ProviderKey]) -> tuple[dict
         if view.snapshot is not None or view.error is None:
             raise ValueError("invalid v2 execution-error outcome")
         item["execution_error"] = _error(view.error.code)
-    item.update(_presentation(outcome.value, item["windows"], item["freshness"] == SnapshotFreshness.STALE.value, item["not_run_reason"]))
+    item.update(_presentation(outcome.value, item["windows"], item["public_state"], item["freshness"], item["not_run_reason"]))
     return item, outcome.value
 def project_v2_document(input: V2ProjectionInput) -> dict[str, Any]:
     """Build the ordered JSON-compatible v2 document without encoding it."""
@@ -326,7 +356,7 @@ def project_v2_failure_bytes(code: str | SafeErrorCode) -> bytes:
             "execution_error": None,
             "not_run_reason": reason,
         }
-        item.update(_presentation("not_run", [], False, reason))
+        item.update(_presentation("not_run", [], None, None, reason))
         providers.append(item)
     return _encode(
         {
