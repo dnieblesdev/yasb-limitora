@@ -2,9 +2,8 @@
 
 This is the product source of truth for the approved R1-R11 order. The 0.2
 integration is exclusively `YASB CustomWidget -> yasb-limitora CLI / JSON v2 ->
-Limitora public API`. R1-R4 are complete. R5 is the next authorized planning
-unit; no R5 issue or implementation work exists yet. Later units remain out of
-scope until their ordered turn.
+Limitora public API`. R1-R5 are complete. R6 is the next authorized planning
+unit; later units remain out of scope until their ordered turn.
 
 ## Delivery order
 
@@ -14,8 +13,8 @@ scope until their ordered turn.
 | R2 | Normative contract and frozen v1 tests | Specify JSON v2, acceptance criteria, structural support, and byte-for-byte v1 fixtures | Complete |
 | R3 | Preserve public quota snapshots and dimensions | Preserve provider outcomes, exact public state, freshness, timestamps, quota windows, quantities, resets, plans, and safe source context | Complete |
 | R4 | Migrate rich Codex helper IPC | Migrate the rich snapshot boundary through the Codex helper process | Complete |
-| R5 | Project and negotiate JSON v2 | Add the accepted JSON v2 projection and explicit CLI negotiation | Next authorized planning unit |
-| R6 | Add truthful presentation projection | Produce bounded compact, alternate, and tooltip fields from preserved evidence | Planned after R5 |
+| R5 | Project and negotiate JSON v2 | Add the accepted JSON v2 projection and explicit CLI negotiation | Complete |
+| R6 | Refine truthful presentation projection | Produce bounded compact, alternate, and tooltip fields from preserved evidence | Next authorized planning unit |
 | R7 | Resolve default Windows configuration | Add the accepted default Windows configuration resolution | Planned after R6 |
 | R8 | Add the cross-process execution guard | Add bounded guard acquisition, deadlines, and cleanup behavior | Planned after R7 |
 | R9 | Package CustomWidget examples and static CSS | Package the CustomWidget examples and static presentation assets | Planned after R8 |
@@ -60,9 +59,26 @@ R2 is accepted only when all of the following are reviewable and passing:
   be present.
 
 This gate passed before R3 implementation began, so R3 remained blocked until
-R2 passed. R3 and R4 are now delivered. R5 is the next authorized planning
-unit; no R5 issue or implementation work exists yet. Later runtime, integration,
+R2 passed. R3, R4, and R5 are now delivered. Later runtime, integration,
 packaging, and release work must wait for each unit's ordered turn.
+
+## R5 closeout
+
+R5 is complete through merged implementation PRs #63, #66, and #68 under
+parent issue #61. The delivered boundary is an isolated, schema-complete JSON
+v2 projection over preserved evidence, with deterministic bounded UTF-8
+serialization, required bounded presentation fields, safe mappings and
+redaction, and explicit `--output-version 2` / `--output-version=2`
+negotiation. Selector-free and explicit-v1 invocation remain frozen,
+including exact bytes, configuration forms, streams, exits, and no-default
+configuration behavior.
+
+Final evidence is 59 focused tests passed; 265 full-suite tests passed with 4
+skipped; native-proof succeeded for all three implementation PRs; and no
+critical findings or warnings were reported. R6 is the next authorized planning
+unit for presentation refinement. This closeout authorizes R6 planning only;
+it does not imply R6 implementation, R7 default-configuration resolution, or
+R8 execution guard, deadline, and cleanup machinery.
 
 ## Explicit exclusions for 0.2
 
