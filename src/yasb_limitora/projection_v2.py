@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_EVEN, localcontext
 from typing import Any
 from unicodedata import normalize
 
@@ -35,6 +35,13 @@ _FAILURES = {
     "invocation_invalid": ("configuration", "invocation_invalid"),
     "configuration_invalid": ("configuration", "invalid_configuration"),
     "internal_error": ("document", "document_aborted"),
+}
+_MAX_DOCUMENT_BYTES = 65_536
+_NOT_RUN_TEXT = {
+    "disabled": "provider disabled",
+    "invalid_configuration": "configuration invalid",
+    "invocation_invalid": "invocation invalid",
+    "document_aborted": "document aborted",
 }
 @dataclass(frozen=True, slots=True)
 class V2ProjectionInput:
@@ -133,6 +140,81 @@ def _fallback(outcome: str) -> dict[str, Any]:
         "alternate_text": text,
         "tooltip_text": text,
     }
+
+
+def _percentage(window: dict[str, Any]) -> str | None:
+    if window["availability"] != QuotaAvailability.KNOWN.value:
+        return None
+    limit, remaining = window["limit"], window["remaining"]
+    if limit is None or remaining is None or Decimal(limit["value"]) == 0:
+        return None
+    if limit["metric"] != remaining["metric"] or limit["unit"] != remaining["unit"]:
+        return None
+    limit_value, remaining_value = Decimal(limit["value"]), Decimal(remaining["value"])
+    if remaining_value < 0 or remaining_value > limit_value:
+        raise ValueError("invalid v2 depleted window")
+    with localcontext() as context:
+        context.prec = 34
+        context.rounding = ROUND_HALF_EVEN
+        value = remaining_value / limit_value * Decimal("100")
+    if not Decimal("0") <= value <= Decimal("100"):
+        raise ValueError("invalid v2 depleted percentage")
+    rendered = format(value, "f")
+    if "." in rendered:
+        rendered = rendered.rstrip("0").rstrip(".")
+    rendered = rendered or "0"
+    significant_digits = len(rendered.replace(".", "").lstrip("0")) or 1
+    if len(rendered) > 128 or significant_digits > 34:
+        raise ValueError("invalid v2 depleted percentage")
+    return rendered
+
+
+def _bounded_summary(text: str, stale: bool) -> str:
+    suffix = " (stale)" if stale else ""
+    if len(text) + len(suffix) <= 128:
+        return text + suffix
+    return text[: 128 - len(suffix)] + suffix
+
+
+def _presentation(outcome: str, windows: list[dict[str, Any]], stale: bool, reason: str | None = None) -> dict[str, Any]:
+    if outcome != ProviderOutcome.SNAPSHOT.value:
+        fallback = _fallback(outcome)
+        if outcome == ProviderOutcome.NOT_RUN.value and reason in _NOT_RUN_TEXT:
+            fallback["tooltip_text"] += f": {_NOT_RUN_TEXT[reason]}"
+        return fallback
+    candidates = [(index, _percentage(window)) for index, window in enumerate(windows)]
+    eligible = [(index, percentage) for index, percentage in candidates if percentage is not None]
+    if not eligible:
+        return _fallback(outcome)
+    index, percentage = min(eligible, key=lambda candidate: (Decimal(candidate[1]), candidate[0]))
+    selected = windows[index]
+    depleted = {
+        "kind": selected["kind"],
+        "scope": selected["scope"],
+        "period": selected["period"],
+        "plan_id": selected["plan_id"],
+        "unit": selected["remaining"]["unit"],
+        "source_id": selected["source_id"],
+        "remaining_percentage": percentage,
+    }
+    compact = _bounded_summary(f"{selected['period']}: {percentage}% remaining", stale)
+    alternate = _bounded_summary(f"{selected['scope']} / {selected['period']}: {percentage}% remaining", stale)
+    lines = ["STALE"] if stale else []
+    for window in windows:
+        value = _percentage(window)
+        plan = f" / {window['plan_id']}" if window["plan_id"] is not None else ""
+        line = f"{window['kind']} / {window['scope']} / {window['period']}{plan}: "
+        line += f"{value}% remaining" if value is not None else "unavailable"
+        lines.append(line)
+        if value is not None and window["reset_at"] is not None:
+            lines.append(f"Resets at {window['reset_at']}")
+    tooltip = ""
+    for line in lines:
+        candidate = line if not tooltip else f"{tooltip}\n{line}"
+        if len(candidate) > 4096:
+            break
+        tooltip = candidate
+    return {"most_depleted_window": depleted, "compact_text": compact, "alternate_text": alternate, "tooltip_text": tooltip}
 def _provider(view: ProviderView, enabled: frozenset[ProviderKey]) -> tuple[dict[str, Any], str]:
     provider = _enum(ProviderKey, view.provider, "invalid v2 provider")
     state = _enum(ProviderState, view.state, "invalid v2 provider state")
@@ -186,7 +268,7 @@ def _provider(view: ProviderView, enabled: frozenset[ProviderKey]) -> tuple[dict
         if view.snapshot is not None or view.error is None:
             raise ValueError("invalid v2 execution-error outcome")
         item["execution_error"] = _error(view.error.code)
-    item.update(_fallback(outcome.value))
+    item.update(_presentation(outcome.value, item["windows"], item["freshness"] == SnapshotFreshness.STALE.value, item["not_run_reason"]))
     return item, outcome.value
 def project_v2_document(input: V2ProjectionInput) -> dict[str, Any]:
     """Build the ordered JSON-compatible v2 document without encoding it."""
@@ -219,7 +301,8 @@ def _encode(document: dict[str, Any]) -> bytes:
 def project_v2_bytes(input: V2ProjectionInput) -> bytes:
     """Return one compact UTF-8 v2 document followed by exactly one LF."""
 
-    return _encode(project_v2_document(input))
+    encoded = _encode(project_v2_document(input))
+    return encoded if len(encoded) <= _MAX_DOCUMENT_BYTES else project_v2_failure_bytes("internal_error")
 def project_v2_failure_bytes(code: str | SafeErrorCode) -> bytes:
     """Return a fixed, redacted v2 document-level failure envelope."""
 
@@ -243,7 +326,7 @@ def project_v2_failure_bytes(code: str | SafeErrorCode) -> bytes:
             "execution_error": None,
             "not_run_reason": reason,
         }
-        item.update(_fallback("not_run"))
+        item.update(_presentation("not_run", [], False, reason))
         providers.append(item)
     return _encode(
         {
