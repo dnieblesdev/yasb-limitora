@@ -483,55 +483,72 @@ windows by `(kind, scope, period)`, not by position.
 
 ## 10. Presentation Fields
 
-Presentation fields are bounded, sanitized text for CustomWidget. They MUST NOT
-create a second state machine. `compact_text`, `alternate_text`, and
-`tooltip_text` are always present, even for an undetected, not-run, or error
-provider.
+Presentation fields are bounded, sanitized, provider-local evidence. JSON v2
+MUST keep the existing `compact_text`, `alternate_text`, and `tooltip_text`
+trio, in the existing provider object and field order. It MUST NOT add a
+wrapper, duplicate state, or synthetic evidence. All three fields are present
+for every provider outcome.
 
-The per-provider `most_depleted_window` is either `null` or this exact object:
+For a `snapshot`, `value` is `<percentage>% remaining` when an eligible window
+exists and `percentage unavailable` otherwise. The exact grammar is:
 
-| Field | Type |
-|-------|------|
-| `kind` | Window kind |
-| `scope` | Window scope |
-| `period` | Window period |
-| `plan_id` | String or `null` |
-| `unit` | Quantity unit |
-| `source_id` | Sanitized string or `null` |
-| `remaining_percentage` | Canonical Decimal string |
+```text
+compact_text = B("Quota <value>", "; state=<public_state>; freshness=<freshness>", 128)
+alternate_text = B("Quota <scope> / <period>: <value>" if eligible else "Quota percentage unavailable", "; state=<public_state>; freshness=<freshness>", 128)
+```
 
-The object is a heuristic basis identity, not a synthetic window. An eligible
-window MUST be a `snapshot` window with `availability: known`, non-null
-`limit` and `remaining`, `limit.value > 0`, and a matching metric/unit. Stale
-windows remain eligible but their text MUST identify stale evidence. The
-heuristic chooses the lowest derived remaining percentage. Ties are broken by
-the window sort key from section 9. Cross-provider minima are forbidden.
+`B` truncates only its base to the first Unicode scalars needed to preserve the
+complete qualifier and the limit; it never adds a replacement marker. The
+qualifier order is normative. An ineligible snapshot therefore says
+`Quota percentage unavailable`, not zero, `0%`, or `Quota unavailable`.
+Partial snapshots preserve `state=partial`; stale snapshots preserve
+`freshness=stale` in every form, including when no eligible basis exists.
 
-Fallback strings are exact:
+`tooltip_text` begins exactly with
+`State: <public_state>\nFreshness: <freshness>\n`. With an eligible window the
+next line is `Quota: <percentage>% remaining`; otherwise the next lines are
+`Quota: percentage unavailable\nNo eligible percentage basis`. A snapshot then
+appends its windows in section 9 order, using complete lines in this exact
+form:
 
-| Provider condition | `compact_text` fallback |
-|--------------------|-------------------------|
-| No eligible window in a snapshot | `Quota unavailable` |
-| `undetected` | `Quota not detected` |
-| `not_run` | `Quota not run` |
-| `execution_error` | `Quota error` |
+```text
+Window: kind=<kind>; scope=<scope>; period=<period>; plan_id=<JSON string|null>; unit=<unit>; source_id=<JSON string|null>; result=<percentage>% remaining|percentage unavailable|availability=<availability>
+```
 
-`alternate_text` and `tooltip_text` MUST use the same condition and remain
-bounded. A snapshot with no windows MUST use `Quota unavailable`; it MUST NOT
-invent a window or report a count inconsistent with `windows: []`.
+String identities in that line use JSON string syntax; missing identities use
+the literal `null`. A known `reset_at` appends `Reset: <timestamp>` immediately
+after its window line. Tooltip lines are appended whole, in order, only while
+the complete result remains within 4096 Unicode scalars. Missing evidence
+remains missing: no synthetic value, zero, reset, identity, or raw error is
+allowed.
 
-When the document has `execution_error.code: cleanup_failed`, provider
-presentation fields MUST NOT be replaced by `Quota error` merely because the
-document failed during cleanup. Snapshot text, stale indication, undetected
-fallback, and provider-error fallback remain exactly tied to each provider's
-recorded outcome. A CustomWidget configuration that presents one document-wide
-fallback MUST use the literal `Document error: cleanup_failed` from the
-top-level error; a configuration that presents provider fields MUST preserve
-the provider text. This exposes the cleanup failure without falsifying valid
-provider evidence.
+`most_depleted_window` is non-null only for an eligible provider-local window.
+Eligibility requires a snapshot outcome, `availability: known`, non-null
+matching limit and remaining metric/unit, positive limit, valid range, and a
+representable result using Decimal precision 34 and `ROUND_HALF_EVEN`. It
+retains exactly `kind`, `scope`, `period`, `plan_id`, `unit`, `source_id`, and
+`remaining_percentage`; nullable identities remain JSON `null`. No eligible
+window means the whole field is `null`. Ties use the section 9 sort key.
 
-The presentation contract has no `severity`, `refreshing`, dynamic CSS,
-interactive progress, native popover, tab, or global minimum field.
+Non-snapshot presentation is exact: `undetected` uses `Quota not detected` in
+the trio; `not_run` uses `Quota not run` in compact/alternate and
+`Quota not run: <mapped reason text>` in the tooltip; `execution_error` uses
+`Quota error` in the trio and tooltip. The machine outcome token remains
+`not_run`, never the human fallback. Baseline mappings are
+`disabled -> provider disabled`, `invalid_configuration -> configuration
+invalid`, `invocation_invalid -> invocation invalid`, and `document_aborted ->
+document aborted`. Safe-error mappings are `timeout -> provider_timeout`,
+`invalid_provider_data -> invalid_provider_data`,
+`unknown_provider_state -> unknown_provider_state`, and every other published
+safe-error code -> `provider_failed`. Raw reasons and errors MUST NOT appear.
+
+`execution_error.code: cleanup_failed` MUST remain independently visible while
+each provider's recorded presentation remains truthful; a valid snapshot is
+not relabeled as unavailable or error. R6 changes no existing v2 fields,
+schema, model, object-key order, or byte-exact v1 output. It adds no new
+synthetic windows, percentages, resets, plans, periods, severity, CSS/classes,
+refresh, defaults, execution guards, deadlines, YASB assets, unsupported
+providers/metrics, or R7+ behavior.
 
 ## 11. Frozen JSON v1
 
@@ -935,9 +952,9 @@ this R2 unit.
         "source_id": "codex-app-server-v2",
         "remaining_percentage": "75"
       },
-      "compact_text": "five_hour: 75% remaining",
-      "alternate_text": "account / five_hour: 75% remaining",
-      "tooltip_text": "commercial_quota / account / five_hour / plus: 75% remaining\nResets at 2026-08-01T16:00:00.000000Z"
+      "compact_text": "Quota 75% remaining; state=available; freshness=fresh",
+      "alternate_text": "Quota account / five_hour: 75% remaining; state=available; freshness=fresh",
+      "tooltip_text": "State: available\nFreshness: fresh\nQuota: 75% remaining\nWindow: kind=commercial_quota; scope=account; period=five_hour; plan_id=\"plus\"; unit=percentage_points; source_id=\"codex-app-server-v2\"; result=75% remaining\nReset: 2026-08-01T16:00:00.000000Z"
     },
     {
       "provider": "opencode_go",
@@ -973,9 +990,9 @@ this R2 unit.
         "source_id": "opencode-go-dashboard",
         "remaining_percentage": "60"
       },
-      "compact_text": "weekly: 60% remaining",
-      "alternate_text": "account / weekly: 60% remaining",
-      "tooltip_text": "commercial_quota / account / weekly: 60% remaining\nResets at 2026-08-08T12:00:01.000000Z"
+      "compact_text": "Quota 60% remaining; state=available; freshness=fresh",
+      "alternate_text": "Quota account / weekly: 60% remaining; state=available; freshness=fresh",
+      "tooltip_text": "State: available\nFreshness: fresh\nQuota: 60% remaining\nWindow: kind=commercial_quota; scope=account; period=weekly; plan_id=null; unit=percentage_points; source_id=\"opencode-go-dashboard\"; result=60% remaining\nReset: 2026-08-08T12:00:01.000000Z"
     }
   ]
 }
@@ -1035,9 +1052,9 @@ this R2 unit.
         "source_id": "codex-app-server-v2",
         "remaining_percentage": "10"
       },
-      "compact_text": "five_hour: 10% remaining (stale)",
-      "alternate_text": "account / five_hour: 10% remaining (stale)",
-      "tooltip_text": "STALE\ncommercial_quota / account / five_hour / plus: 10% remaining\ncommercial_quota / account / weekly / plus: unavailable"
+      "compact_text": "Quota 10% remaining; state=partial; freshness=stale",
+      "alternate_text": "Quota account / five_hour: 10% remaining; state=partial; freshness=stale",
+      "tooltip_text": "State: partial\nFreshness: stale\nQuota: 10% remaining\nWindow: kind=commercial_quota; scope=account; period=five_hour; plan_id=\"plus\"; unit=percentage_points; source_id=\"codex-app-server-v2\"; result=10% remaining\nReset: 2026-08-01T14:00:00.000000Z\nWindow: kind=commercial_quota; scope=account; period=weekly; plan_id=\"plus\"; unit=percentage_points; source_id=\"codex-app-server-v2\"; result=availability=unavailable"
     },
     {
       "provider": "opencode_go",
@@ -1190,9 +1207,9 @@ this R2 unit.
       "execution_error": null,
       "not_run_reason": null,
       "most_depleted_window": null,
-      "compact_text": "Quota unavailable",
-      "alternate_text": "Quota unavailable",
-      "tooltip_text": "Quota unavailable"
+      "compact_text": "Quota percentage unavailable; state=rate_limited; freshness=fresh",
+      "alternate_text": "Quota percentage unavailable; state=rate_limited; freshness=fresh",
+      "tooltip_text": "State: rate_limited\nFreshness: fresh\nQuota: percentage unavailable\nNo eligible percentage basis"
     }
   ]
 }
@@ -1405,7 +1422,7 @@ this R2 unit.
       "most_depleted_window": null,
       "compact_text": "Quota not run",
       "alternate_text": "Quota not run",
-      "tooltip_text": "Quota not run: document execution aborted"
+      "tooltip_text": "Quota not run: document aborted"
     },
     {
       "provider": "opencode_go",
@@ -1422,7 +1439,7 @@ this R2 unit.
       "most_depleted_window": null,
       "compact_text": "Quota not run",
       "alternate_text": "Quota not run",
-      "tooltip_text": "Quota not run: document execution aborted"
+      "tooltip_text": "Quota not run: document aborted"
     }
   ]
 }
@@ -1470,9 +1487,9 @@ this R2 unit.
         "source_id": "codex-app-server-v2",
         "remaining_percentage": "75"
       },
-      "compact_text": "five_hour: 75% remaining",
-      "alternate_text": "account / five_hour: 75% remaining",
-      "tooltip_text": "commercial_quota / account / five_hour / plus: 75% remaining\nResets at 2026-08-01T16:03:00.000000Z"
+      "compact_text": "Quota 75% remaining; state=available; freshness=fresh",
+      "alternate_text": "Quota account / five_hour: 75% remaining; state=available; freshness=fresh",
+      "tooltip_text": "State: available\nFreshness: fresh\nQuota: 75% remaining\nWindow: kind=commercial_quota; scope=account; period=five_hour; plan_id=\"plus\"; unit=percentage_points; source_id=\"codex-app-server-v2\"; result=75% remaining\nReset: 2026-08-01T16:03:00.000000Z"
     },
     {
       "provider": "opencode_go",
@@ -1659,9 +1676,9 @@ replace either provider result.
       "execution_error": null,
       "not_run_reason": null,
       "most_depleted_window": null,
-      "compact_text": "Quota unavailable",
-      "alternate_text": "Quota unavailable",
-      "tooltip_text": "Quota unavailable"
+      "compact_text": "Quota percentage unavailable; state=unavailable; freshness=fresh",
+      "alternate_text": "Quota percentage unavailable; state=unavailable; freshness=fresh",
+      "tooltip_text": "State: unavailable\nFreshness: fresh\nQuota: percentage unavailable\nNo eligible percentage basis"
     },
     {
       "provider": "opencode_go",
