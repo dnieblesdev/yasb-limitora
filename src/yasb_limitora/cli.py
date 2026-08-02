@@ -14,6 +14,7 @@ from .config import ConfigError, LocalConfig
 from .coordinator import RuntimeCoordinator
 from .model import DocumentView, ProviderKey, ProviderState, ProviderView, SafeError, SafeErrorCode
 from .projection import project_bytes
+from .projection_v2 import V2ProjectionInput, project_v2_bytes, project_v2_failure_bytes
 
 _SECRET = re.compile(r"auth.?cookie|cookie|token|password|secret|credential|api.?key|authorization", re.I)
 
@@ -40,6 +41,36 @@ def _config_path(argv: Sequence[str]) -> str | None:
     if len(argv) == 1 and argv[0].startswith("--config=") and argv[0][9:]:
         return argv[0][9:]
     raise InvocationError
+
+
+def _output_version(argv: Sequence[str]) -> tuple[int | None, tuple[str, ...]]:
+    """Remove one exact output selector, leaving the frozen v1 arguments intact."""
+
+    if not all(isinstance(item, str) for item in argv):
+        raise InvocationError
+    version: int | None = None
+    remaining: list[str] = []
+    index = 0
+    while index < len(argv):
+        argument = argv[index]
+        if argument == "--output-version":
+            if version is not None or index + 1 >= len(argv):
+                raise InvocationError
+            value = argv[index + 1]
+            if value not in {"1", "2"}:
+                raise InvocationError
+            version = int(value)
+            index += 2
+            continue
+        if argument.startswith("--output-version="):
+            if version is not None or argument[17:] not in {"1", "2"}:
+                raise InvocationError
+            version = int(argument[17:])
+            index += 1
+            continue
+        remaining.append(argument)
+        index += 1
+    return version, tuple(remaining)
 
 
 def _load(argv: Sequence[str]) -> LocalConfig:
@@ -75,20 +106,66 @@ def main(
     args = tuple(sys.argv[1:] if argv is None else argv)
     out, err = sys.stdout if stdout is None else stdout, sys.stderr if stderr is None else stderr
     try:
-        config = _load(args)
+        version, load_args = _output_version(args)
     except InvocationError:
-        document, exit_code, diagnostic = _failure(SafeErrorCode.INVOCATION_INVALID), 2, "invocation_invalid"
+        _write(out, project_bytes(_failure(SafeErrorCode.INVOCATION_INVALID)))
+        err.write("yasb-limitora: invocation_invalid\n")
+        err.flush()
+        return 2
+    try:
+        config = _load(load_args)
+    except InvocationError:
+        if version == 2:
+            data, diagnostic = project_v2_failure_bytes("invocation_invalid"), "invocation_invalid"
+        else:
+            data, diagnostic = project_bytes(_failure(SafeErrorCode.INVOCATION_INVALID)), "invocation_invalid"
+        _write(out, data)
+        err.write(f"yasb-limitora: {diagnostic}\n")
+        err.flush()
+        return 2
     except ConfigError:
-        document, exit_code, diagnostic = _failure(SafeErrorCode.CONFIGURATION_INVALID), 2, "configuration_invalid"
+        if version == 2:
+            data, diagnostic = project_v2_failure_bytes("configuration_invalid"), "configuration_invalid"
+        else:
+            data, diagnostic = project_bytes(_failure(SafeErrorCode.CONFIGURATION_INVALID)), "configuration_invalid"
+        _write(out, data)
+        err.write(f"yasb-limitora: {diagnostic}\n")
+        err.flush()
+        return 2
     else:
         try:
             active_coordinator = coordinator if coordinator is not None else RuntimeCoordinator()
-            document = active_coordinator.run(config, os.environ if environment is None else environment)
+            runtime_environment = os.environ if environment is None else environment
+            document = active_coordinator.run(config, runtime_environment)
         except Exception:  # noqa: BLE001 - the machine boundary must never expose runtime details
-            document = _failure(SafeErrorCode.INTERNAL_ERROR)
-        exit_code = 1 if any(view.state is ProviderState.SAFE_ERROR for view in document.providers) else 0
-        diagnostic = "runtime_error" if exit_code else ""
-    _write(out, project_bytes(document))
+            if version == 2:
+                data = project_v2_failure_bytes("internal_error")
+            else:
+                data = project_bytes(_failure(SafeErrorCode.INTERNAL_ERROR))
+            _write(out, data)
+            err.write("yasb-limitora: runtime_error\n")
+            err.flush()
+            return 1
+        if version == 2:
+            try:
+                exit_code = 1 if any(view.state is ProviderState.SAFE_ERROR for view in document.providers) else 0
+                diagnostic = "runtime_error" if exit_code else ""
+                enabled = frozenset(
+                    provider
+                    for provider, enabled_flag in (
+                        (ProviderKey.CODEX, config.codex.enabled),
+                        (ProviderKey.OPENCODE_GO, config.opencode_go.enabled),
+                    )
+                    if enabled_flag
+                )
+                data = project_v2_bytes(V2ProjectionInput(document, enabled))
+            except Exception:  # noqa: BLE001 - v2 projection failures are safe
+                data, exit_code, diagnostic = project_v2_failure_bytes("internal_error"), 1, "runtime_error"
+        else:
+            exit_code = 1 if any(view.state is ProviderState.SAFE_ERROR for view in document.providers) else 0
+            diagnostic = "runtime_error" if exit_code else ""
+            data = project_bytes(document)
+    _write(out, data)
     if diagnostic:
         err.write(f"yasb-limitora: {diagnostic}\n")
         err.flush()

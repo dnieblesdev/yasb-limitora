@@ -30,6 +30,18 @@ from yasb_limitora.cli import main
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
+class _Coordinator:
+    def __init__(self):
+        self.calls = []
+
+    def run(self, config, environment):
+        self.calls.append((config, environment))
+        return DocumentView.ordered(
+            _view(ProviderKey.CODEX, ProviderState.UNAVAILABLE),
+            _view(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE),
+        )
+
+
 def _view(provider, state, error=None, label=None):
     return ProviderView(provider, state, error, label)
 
@@ -88,6 +100,47 @@ def test_v1_no_argument_behavior_is_the_frozen_all_disabled_document():
     assert main((), environment={"YASB_LIMITORA_CONFIG": "must-not-be-read"}, stdout=stdout, stderr=stderr) == 0
     assert stdout.getvalue() == (FIXTURES / "json_v1_unavailable.json").read_bytes()
     assert stderr.getvalue() == ""
+
+
+@pytest.mark.parametrize("argv", (("--output-version", "1"), ("--output-version=1",)))
+def test_explicit_v1_selector_preserves_frozen_no_config_bytes(argv):
+    stdout, stderr = io.BytesIO(), io.StringIO()
+
+    assert main(argv, environment={"YASB_LIMITORA_CONFIG": "must-not-be-read"}, stdout=stdout, stderr=stderr) == 0
+    assert stdout.getvalue() == (FIXTURES / "json_v1_unavailable.json").read_bytes()
+    assert stderr.getvalue() == ""
+
+
+@pytest.mark.parametrize("selector", (("--output-version", "1"), ("--output-version=1",)))
+@pytest.mark.parametrize("form", ("long", "short", "equals"))
+def test_explicit_v1_config_forms_preserve_frozen_bytes_and_config(tmp_path, selector, form):
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}}),
+        encoding="utf-8",
+    )
+    config_args = {
+        "long": ("--config", str(path)),
+        "short": ("-c", str(path)),
+        "equals": (f"--config={path}",),
+    }[form]
+    coordinator = _Coordinator()
+    stdout, stderr = io.BytesIO(), io.StringIO()
+
+    assert main(
+        (*selector, *config_args),
+        environment={"YASB_LIMITORA_CONFIG": "must-not-be-read"},
+        coordinator=coordinator,
+        stdout=stdout,
+        stderr=stderr,
+    ) == 0
+    assert stdout.getvalue() == (FIXTURES / "json_v1_unavailable.json").read_bytes()
+    assert stderr.getvalue() == ""
+    assert len(coordinator.calls) == 1
+    config, environment = coordinator.calls[0]
+    assert config.codex.enabled is True
+    assert config.codex.runner == r"C:\\codex.exe"
+    assert environment == {"YASB_LIMITORA_CONFIG": "must-not-be-read"}
 
 
 def test_v1_projection_ignores_rich_snapshot_fields():
