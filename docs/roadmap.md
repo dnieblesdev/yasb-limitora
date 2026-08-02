@@ -115,13 +115,16 @@ Canonical v2 schema/model ordering and frozen v1 output remain unchanged, and
 no R7+ behavior is included.
 
 This entry records the verified pre-closeout candidate, not publication to
-`main`. The documentation-only changes after that candidate do not alter
-runtime behavior, so this entry intentionally does not claim a self-referential
-final integration SHA for the commit that will contain this correction. The
-remaining publication gate is the approved tracker #37 and applicable R6 issue
-closeout, followed by merging draft integration PR #75 to `main`. PR #75 and
-that tracker/issue closeout remain pending; `main` remains at its prior state,
-and R7 remains unstarted. Later units remain future work.
+`main`. The post-candidate corrections are non-runtime documentation and
+contract-test corrections: `cc46ecd` changed only this roadmap, while
+`38a5f346` corrected the null-unit example in
+`docs/specifications/json-v2.md` and its matching assertion in
+`tests/test_json_v2_spec.py`. They do not provide runtime evidence, so this
+entry intentionally does not claim a self-referential final integration SHA.
+The remaining publication gate is the approved tracker #37 and applicable R6
+issue closeout, followed by merging draft integration PR #75 to `main`. PR #75
+and that tracker/issue closeout remain pending; `main` remains at its prior
+state, and R7 remains unstarted. Later units remain future work.
 
 ## Explicit exclusions for 0.2
 
