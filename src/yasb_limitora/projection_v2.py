@@ -37,6 +37,7 @@ _FAILURES = {
     "internal_error": ("document", "document_aborted"),
 }
 _MAX_DOCUMENT_BYTES = 65_536
+_MAX_TOOLTIP_SCALARS = 4_096
 _NOT_RUN_TEXT = {
     "disabled": "provider disabled",
     "invalid_configuration": "configuration invalid",
@@ -188,6 +189,7 @@ def _presentation(
     public_state: str | None,
     freshness: str | None,
     reason: str | None = None,
+    tooltip_limit: int = _MAX_TOOLTIP_SCALARS,
 ) -> dict[str, Any]:
     if outcome != ProviderOutcome.SNAPSHOT.value:
         fallback = _fallback(outcome)
@@ -238,14 +240,15 @@ def _presentation(
         lines.append(line)
         if window["reset_at"] is not None:
             lines.append(f"Reset: {window['reset_at']}")
-    tooltip = ""
-    for line in lines:
+    prefix_lines = 4 if depleted is None else 3
+    tooltip = "\n".join(lines[:prefix_lines])
+    for line in lines[prefix_lines:]:
         candidate = line if not tooltip else f"{tooltip}\n{line}"
-        if len(candidate) > 4096:
+        if len(candidate) > tooltip_limit:
             break
         tooltip = candidate
     return {"most_depleted_window": depleted, "compact_text": compact, "alternate_text": alternate, "tooltip_text": tooltip}
-def _provider(view: ProviderView, enabled: frozenset[ProviderKey]) -> tuple[dict[str, Any], str]:
+def _provider(view: ProviderView, enabled: frozenset[ProviderKey], tooltip_limit: int) -> tuple[dict[str, Any], str]:
     provider = _enum(ProviderKey, view.provider, "invalid v2 provider")
     state = _enum(ProviderState, view.state, "invalid v2 provider state")
     outcome = view.outcome
@@ -298,9 +301,11 @@ def _provider(view: ProviderView, enabled: frozenset[ProviderKey]) -> tuple[dict
         if view.snapshot is not None or view.error is None:
             raise ValueError("invalid v2 execution-error outcome")
         item["execution_error"] = _error(view.error.code)
-    item.update(_presentation(outcome.value, item["windows"], item["public_state"], item["freshness"], item["not_run_reason"]))
+    item.update(_presentation(outcome.value, item["windows"], item["public_state"], item["freshness"], item["not_run_reason"], tooltip_limit))
     return item, outcome.value
-def project_v2_document(input: V2ProjectionInput) -> dict[str, Any]:
+
+
+def _project_v2_document(input: V2ProjectionInput, tooltip_limit: int) -> dict[str, Any]:
     """Build the ordered JSON-compatible v2 document without encoding it."""
 
     if not isinstance(input, V2ProjectionInput):
@@ -308,7 +313,7 @@ def project_v2_document(input: V2ProjectionInput) -> dict[str, Any]:
     views = {view.provider: view for view in input.document.providers}
     if tuple(views) != PROVIDER_ORDER or len(views) != len(PROVIDER_ORDER):
         raise ValueError("document providers are not canonical")
-    providers, outcomes = zip(*(_provider(views[provider], input.enabled_providers) for provider in PROVIDER_ORDER))
+    providers, outcomes = zip(*(_provider(views[provider], input.enabled_providers, tooltip_limit) for provider in PROVIDER_ORDER))
     successful = {ProviderOutcome.SNAPSHOT.value, ProviderOutcome.UNDETECTED.value}
     if all(outcome in successful for outcome in outcomes):
         execution_state, execution_error = "complete", None
@@ -324,6 +329,12 @@ def project_v2_document(input: V2ProjectionInput) -> dict[str, Any]:
         "execution_error": execution_error,
         "providers": list(providers),
     }
+
+
+def project_v2_document(input: V2ProjectionInput) -> dict[str, Any]:
+    """Build the ordered JSON-compatible v2 document without encoding it."""
+
+    return _project_v2_document(input, _MAX_TOOLTIP_SCALARS)
 def _encode(document: dict[str, Any]) -> bytes:
     return (json.dumps(document, ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
 
@@ -332,7 +343,19 @@ def project_v2_bytes(input: V2ProjectionInput) -> bytes:
     """Return one compact UTF-8 v2 document followed by exactly one LF."""
 
     encoded = _encode(project_v2_document(input))
-    return encoded if len(encoded) <= _MAX_DOCUMENT_BYTES else project_v2_failure_bytes("internal_error")
+    if len(encoded) <= _MAX_DOCUMENT_BYTES:
+        return encoded
+
+    low, high, best = 0, _MAX_TOOLTIP_SCALARS, None
+    while low <= high:
+        tooltip_limit = (low + high) // 2
+        candidate = _encode(_project_v2_document(input, tooltip_limit))
+        if len(candidate) <= _MAX_DOCUMENT_BYTES:
+            best = candidate
+            low = tooltip_limit + 1
+        else:
+            high = tooltip_limit - 1
+    return best if best is not None else project_v2_failure_bytes("internal_error")
 def project_v2_failure_bytes(code: str | SafeErrorCode) -> bytes:
     """Return a fixed, redacted v2 document-level failure envelope."""
 

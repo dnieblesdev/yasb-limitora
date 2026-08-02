@@ -522,6 +522,27 @@ the complete result remains within 4096 Unicode scalars. Missing evidence
 remains missing: no synthetic value, zero, reset, identity, or raw error is
 allowed.
 
+The 65,536-byte document limit is applied after the complete canonical JSON v2
+document is projected and encoded. If that encoding would exceed the limit,
+the implementation MUST retry presentation rendering with one deterministic,
+document-local tooltip scalar budget shared by all snapshot providers. The
+budget starts at 4096 and is reduced only as needed; each retry still keeps the
+required state/freshness/quota prefix and appends only complete tooltip lines
+in canonical order. This presentation budget may omit later tooltip lines, but
+it MUST NOT remove or alter canonical `windows` evidence or any other document
+field, invent evidence, increase the 65,536-byte limit, or change normal-case
+grammar. The largest budget whose encoded document fits MUST be selected. If
+the required prefixes and canonical document fields cannot fit at any budget,
+the unchanged whole-document `internal_error` fallback is used. Therefore a
+valid near-cap document remains a provider snapshot at exactly 65,535 and
+65,536 bytes; only a genuinely over-cap document becomes a document failure.
+
+For example, a near-cap tooltip may end after `Quota: 75% remaining` or after
+a complete `Window: ...` line when later presentation lines cannot fit. The
+corresponding canonical window objects remain present in `windows`, so omitted
+tooltip detail is bounded presentation rather than fabricated or discarded
+provider evidence.
+
 `most_depleted_window` is non-null only for an eligible provider-local window.
 Eligibility requires a snapshot outcome, `availability: known`, non-null
 matching limit and remaining metric/unit, positive limit, valid range, and a
