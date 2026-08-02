@@ -93,7 +93,12 @@ def _expected_snapshot_presentation(provider):
     if basis is None:
         lines.append("No eligible percentage basis")
     for window in sorted(provider["windows"], key=_window_sort_key):
-        unit = window["limit"]["unit"] if window["limit"] else "percentage_points"
+        units = {
+            quantity["unit"]
+            for quantity in (window["limit"], window["used"], window["remaining"])
+            if quantity is not None
+        }
+        unit = next(iter(units)) if len(units) == 1 else "null"
         if _window_identity(window) == basis_identity:
             result = f"{basis['remaining_percentage']}% remaining"
         elif window["availability"] == "known":
@@ -263,6 +268,10 @@ def test_r6_examples_use_the_exact_snapshot_presentation_grammar():
     assert stale["alternate_text"] == "Quota account / five_hour: 10% remaining; state=partial; freshness=stale"
     assert "State: partial\nFreshness: stale\nQuota: 10% remaining\n" in stale["tooltip_text"]
     assert "result=availability=unavailable" in stale["tooltip_text"]
+    assert (
+        'period=weekly; plan_id="plus"; unit=null; '
+        'source_id="codex-app-server-v2"; result=availability=unavailable'
+    ) in stale["tooltip_text"]
 
     for example_index, state in ((4, "rate_limited"), (14, "unavailable")):
         provider = examples[example_index]["providers"][1 if example_index == 4 else 0]
