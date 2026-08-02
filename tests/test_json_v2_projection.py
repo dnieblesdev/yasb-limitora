@@ -288,13 +288,17 @@ def test_presentation_contract_maps_not_run_and_safe_errors_without_raw_details(
     assert not_run["tooltip_text"] == "Quota not run: document aborted"
 
 
-def test_control_character_in_evidence_is_rejected_before_presentation():
-    window = _window("safe-period")
-    object.__setattr__(window, "period", "safe\nperiod")
+def test_tooltip_quotes_identity_delimiters_and_backslashes():
+    window = _window("five=hour", scope="team;west", unit=r"requests\hour")
     projection = V2ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [window]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
-    with pytest.raises(ValueError, match="invalid v2 period") as error:
-        project_v2_document(projection)
-    assert "safe\\nperiod" not in str(error.value)
+    provider = project_v2_document(projection)["providers"][0]
+
+    assert 'scope="team;west"; period="five=hour"' in provider["tooltip_text"]
+    assert 'unit="requests\\\\hour"; source_id=null;' in provider["tooltip_text"]
+    assert 'Quota "team;west" / "five=hour": 75% remaining' in provider["alternate_text"]
+    assert "scope=team;west;" not in provider["tooltip_text"]
+    assert "period=five=hour;" not in provider["tooltip_text"]
+    assert "unit=requests\\hour;" not in provider["tooltip_text"]
 
 
 def test_presentation_is_bounded_and_sources_are_reviewed_before_emission():

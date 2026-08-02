@@ -73,6 +73,12 @@ def _identity(value: object, message: str) -> str:
     ):
         raise ValueError(message)
     return value
+
+
+def _presentation_identity(value: str) -> str:
+    if any(character in ";=\\" for character in value):
+        return json.dumps(value, ensure_ascii=False)
+    return value
 def _source(value: object) -> str | None:
     if not isinstance(value, str):
         return None
@@ -212,7 +218,7 @@ def _presentation(
         }
         value = f"{percentage}% remaining"
         compact_base = f"Quota {value}"
-        alternate_base = f"Quota {selected['scope']} / {selected['period']}: {value}"
+        alternate_base = f"Quota {_presentation_identity(selected['scope'])} / {_presentation_identity(selected['period'])}: {value}"
     else:
         depleted = None
         value = "percentage unavailable"
@@ -233,8 +239,10 @@ def _presentation(
             result = f"availability={window['availability']}"
         unit = _evidenced_unit(window)
         line = (
-            f"Window: kind={window['kind']}; scope={window['scope']}; period={window['period']}; "
-            f"plan_id={json.dumps(window['plan_id'], ensure_ascii=False)}; unit={unit or 'null'}; "
+            f"Window: kind={window['kind']}; scope={_presentation_identity(window['scope'])}; "
+            f"period={_presentation_identity(window['period'])}; "
+            f"plan_id={json.dumps(window['plan_id'], ensure_ascii=False)}; "
+            f"unit={_presentation_identity(unit) if unit is not None else 'null'}; "
             f"source_id={json.dumps(window['source_id'], ensure_ascii=False)}; result={result}"
         )
         lines.append(line)

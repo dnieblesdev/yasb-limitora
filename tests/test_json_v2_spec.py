@@ -368,7 +368,7 @@ def test_r6_fallback_mappings_and_exclusions_are_normative():
         "`invalid_provider_data -> invalid_provider_data`",
         "`unknown_provider_state -> unknown_provider_state`",
         "every other published\nsafe-error code -> `provider_failed`",
-        "no synthetic value, zero, reset, identity, or raw error",
+        "Missing evidence remains missing: no\nsynthetic value, zero, reset, identity, or raw error",
         "Partial snapshots preserve `state=partial`; stale snapshots preserve",
         "R6 changes no existing v2 fields,\nschema, model, object-key order",
         "no new\nsynthetic windows, percentages, resets, plans, periods, severity, CSS/classes",
@@ -383,6 +383,20 @@ def test_r6_fallback_mappings_and_exclusions_are_normative():
     assert examples[7]["providers"][0]["tooltip_text"] == "Quota not run: invocation invalid"
     assert examples[9]["providers"][0]["tooltip_text"] == "Quota not run: document aborted"
     assert examples[4]["providers"][0]["tooltip_text"] == "Quota error"
+
+
+def test_r6_tooltip_identity_escaping_rule_is_normative():
+    text = SPEC.read_text(encoding="utf-8")
+
+    for fragment in (
+        "identity is rendered as its existing raw text. An identity containing `;`, `=`,",
+        "or backslash is instead rendered as a JSON string using the same",
+        "Unicode-preserving escaping as canonical JSON",
+        "making every `key=value;` boundary\nunambiguous",
+        "same escaped representation is used for those identities in",
+        "does not alter the underlying identity or invent a replacement\nvalue",
+    ):
+        assert fragment in text
 
 
 def test_r6_near_cap_presentation_budget_and_boundary_fallback_are_normative():

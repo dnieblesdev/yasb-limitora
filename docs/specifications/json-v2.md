@@ -515,12 +515,20 @@ form:
 Window: kind=<kind>; scope=<scope>; period=<period>; plan_id=<JSON string|null>; unit=<unit>; source_id=<JSON string|null>; result=<percentage>% remaining|percentage unavailable|availability=<availability>
 ```
 
-String identities in that line use JSON string syntax; missing identities use
-the literal `null`. A known `reset_at` appends `Reset: <timestamp>` immediately
-after its window line. Tooltip lines are appended whole, in order, only while
-the complete result remains within 4096 Unicode scalars. Missing evidence
-remains missing: no synthetic value, zero, reset, identity, or raw error is
-allowed.
+`plan_id` and `source_id` in that line always use JSON string syntax; missing
+identities use the literal `null`. For `scope`, `period`, and `unit`, a safe
+identity is rendered as its existing raw text. An identity containing `;`, `=`,
+or backslash is instead rendered as a JSON string using the same
+Unicode-preserving escaping as canonical JSON (for example,
+`scope="team;west"` and `period="five\\nhour"`). This conditional form keeps
+normal-case tooltip bytes unchanged while making every `key=value;` boundary
+unambiguous; it does not alter the underlying identity or invent a replacement
+value. The same escaped representation is used for those identities in
+`alternate_text` so its bounded presentation uses the same identity form. A known
+`reset_at` appends `Reset: <timestamp>` immediately after its window line.
+Tooltip lines are appended whole, in order, only while the complete result
+remains within 4096 Unicode scalars. Missing evidence remains missing: no
+synthetic value, zero, reset, identity, or raw error is allowed.
 
 The 65,536-byte document limit is applied after the complete canonical JSON v2
 document is projected and encoded. If that encoding would exceed the limit,
