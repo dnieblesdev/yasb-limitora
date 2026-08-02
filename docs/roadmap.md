@@ -2,9 +2,10 @@
 
 This is the product source of truth for the approved R1-R11 order. The 0.2
 integration is exclusively `YASB CustomWidget -> yasb-limitora CLI / JSON v2 ->
-Limitora public API`. R1-R5 are complete. R6 implementation is complete and
-verified on the integration branch; final publication remains pending. Later
-units remain out of scope until their ordered turn.
+Limitora public API`. R1-R5 are complete. R6 implementation and runtime
+verification are complete at the exact pre-closeout integration candidate
+`352e8f03c4f877a877de8b2e0b2d3b10e815fa27`; final publication remains pending.
+Later units remain out of scope until their ordered turn.
 
 ## Delivery order
 
@@ -83,9 +84,10 @@ execution guard, deadline, and cleanup machinery remain future work.
 
 ## R6 closeout
 
-R6 implementation is complete on the verified integration branch at merge
-commit `9e12d28ced6bcd484b59038e33fad83956f9e91d`. The closeout consists of
-three reviewed slices followed by post-merge integration verification:
+R6 runtime implementation is complete on the exact pre-closeout integration
+candidate `352e8f03c4f877a877de8b2e0b2d3b10e815fa27`. The closeout consists of
+the three original reviewed slices plus final-review fix child PR #79, followed
+by post-merge integration verification:
 
 - The contract slice, commit `9ff3be2`, published the normative presentation
   grammar, mappings, bounds, and contract tests.
@@ -93,23 +95,33 @@ three reviewed slices followed by post-merge integration verification:
   provider-local projection and focused runtime/v1 proof.
 - The roadmap closeout slice, commit `00a395e`, recorded the verified
   integration state without claiming publication to `main`.
-- The integration merge has the same runtime tree as `8914881`, proving no
-  merge-resolution drift. The R6 implementation scope remains four files:
+- Final-review fix child PR #79, commit `c10f52ce`, corrected the near-cap
+  presentation-boundary regression so valid 65,535- and 65,536-byte provider
+  snapshots retain canonical evidence while irreducible over-cap payloads
+  retain the document-level `internal_error` fallback.
+- The integration candidate `352e8f03c4f877a877de8b2e0b2d3b10e815fa27`
+  preserves the final-review child commit `c10f52ce` source/contract/focused-
+  test trees with no merge drift, while earlier slices remain in ancestry. The
+  R6 implementation scope remains four files:
   `docs/specifications/json-v2.md`, `tests/test_json_v2_spec.py`,
   `src/yasb_limitora/projection_v2.py`, and
   `tests/test_json_v2_projection.py`; the roadmap closeout is recorded in this
   document.
 
-Post-merge evidence is 60 focused tests passed; 281 full-suite tests passed
-with 4 skipped; `py_compile`, `compileall`, and `git diff --check` passed; and
-all 7 required R6 scenarios are compliant. Canonical v2 schema/model ordering
-and frozen v1 output remain unchanged, and no R7+ behavior is included.
+Post-merge evidence at that candidate is 61 focused tests passed; 282
+full-suite tests passed with 4 skipped; `py_compile`, `compileall`, and
+`git diff --check` passed; and all 9 required R6 scenarios are compliant.
+Canonical v2 schema/model ordering and frozen v1 output remain unchanged, and
+no R7+ behavior is included.
 
-This entry records verified integration completion, not publication to `main`.
-The three R6 slices are now reviewed and merged into the integration branch.
-The remaining publication gate is the approved tracker #37 and applicable R6
-issue closeout, followed by merging draft integration PR #75 to `main`. R7 and
-later units remain future and unstarted.
+This entry records the verified pre-closeout candidate, not publication to
+`main`. The documentation-only changes after that candidate do not alter
+runtime behavior, so this entry intentionally does not claim a self-referential
+final integration SHA for the commit that will contain this correction. The
+remaining publication gate is the approved tracker #37 and applicable R6 issue
+closeout, followed by merging draft integration PR #75 to `main`. PR #75 and
+that tracker/issue closeout remain pending; `main` remains at its prior state,
+and R7 remains unstarted. Later units remain future work.
 
 ## Explicit exclusions for 0.2
 
