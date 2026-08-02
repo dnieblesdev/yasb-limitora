@@ -1075,7 +1075,7 @@ this R2 unit.
       },
       "compact_text": "Quota 10% remaining; state=partial; freshness=stale",
       "alternate_text": "Quota account / five_hour: 10% remaining; state=partial; freshness=stale",
-      "tooltip_text": "State: partial\nFreshness: stale\nQuota: 10% remaining\nWindow: kind=commercial_quota; scope=account; period=five_hour; plan_id=\"plus\"; unit=percentage_points; source_id=\"codex-app-server-v2\"; result=10% remaining\nReset: 2026-08-01T14:00:00.000000Z\nWindow: kind=commercial_quota; scope=account; period=weekly; plan_id=\"plus\"; unit=percentage_points; source_id=\"codex-app-server-v2\"; result=availability=unavailable"
+      "tooltip_text": "State: partial\nFreshness: stale\nQuota: 10% remaining\nWindow: kind=commercial_quota; scope=account; period=five_hour; plan_id=\"plus\"; unit=percentage_points; source_id=\"codex-app-server-v2\"; result=10% remaining\nReset: 2026-08-01T14:00:00.000000Z\nWindow: kind=commercial_quota; scope=account; period=weekly; plan_id=\"plus\"; unit=null; source_id=\"codex-app-server-v2\"; result=availability=unavailable"
     },
     {
       "provider": "opencode_go",
