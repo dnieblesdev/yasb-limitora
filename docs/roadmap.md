@@ -4,7 +4,8 @@ This is the product source of truth for the approved R1-R11 order. The 0.2
 integration is exclusively `YASB CustomWidget -> yasb-limitora CLI / JSON v2 ->
 Limitora public API`. R1-R5 are complete. R6 implementation and runtime
 verification are complete at the exact pre-closeout integration candidate
-`352e8f03c4f877a877de8b2e0b2d3b10e815fa27`; final publication remains pending.
+`352e8f03c4f877a877de8b2e0b2d3b10e815fa27`; final publication is merged to
+`main` at `30c94d00f780b597644c1494833d4dd50738556b`.
 Later units remain out of scope until their ordered turn.
 
 ## Delivery order
@@ -16,7 +17,7 @@ Later units remain out of scope until their ordered turn.
 | R3 | Preserve public quota snapshots and dimensions | Preserve provider outcomes, exact public state, freshness, timestamps, quota windows, quantities, resets, plans, and safe source context | Complete |
 | R4 | Migrate rich Codex helper IPC | Migrate the rich snapshot boundary through the Codex helper process | Complete |
 | R5 | Project and negotiate JSON v2 | Add the accepted JSON v2 projection and explicit CLI negotiation | Complete |
-| R6 | Refine truthful presentation projection | Produce bounded compact, alternate, and tooltip fields from preserved evidence | Complete — integration verified; publication pending |
+| R6 | Refine truthful presentation projection | Produce bounded compact, alternate, and tooltip fields from preserved evidence | Complete — merged to `main` at `30c94d0` |
 | R7 | Resolve default Windows configuration | Add the accepted default Windows configuration resolution | Planned after R6 |
 | R8 | Add the cross-process execution guard | Add bounded guard acquisition, deadlines, and cleanup behavior | Planned after R7 |
 | R9 | Package CustomWidget examples and static CSS | Package the CustomWidget examples and static presentation assets | Planned after R8 |
@@ -114,20 +115,21 @@ full-suite tests passed with 4 skipped; `py_compile`, `compileall`, and
 Canonical v2 schema/model ordering and frozen v1 output remain unchanged, and
 no R7+ behavior is included.
 
-This entry records the verified integration boundary, not publication to
-`main`. Post-`352e8f03` history is not uniformly non-runtime: child commit
-`023e65d` changed runtime identity rendering plus its specification and
-focused tests. Its runtime/contract/test tree was integrated and verified at
-`d562e04`, with 62 focused tests passed and 283 full-suite tests passed with 4
-skipped. Later roadmap-only provenance corrections are docs-only; they do not
+This entry records the verified integration boundary and its subsequent
+publication to `main`. Post-`352e8f03` history is not uniformly non-runtime:
+child commit `023e65d` changed runtime identity rendering plus its
+specification and focused tests. Its runtime/contract/test tree was integrated
+and verified at `d562e04`, with 62 focused tests passed and 283 full-suite tests
+passed with 4 skipped. Later roadmap-only provenance corrections are docs-only; they do not
 alter the already-verified runtime/contract/test tree or make a
 self-referential final-head claim. Optional Full-4R R2-002 (the unreachable
 snapshot fallback) and R2-003 (the long positional presentation helper) are
 non-blocking and wont-fix for this closeout; neither is addressed here.
-The remaining publication gate is the approved tracker #37 and applicable R6
-issue closeout, followed by merging draft integration PR #75 to `main`. PR #75
-and that tracker/issue closeout remain pending; `main` remains at its prior
-state, and R7 remains unstarted. Later units remain future work.
+PR #75 was merged to `main`; the final `main` HEAD is
+`30c94d00f780b597644c1494833d4dd50738556b`. Tracker #37 was updated with the
+R6 completion comment, and the applicable R6 issues (#70, #71, #73, #76, #78,
+#80, #82, #84, and #86) were closed. R7 remains unstarted. Later units remain
+future work.
 
 ## Explicit exclusions for 0.2
 
