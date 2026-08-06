@@ -2,8 +2,10 @@
 
 This is the product source of truth for the approved R1-R11 order. The 0.2
 integration is exclusively `YASB CustomWidget -> yasb-limitora CLI / JSON v2 ->
-Limitora public API`. R1-R5 are complete. R6 is the next authorized planning
-unit; later units remain out of scope until their ordered turn.
+Limitora public API`. R1-R5 are complete. R6 implementation and runtime
+verification are complete at the exact pre-closeout integration candidate
+`352e8f03c4f877a877de8b2e0b2d3b10e815fa27`; final publication remains pending.
+Later units remain out of scope until their ordered turn.
 
 ## Delivery order
 
@@ -14,7 +16,7 @@ unit; later units remain out of scope until their ordered turn.
 | R3 | Preserve public quota snapshots and dimensions | Preserve provider outcomes, exact public state, freshness, timestamps, quota windows, quantities, resets, plans, and safe source context | Complete |
 | R4 | Migrate rich Codex helper IPC | Migrate the rich snapshot boundary through the Codex helper process | Complete |
 | R5 | Project and negotiate JSON v2 | Add the accepted JSON v2 projection and explicit CLI negotiation | Complete |
-| R6 | Refine truthful presentation projection | Produce bounded compact, alternate, and tooltip fields from preserved evidence | Next authorized planning unit |
+| R6 | Refine truthful presentation projection | Produce bounded compact, alternate, and tooltip fields from preserved evidence | Complete — integration verified; publication pending |
 | R7 | Resolve default Windows configuration | Add the accepted default Windows configuration resolution | Planned after R6 |
 | R8 | Add the cross-process execution guard | Add bounded guard acquisition, deadlines, and cleanup behavior | Planned after R7 |
 | R9 | Package CustomWidget examples and static CSS | Package the CustomWidget examples and static presentation assets | Planned after R8 |
@@ -75,10 +77,57 @@ configuration behavior.
 
 Final evidence is 59 focused tests passed; 265 full-suite tests passed with 4
 skipped; native-proof succeeded for all three implementation PRs; and no
-critical findings or warnings were reported. R6 is the next authorized planning
-unit for presentation refinement. This closeout authorizes R6 planning only;
-it does not imply R6 implementation, R7 default-configuration resolution, or
-R8 execution guard, deadline, and cleanup machinery.
+critical findings or warnings were reported. At the time of this R5 closeout,
+R6 was the next authorized planning unit for presentation refinement. The R6
+closeout is recorded below; R7 default-configuration resolution and R8
+execution guard, deadline, and cleanup machinery remain future work.
+
+## R6 closeout
+
+R6 runtime implementation is complete on the exact pre-closeout integration
+candidate `352e8f03c4f877a877de8b2e0b2d3b10e815fa27`. The closeout consists of
+the three original reviewed slices plus final-review fix child PR #79, followed
+by post-merge integration verification:
+
+- The contract slice, commit `9ff3be2`, published the normative presentation
+  grammar, mappings, bounds, and contract tests.
+- The runtime slice, commit `8914881`, implemented the evidence-only,
+  provider-local projection and focused runtime/v1 proof.
+- The roadmap closeout slice, commit `00a395e`, recorded the verified
+  integration state without claiming publication to `main`.
+- Final-review fix child PR #79, commit `c10f52ce`, corrected the near-cap
+  presentation-boundary regression so valid 65,535- and 65,536-byte provider
+  snapshots retain canonical evidence while irreducible over-cap payloads
+  retain the document-level `internal_error` fallback.
+- The integration candidate `352e8f03c4f877a877de8b2e0b2d3b10e815fa27`
+  preserves the final-review child commit `c10f52ce` source/contract/focused-
+  test trees with no merge drift, while earlier slices remain in ancestry. The
+  R6 implementation scope remains four files:
+  `docs/specifications/json-v2.md`, `tests/test_json_v2_spec.py`,
+  `src/yasb_limitora/projection_v2.py`, and
+  `tests/test_json_v2_projection.py`; the roadmap closeout is recorded in this
+  document.
+
+Post-merge evidence at that candidate is 61 focused tests passed; 282
+full-suite tests passed with 4 skipped; `py_compile`, `compileall`, and
+`git diff --check` passed; and all 9 required R6 scenarios are compliant.
+Canonical v2 schema/model ordering and frozen v1 output remain unchanged, and
+no R7+ behavior is included.
+
+This entry records the verified integration boundary, not publication to
+`main`. Post-`352e8f03` history is not uniformly non-runtime: child commit
+`023e65d` changed runtime identity rendering plus its specification and
+focused tests. Its runtime/contract/test tree was integrated and verified at
+`d562e04`, with 62 focused tests passed and 283 full-suite tests passed with 4
+skipped. Later roadmap-only provenance corrections are docs-only; they do not
+alter the already-verified runtime/contract/test tree or make a
+self-referential final-head claim. Optional Full-4R R2-002 (the unreachable
+snapshot fallback) and R2-003 (the long positional presentation helper) are
+non-blocking and wont-fix for this closeout; neither is addressed here.
+The remaining publication gate is the approved tracker #37 and applicable R6
+issue closeout, followed by merging draft integration PR #75 to `main`. PR #75
+and that tracker/issue closeout remain pending; `main` remains at its prior
+state, and R7 remains unstarted. Later units remain future work.
 
 ## Explicit exclusions for 0.2
 
