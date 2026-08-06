@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import ctypes
 from ctypes import wintypes
+import io
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
+import tempfile
 import threading
 import time
 
 import pytest
 
 from yasb_limitora.codex_helper import CodexHelperExecutor
+from yasb_limitora.cli import main
 from yasb_limitora.isolation.windows_job import (
     WAIT_OBJECT_0,
     JobError,
@@ -244,6 +248,33 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
         Path(artifact_path).write_text(json.dumps(artifact, sort_keys=True) + "\n", encoding="utf-8")
     _assert_artifacts_are_sentinel_free(tuple(tmp_path.iterdir()), sentinel)
     _write_checkpoint(_CHECKPOINT_FINAL_SCAN_COMPLETE)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
+def test_native_v2_default_configuration_reads_localappdata() -> None:
+    real_localappdata = os.environ.get("LOCALAPPDATA")
+    if not real_localappdata:
+        pytest.fail("Windows native proof requires LOCALAPPDATA")
+    temp_localappdata = Path(tempfile.mkdtemp(prefix="yasb-limitora-r7-", dir=real_localappdata))
+    config_path = temp_localappdata / "yasb-limitora" / "config.json"
+    config_path.parent.mkdir()
+    config_path.write_text(
+        json.dumps({"codex": {"enabled": False}, "opencode_go": {"enabled": False}}),
+        encoding="utf-8",
+    )
+    stdout, stderr = io.BytesIO(), io.StringIO()
+    try:
+        assert main(
+            ["--output-version", "2"],
+            environment={"LOCALAPPDATA": str(temp_localappdata)},
+            stdout=stdout,
+            stderr=stderr,
+        ) == 0
+        assert json.loads(stdout.getvalue())["version"] == 2
+        assert stderr.getvalue() == ""
+        assert str(config_path) not in stdout.getvalue().decode() + stderr.getvalue()
+    finally:
+        shutil.rmtree(temp_localappdata, ignore_errors=True)
 
 
 def test_sentinel_scan_failure_diagnostics_are_redacted(tmp_path: Path) -> None:
