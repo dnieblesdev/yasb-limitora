@@ -114,13 +114,16 @@ full-suite tests passed with 4 skipped; `py_compile`, `compileall`, and
 Canonical v2 schema/model ordering and frozen v1 output remain unchanged, and
 no R7+ behavior is included.
 
-This entry records the verified pre-closeout candidate, not publication to
-`main`. The post-candidate corrections are non-runtime documentation and
-contract-test corrections: `cc46ecd` changed only this roadmap, while
-`38a5f346` corrected the null-unit example in
-`docs/specifications/json-v2.md` and its matching assertion in
-`tests/test_json_v2_spec.py`. They do not provide runtime evidence, so this
-entry intentionally does not claim a self-referential final integration SHA.
+This entry records the verified integration boundary, not publication to
+`main`. Post-`352e8f03` history is not uniformly non-runtime: child commit
+`023e65d` changed runtime identity rendering plus its specification and
+focused tests. Its runtime/contract/test tree was integrated and verified at
+`d562e04`, with 62 focused tests passed and 283 full-suite tests passed with 4
+skipped. Later roadmap-only provenance corrections are docs-only; they do not
+alter the already-verified runtime/contract/test tree or make a
+self-referential final-head claim. Optional Full-4R R2-002 (the unreachable
+snapshot fallback) and R2-003 (the long positional presentation helper) are
+non-blocking and wont-fix for this closeout; neither is addressed here.
 The remaining publication gate is the approved tracker #37 and applicable R6
 issue closeout, followed by merging draft integration PR #75 to `main`. PR #75
 and that tracker/issue closeout remain pending; `main` remains at its prior
