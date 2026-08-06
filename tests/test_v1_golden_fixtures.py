@@ -97,7 +97,15 @@ def test_v2_structural_support_is_valid_json():
 def test_v1_no_argument_behavior_is_the_frozen_all_disabled_document():
     stdout, stderr = io.BytesIO(), io.StringIO()
 
-    assert main((), environment={"YASB_LIMITORA_CONFIG": "must-not-be-read"}, stdout=stdout, stderr=stderr) == 0
+    assert main(
+        (),
+        environment={
+            "YASB_LIMITORA_CONFIG": "must-not-be-read",
+            "LOCALAPPDATA": r"C:\must-not-be-read",
+        },
+        stdout=stdout,
+        stderr=stderr,
+    ) == 0
     assert stdout.getvalue() == (FIXTURES / "json_v1_unavailable.json").read_bytes()
     assert stderr.getvalue() == ""
 
@@ -129,7 +137,10 @@ def test_explicit_v1_config_forms_preserve_frozen_bytes_and_config(tmp_path, sel
 
     assert main(
         (*selector, *config_args),
-        environment={"YASB_LIMITORA_CONFIG": "must-not-be-read"},
+        environment={
+            "YASB_LIMITORA_CONFIG": "must-not-be-read",
+            "LOCALAPPDATA": r"C:\must-not-be-read",
+        },
         coordinator=coordinator,
         stdout=stdout,
         stderr=stderr,
@@ -140,7 +151,10 @@ def test_explicit_v1_config_forms_preserve_frozen_bytes_and_config(tmp_path, sel
     config, environment = coordinator.calls[0]
     assert config.codex.enabled is True
     assert config.codex.runner == r"C:\\codex.exe"
-    assert environment == {"YASB_LIMITORA_CONFIG": "must-not-be-read"}
+    assert environment == {
+        "YASB_LIMITORA_CONFIG": "must-not-be-read",
+        "LOCALAPPDATA": r"C:\must-not-be-read",
+    }
 
 
 def test_v1_projection_ignores_rich_snapshot_fields():

@@ -1,11 +1,13 @@
 import io
 import json
+import ntpath
 import threading
 import time
 from types import SimpleNamespace
 
 import pytest
 
+import yasb_limitora.cli as cli
 from yasb_limitora.cli import main
 from yasb_limitora.codex_helper import CodexHelperExecutor, _payload
 from yasb_limitora.config import LocalConfig
@@ -173,6 +175,61 @@ def test_config_file_and_runtime_error_are_redacted(tmp_path):
     assert main(("--config", str(path)), stdout=stdout, stderr=stderr) == 2
     assert "relative" not in stdout.getvalue().decode() + stderr.getvalue()
     assert stderr.getvalue() == "yasb-limitora: configuration_invalid\n"
+
+
+def test_v2_default_resolution_reads_injected_localappdata(monkeypatch):
+    paths = []
+    localappdata = r"C:\Users\runtime-test\AppData\Local"
+
+    def read_config(path):
+        paths.append(path)
+        return json.dumps({"codex": {}, "opencode_go": {}})
+
+    monkeypatch.setattr(cli, "_read_config", read_config)
+    coordinator = RuntimeCoordinator(
+        Codex(view(ProviderKey.CODEX, ProviderState.UNAVAILABLE)),
+        lambda *_: view(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE),
+    )
+    stdout, stderr = io.BytesIO(), io.StringIO()
+
+    assert main(
+        ("--output-version", "2"),
+        environment={"LOCALAPPDATA": localappdata},
+        coordinator=coordinator,
+        stdout=stdout,
+        stderr=stderr,
+    ) == 0
+    assert paths == [ntpath.join(localappdata, "yasb-limitora", "config.json")]
+    assert json.loads(stdout.getvalue())["version"] == 2
+    assert stderr.getvalue() == ""
+
+
+def test_v2_configuration_failure_starts_no_provider(monkeypatch):
+    starts = []
+
+    def read_config(path):
+        raise OSError("private config detail")
+
+    class UnexpectedCoordinator:
+        def run(self, config, environment):
+            starts.append((config, environment))
+            raise AssertionError("provider execution started after configuration failure")
+
+    monkeypatch.setattr(cli, "_read_config", read_config)
+    stdout, stderr = io.BytesIO(), io.StringIO()
+    assert main(
+        ("--output-version", "2"),
+        environment={"LOCALAPPDATA": r"C:\Users\runtime-test\AppData\Local"},
+        coordinator=UnexpectedCoordinator(),
+        stdout=stdout,
+        stderr=stderr,
+    ) == 2
+    assert json.loads(stdout.getvalue())["execution_error"] == {
+        "code": "configuration_invalid",
+        "phase": "configuration",
+    }
+    assert stderr.getvalue() == "yasb-limitora: configuration_invalid\n"
+    assert starts == []
 
 
 def test_success_bytes_have_one_newline_and_provider_order():

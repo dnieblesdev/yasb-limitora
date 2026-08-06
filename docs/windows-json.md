@@ -3,7 +3,7 @@
 `yasb-limitora` provides an executable native-Windows machine-JSON boundary for
 Codex and OpenCode Go. The official 0.2 consumer is YASB's existing
 `CustomWidget`; this repository does not implement a native YASB widget or
-popover. This page documents the frozen v1 runtime. The normative v2 contract
+popover. This page documents the frozen v1 runtime and v2 configuration behavior. The normative v2 contract
 is [`specifications/json-v2.md`](specifications/json-v2.md).
 
 ## Quick path
@@ -54,6 +54,26 @@ The Codex runner must be an absolute Windows path. `workspace_id` is local
 configuration and is never projected into machine JSON or diagnostics. Missing
 or disabled provider configuration produces `unavailable`; malformed local
 configuration produces `configuration_invalid` and exit code `2`.
+
+### v2 configuration resolution
+
+V2 is selected only with `--output-version 2` or `--output-version=2`. For v2,
+the CLI selects exactly one configuration source in this order:
+
+1. An explicit `--config PATH`, `-c PATH`, or `--config=PATH`.
+2. The non-empty `YASB_LIMITORA_CONFIG` environment variable.
+3. `%LOCALAPPDATA%\yasb-limitora\config.json`.
+
+An empty or whitespace-only `YASB_LIMITORA_CONFIG` is a
+`configuration_invalid` error; it does not fall back to the default. If
+`LOCALAPPDATA` is absent, empty, or whitespace-only when the default is needed,
+the result is also `configuration_invalid`. A selected missing, unreadable, or
+invalid file fails closed with no fallback, auto-creation, migration, or file
+mutation. Paths and environment values are never included in stdout or stderr.
+
+V1 remains frozen: no selector and explicit v1 selectors continue to ignore
+`YASB_LIMITORA_CONFIG` and `LOCALAPPDATA`, preserve the existing bytes and
+streams, and do not use or create a default configuration file.
 
 ### Environment-only `authCookie`
 
