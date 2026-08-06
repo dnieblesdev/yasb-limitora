@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import ntpath
 import os
 import re
 import sys
@@ -73,15 +74,45 @@ def _output_version(argv: Sequence[str]) -> tuple[int | None, tuple[str, ...]]:
     return version, tuple(remaining)
 
 
-def _load(argv: Sequence[str]) -> LocalConfig:
-    path = _config_path(argv)
-    if path is None:
-        return LocalConfig()
+def _default_windows_config_path(environment: Mapping[str, str]) -> str:
+    localappdata = environment.get("LOCALAPPDATA", "")
+    if not localappdata or not localappdata.strip():
+        raise ConfigError("missing LOCALAPPDATA")
+    return ntpath.join(localappdata, "yasb-limitora", "config.json")
+
+
+def _env_or_default(environment: Mapping[str, str]) -> str:
+    if "YASB_LIMITORA_CONFIG" in environment:
+        value = environment["YASB_LIMITORA_CONFIG"]
+        if not value.strip():
+            raise ConfigError("empty YASB_LIMITORA_CONFIG")
+        return value
+    return _default_windows_config_path(environment)
+
+
+def _read_config(path: str) -> str:
+    return Path(path).read_text(encoding="utf-8")
+
+
+def _load_explicit(path: str) -> LocalConfig:
     try:
-        value = json.loads(Path(path).read_text(encoding="utf-8"))
+        value = json.loads(_read_config(path))
     except Exception as error:  # noqa: BLE001 - path and parser details never cross the boundary
         raise ConfigError("invalid local configuration") from error
     return LocalConfig.from_mapping(value)
+
+
+def _load_path(path: str | None) -> LocalConfig:
+    return LocalConfig() if path is None else _load_explicit(path)
+
+
+def _resolve_config_path(argv: Sequence[str], environment: Mapping[str, str]) -> str:
+    explicit = _config_path(argv)
+    return explicit if explicit is not None else _env_or_default(environment)
+
+
+def _load(argv: Sequence[str]) -> LocalConfig:
+    return _load_path(_config_path(argv))
 
 
 def _write(stream: object, data: bytes) -> None:
@@ -105,6 +136,7 @@ def main(
 ) -> int:
     args = tuple(sys.argv[1:] if argv is None else argv)
     out, err = sys.stdout if stdout is None else stdout, sys.stderr if stderr is None else stderr
+    effective_environment = os.environ if environment is None else environment
     try:
         version, load_args = _output_version(args)
     except InvocationError:
@@ -113,7 +145,11 @@ def main(
         err.flush()
         return 2
     try:
-        config = _load(load_args)
+        config = (
+            _load_path(_resolve_config_path(load_args, effective_environment))
+            if version == 2
+            else _load(load_args)
+        )
     except InvocationError:
         if version == 2:
             data, diagnostic = project_v2_failure_bytes("invocation_invalid"), "invocation_invalid"
@@ -135,8 +171,7 @@ def main(
     else:
         try:
             active_coordinator = coordinator if coordinator is not None else RuntimeCoordinator()
-            runtime_environment = os.environ if environment is None else environment
-            document = active_coordinator.run(config, runtime_environment)
+            document = active_coordinator.run(config, effective_environment)
         except Exception:  # noqa: BLE001 - the machine boundary must never expose runtime details
             if version == 2:
                 data = project_v2_failure_bytes("internal_error")
