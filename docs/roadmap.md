@@ -18,7 +18,7 @@ Later units remain out of scope until their ordered turn.
 | R4 | Migrate rich Codex helper IPC | Migrate the rich snapshot boundary through the Codex helper process | Complete |
 | R5 | Project and negotiate JSON v2 | Add the accepted JSON v2 projection and explicit CLI negotiation | Complete |
 | R6 | Refine truthful presentation projection | Produce bounded compact, alternate, and tooltip fields from preserved evidence | Complete — merged to `main` at `30c94d0` |
-| R7 | Resolve default Windows configuration | Add the accepted default Windows configuration resolution | Planned after R6 |
+| R7 | Resolve default Windows configuration | Add the accepted default Windows configuration resolution | Complete — merged to `main` at `2850169` |
 | R8 | Add the cross-process execution guard | Add bounded guard acquisition, deadlines, and cleanup behavior | Planned after R7 |
 | R9 | Package CustomWidget examples and static CSS | Package the CustomWidget examples and static presentation assets | Planned after R8 |
 | R10 | Prove pinned YASB integration on Windows | Validate the pinned YASB CustomWidget integration on Windows | Planned after R9 |
@@ -128,8 +128,46 @@ non-blocking and wont-fix for this closeout; neither is addressed here.
 PR #75 was merged to `main`; the final `main` HEAD is
 `30c94d00f780b597644c1494833d4dd50738556b`. Tracker #37 was updated with the
 R6 completion comment, and the applicable R6 issues (#70, #71, #73, #76, #78,
-#80, #82, #84, and #86) were closed. R7 remains unstarted. Later units remain
-future work.
+#80, #82, #84, and #86) were closed. R7 remained unstarted at that point.
+
+## R7 closeout
+
+R7 is complete through issue #89 and merged implementation PR #90 under parent
+tracker #37. The delivered boundary is v2-only configuration resolution with
+explicit precedence, fail-closed configuration errors, safe diagnostics, and
+frozen v1 behavior.
+
+- Issue #89 defined and approved the R7 child work with `status:approved`.
+- PR #90, merged to `main` at `2850169`, contains commits:
+  - `a1e7f1b` — `feat(cli): resolve v2 Windows configuration sources`;
+  - `23cc45a` — `test(cli): prove v1 and runtime configuration compatibility`;
+  - `a9559a5` — `test(windows): add native default-path read proof`;
+  - `2f6fcc8` — `docs(windows-json): document v2 config resolution`.
+- The accepted v2 precedence is: explicit `--config`/`-c`, then non-empty
+  `YASB_LIMITORA_CONFIG`, then `%LOCALAPPDATA%\\yasb-limitora\\config.json`.
+- Empty or whitespace-only `YASB_LIMITORA_CONFIG`, absent/empty/whitespace
+  `LOCALAPPDATA`, and selected missing/unreadable/invalid files all fail closed
+  as `configuration_invalid` with exit `2`. No fallback, auto-creation,
+  migration, or file mutation occurs.
+- v1 selector-free and explicit-v1 invocations continue to ignore
+  `YASB_LIMITORA_CONFIG` and `%LOCALAPPDATA%`, preserving exact bytes, streams,
+  exits, and explicit-config forms.
+- Diagnostics remain redacted: stdout is the versioned safe envelope; stderr
+  contains only the fixed taxonomy token; no path, environment value, file
+  content, credential, workspace ID, or runner path is emitted.
+- Bounded I/O, device/UNC rejection, path canonicalization, 32,767 UTF-16 length
+  cap, 16,384-byte file-size bound, cross-process guard, deadlines, locks, and
+  cleanup remain deferred to R8.
+
+Post-merge evidence is 293 full-suite tests passed with 5 skipped (the 5 skips
+are the existing native Windows proofs that run only on Windows); focused CLI,
+v1 golden-fixture, runtime, and Windows-native-proof tests all pass;
+`compileall` and `git diff --check` pass; and the diff is 292 insertions and
+25 deletions across 6 files, within the 400-line review budget.
+
+Tracker #37 was updated to mark R7 complete, and issue #89 was closed. R8 is
+the next authorized unit; it is not started and its scope (cross-process
+execution guard, deadlines, and cleanup) was not introduced by R7.
 
 ## Explicit exclusions for 0.2
 
