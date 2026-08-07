@@ -184,18 +184,61 @@ def write_frame(transport: BoundedTransport, message: Mapping[str, Any], timeout
         offset += written
 
 
-def read_frame_with_deadline(transport: BoundedTransport, deadline_ns: int, *, clock_ns=time.monotonic_ns, limit: int | None = None) -> dict[str, Any]:
-    remaining = max(0, deadline_ns - clock_ns())
-    if not remaining:
-        raise ProtocolError(ProtocolErrorCode.TRANSPORT_TIMEOUT)
-    return read_frame(transport, remaining / 1_000_000_000, limit=limit)
+def _context_parts(context):
+    try:
+        return context.deadline_ns, context.clock_ns
+    except AttributeError:
+        raise ProtocolError(ProtocolErrorCode.INVALID_TIMEOUT) from None
 
 
-def write_frame_with_deadline(transport: BoundedTransport, message: Mapping[str, Any], deadline_ns: int, *, clock_ns=time.monotonic_ns) -> None:
-    remaining = max(0, deadline_ns - clock_ns())
-    if not remaining:
+def _remaining_context(context, deadline_ns, clock_ns) -> float:
+    remaining = deadline_ns - clock_ns()
+    if remaining <= 0:
         raise ProtocolError(ProtocolErrorCode.TRANSPORT_TIMEOUT)
-    write_frame(transport, message, remaining / 1_000_000_000)
+    return remaining / 1_000_000_000
+
+
+def _read_exact_context(transport: BoundedTransport, length: int, context) -> bytes:
+    deadline_ns, clock_ns = _context_parts(context)
+    result = bytearray()
+    while len(result) < length:
+        remaining = _remaining_context(context, deadline_ns, clock_ns)
+        try:
+            chunk = transport.read(length - len(result), remaining)
+        except TimeoutError:
+            raise ProtocolError(ProtocolErrorCode.TRANSPORT_TIMEOUT) from None
+        except Exception:
+            raise ProtocolError(ProtocolErrorCode.TRANSPORT_FAILURE) from None
+        if not isinstance(chunk, bytes) or not chunk:
+            raise ProtocolError(ProtocolErrorCode.TRANSPORT_EOF)
+        result.extend(chunk)
+    return bytes(result)
+
+
+def read_frame_with_deadline(transport: BoundedTransport, context, *, limit: int | None = None) -> dict[str, Any]:
+    header = _read_exact_context(transport, 4, context)
+    length = struct.unpack(">I", header)[0]
+    maximum = RESPONSE_MAX_BYTES if limit is None else limit
+    if length > maximum:
+        raise ProtocolError(ProtocolErrorCode.OVERSIZE)
+    return decode_frame(header + _read_exact_context(transport, length, context), limit=maximum)
+
+
+def write_frame_with_deadline(transport: BoundedTransport, message: Mapping[str, Any], context) -> None:
+    deadline_ns, clock_ns = _context_parts(context)
+    frame = encode_frame(message)
+    offset = 0
+    while offset < len(frame):
+        remaining = _remaining_context(context, deadline_ns, clock_ns)
+        try:
+            written = transport.write(frame[offset:], remaining)
+        except TimeoutError:
+            raise ProtocolError(ProtocolErrorCode.TRANSPORT_TIMEOUT) from None
+        except Exception:
+            raise ProtocolError(ProtocolErrorCode.TRANSPORT_FAILURE) from None
+        if not isinstance(written, int) or written <= 0:
+            raise ProtocolError(ProtocolErrorCode.TRANSPORT_FAILURE)
+        offset += written
 def _state(kind: str, nonce: str) -> dict[str, str]:
     _nonce(nonce)
     return {"type": kind, "nonce": nonce}

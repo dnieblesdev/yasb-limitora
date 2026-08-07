@@ -186,17 +186,74 @@ class _PipeTransport:
                 continue
             offset += written
 
-    def read_frame_with_deadline(self, *, expected_size: int, deadline_ns: int, clock_ns) -> bytes:
-        remaining = max(0, deadline_ns - clock_ns())
-        if not remaining:
-            raise _TransportTimeout("timeout")
-        return self.read_frame(expected_size=expected_size, timeout_seconds=remaining / 1_000_000_000)
+    @staticmethod
+    def _deadline_parts(context):
+        try:
+            return context.deadline_ns, context.clock_ns
+        except AttributeError:
+            raise _TransportTimeout("invalid_deadline") from None
 
-    def write_control_with_deadline(self, data: bytes, *, deadline_ns: int, clock_ns) -> None:
-        remaining = max(0, deadline_ns - clock_ns())
-        if not remaining:
+    def _backoff_until(self, deadline_ns: int, clock_ns) -> None:
+        remaining = deadline_ns - clock_ns()
+        if remaining <= 0:
             raise _TransportTimeout("timeout")
-        self.write_control(data, timeout_seconds=remaining / 1_000_000_000)
+        self._sleep(min(_TRANSPORT_BACKOFF, remaining / 1_000_000_000))
+
+    def read_frame_with_deadline(self, *, expected_size: int, context, max_size: int = _CONTROL_CAPACITY, reject_trailing: bool = True) -> bytes:
+        """Read using the caller's absolute endpoint without restarting it."""
+        deadline_ns, clock_ns = self._deadline_parts(context)
+        if type(expected_size) is not int or not 0 < expected_size <= max_size:
+            raise _TransportError("invalid_frame_size") from None
+        result = bytearray()
+        while len(result) < expected_size:
+            available, eof = self._peek(self._read_fd)
+            if eof:
+                raise _TransportError("eof") from None
+            remaining = expected_size - len(result)
+            if available < 0:
+                raise _TransportError("frame_oversize") from None
+            if available > max_size - len(result):
+                raise _TransportError("frame_oversize") from None
+            if reject_trailing and available > remaining:
+                raise _TransportError("trailing_data") from None
+            if not available:
+                self._backoff_until(deadline_ns, clock_ns)
+                continue
+            try:
+                chunk = self._read(self._read_fd, min(available, remaining))
+            except BlockingIOError:
+                self._backoff_until(deadline_ns, clock_ns)
+                continue
+            except Exception:
+                raise _TransportError("read_failed") from None
+            if not chunk or len(chunk) > remaining:
+                raise _TransportError("partial_read") from None
+            result.extend(chunk)
+        available, _ = self._peek(self._read_fd)
+        if reject_trailing and available:
+            raise _TransportError("trailing_data") from None
+        return bytes(result)
+
+    def write_control_with_deadline(self, data: bytes, *, context) -> None:
+        """Write using the caller's absolute endpoint without restarting it."""
+        deadline_ns, clock_ns = self._deadline_parts(context)
+        if len(data) > _CONTROL_CAPACITY:
+            raise _TransportError("frame_oversize") from None
+        offset = 0
+        while offset < len(data):
+            try:
+                written = self._write(self._write_fd, data[offset:])
+            except BlockingIOError:
+                self._backoff_until(deadline_ns, clock_ns)
+                continue
+            except Exception:
+                raise _TransportError("write_failed") from None
+            if type(written) is not int or written <= 0 or written > len(data) - offset:
+                if written == 0:
+                    self._backoff_until(deadline_ns, clock_ns)
+                    continue
+                raise _TransportError("partial_write") from None
+            offset += written
 
 
 _GATE_ENV = "_YASB_CODEX_GATE_HANDLE"
@@ -789,13 +846,75 @@ class _CodexSupervisor:
     def acquire_with_deadline(self, context):
         if context.usable_ns() <= 0:
             raise _TransportTimeout("timeout")
-        return self.acquire()
+        with _SPAWN_LOCK:
+            if self._state is not _SupervisorState.OPEN or self._pending is not None:
+                raise _OwnershipError from None
+            prepared = self._acquire_locked(None, None)
+            try:
+                gate_write = prepared._descriptors[0][1]
+                data_read = prepared._descriptors[1][0]
+                transport = self._transport_factory(data_read, gate_write, nonblocking=True)
+                write = getattr(transport, "write_control_with_deadline", None)
+                read = getattr(transport, "read_frame_with_deadline", None)
+                if write is None or read is None:
+                    raise _TransportError("deadline_adapter_missing")
+                write(b"1", context=context)
+                expected = b"READY:" + prepared._nonce
+                received = read(expected_size=len(expected), context=context)
+                if received != expected:
+                    raise _TransportError("ready_mismatch") from None
+                prepared._release_for_commit()
+            except Exception as error:
+                return self._abort_prepared(prepared, error)
+            self._prepared = None
+            self._helper, self._gate, self._data = prepared._helper, prepared._gate, prepared._data
+            self._owner, self._nonce = prepared._owner, prepared._nonce
+            self._state = _SupervisorState.ACQUIRED
+            return self
 
     def close_with_deadline(self, context) -> None:
-        remaining = context.cleanup_ns()
-        if remaining <= 0:
+        if context.cleanup_ns() <= 0:
             raise _TransportTimeout("timeout")
-        self.close(remaining / 1_000_000_000)
+        with _SPAWN_LOCK:
+            if self._pending is not None:
+                try:
+                    self._pending.rollback()
+                except Exception as error:
+                    raise _AcquisitionError(self._pending) from error
+                self._pending = None
+            if self._state is _SupervisorState.CLOSED:
+                return
+            if self._prepared is not None:
+                try:
+                    self._prepared.rollback()
+                except Exception as error:
+                    self._pending = self._prepared._transaction
+                    self._prepared = None
+                    self._state = _SupervisorState.BROKEN
+                    raise _AcquisitionError(self._pending) from error
+                self._prepared = None
+                self._state = _SupervisorState.CLOSED
+                return
+            failures: list[Exception] = []
+            for resource, closer in (
+                (self._helper, lambda: self._helper.close_with_deadline(context)),
+                (self._data, lambda: self._data._close(self._owner)),
+                (self._gate, lambda: self._gate._close(self._owner)),
+            ):
+                if resource is None:
+                    continue
+                try:
+                    closer()
+                except Exception as error:
+                    failures.append(error)
+                terminal = self._terminal_for(resource)
+                if terminal is not None and self._terminal_error is None:
+                    self._terminal_error = terminal
+            if self._terminal_error is not None or failures:
+                self._state = _SupervisorState.BROKEN
+                raise _AcquisitionError(self, primary=self._terminal_error, cleanup=failures[0] if failures else None)
+            self._helper = self._gate = self._data = self._owner = self._nonce = None
+            self._state = _SupervisorState.CLOSED
 
     @staticmethod
     def _terminal_for(resource: object) -> Exception | None:
