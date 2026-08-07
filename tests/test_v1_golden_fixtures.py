@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import yasb_limitora.cli as cli
 from yasb_limitora.model import (
     DocumentView,
     ProviderKey,
@@ -155,6 +156,29 @@ def test_explicit_v1_config_forms_preserve_frozen_bytes_and_config(tmp_path, sel
         "YASB_LIMITORA_CONFIG": "must-not-be-read",
         "LOCALAPPDATA": r"C:\must-not-be-read",
     }
+
+
+def test_v1_explicit_device_path_keeps_legacy_loader_behavior(monkeypatch):
+    explicit = r"\\?\C:\yasb-limitora.json"
+    reads = []
+
+    def read_config(path):
+        reads.append(path)
+        return json.dumps({"codex": {}, "opencode_go": {}})
+
+    monkeypatch.setattr(cli, "_read_config", read_config)
+    stdout, stderr = io.BytesIO(), io.StringIO()
+
+    assert main(
+        ("--output-version", "1", "--config", explicit),
+        environment={"YASB_LIMITORA_CONFIG": "must-not-be-read"},
+        coordinator=_Coordinator(),
+        stdout=stdout,
+        stderr=stderr,
+    ) == 0
+    assert reads == [explicit]
+    assert stdout.getvalue() == (FIXTURES / "json_v1_unavailable.json").read_bytes()
+    assert stderr.getvalue() == ""
 
 
 def test_v1_projection_ignores_rich_snapshot_fields():
