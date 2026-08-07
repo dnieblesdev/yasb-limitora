@@ -7,6 +7,7 @@ import ntpath
 import os
 import re
 import sys
+import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TextIO
@@ -18,6 +19,7 @@ from .projection import project_bytes
 from .projection_v2 import V2ProjectionInput, project_v2_bytes, project_v2_failure_bytes
 from .v2_deadline import DeadlineContext
 from .v2_path import read_v2_config
+from .v2_worker import V2ExecutionOrchestrator
 
 _SECRET = re.compile(r"auth.?cookie|cookie|token|password|secret|credential|api.?key|authorization", re.I)
 
@@ -120,12 +122,12 @@ def _reject_json_constant(value: str) -> None:
     raise ConfigError("non-finite configuration number")
 
 
-def _load_v2_explicit(path: str) -> LocalConfig:
+def _load_v2_explicit(path: str, context: DeadlineContext | None = None) -> LocalConfig:
     try:
         if _read_config is not _LEGACY_READ_CONFIG:
             raw = _read_config(path)
         else:
-            raw = read_v2_config(path, DeadlineContext.from_seconds(1))
+            raw = read_v2_config(path, context or DeadlineContext.from_seconds(1))
         value = json.loads(raw, object_pairs_hook=_unique_json_object, parse_constant=_reject_json_constant)
     except ConfigError:
         raise
@@ -138,8 +140,8 @@ def _load_path(path: str | None) -> LocalConfig:
     return LocalConfig() if path is None else _load_explicit(path)
 
 
-def _load_v2_path(path: str | None) -> LocalConfig:
-    return LocalConfig() if path is None else _load_v2_explicit(path)
+def _load_v2_path(path: str | None, context: DeadlineContext | None = None) -> LocalConfig:
+    return LocalConfig() if path is None else _load_v2_explicit(path, context)
 
 
 def _resolve_config_path(argv: Sequence[str], environment: Mapping[str, str]) -> str:
@@ -173,6 +175,7 @@ def main(
     args = tuple(sys.argv[1:] if argv is None else argv)
     out, err = sys.stdout if stdout is None else stdout, sys.stderr if stderr is None else stderr
     effective_environment = os.environ if environment is None else environment
+    t0_ns = time.monotonic_ns()
     try:
         version, load_args = _output_version(args)
     except InvocationError:
@@ -181,8 +184,12 @@ def main(
         err.flush()
         return 2
     try:
+        resolved_v2_path = None
         config = (
-            _load_v2_path(_resolve_config_path(load_args, effective_environment))
+            _load_v2_path(
+                (resolved_v2_path := _resolve_config_path(load_args, effective_environment)),
+                DeadlineContext.from_seconds(1, t0_ns=t0_ns),
+            )
             if version == 2
             else _load(load_args)
         )
@@ -206,8 +213,16 @@ def main(
         return 2
     else:
         try:
-            active_coordinator = coordinator if coordinator is not None else RuntimeCoordinator()
-            document = active_coordinator.run(config, effective_environment)
+            if version == 2 and coordinator is None and _read_config is _LEGACY_READ_CONFIG:
+                document = V2ExecutionOrchestrator().run(
+                    config,
+                    effective_environment,
+                    DeadlineContext.from_seconds(config.deadline_seconds, t0_ns=t0_ns),
+                    resolved_v2_path or "",
+                )
+            else:
+                active_coordinator = coordinator if coordinator is not None else RuntimeCoordinator()
+                document = active_coordinator.run(config, effective_environment)
         except Exception:  # noqa: BLE001 - the machine boundary must never expose runtime details
             if version == 2:
                 data = project_v2_failure_bytes("internal_error")
@@ -219,7 +234,7 @@ def main(
             return 1
         if version == 2:
             try:
-                exit_code = 1 if any(view.state is ProviderState.SAFE_ERROR for view in document.providers) else 0
+                exit_code = 1 if document.document_error is not None or any(view.state is ProviderState.SAFE_ERROR for view in document.providers) else 0
                 diagnostic = "runtime_error" if exit_code else ""
                 enabled = frozenset(
                     provider
