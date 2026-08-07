@@ -246,6 +246,17 @@ class _PersistentTransport(_PipeTransport):
             raise _TransportError("trailing_data")
         return payload
 
+    def read_response_with_deadline(self, context) -> bytes:
+        header = self.read_frame_with_deadline(expected_size=4, context=context)
+        size = struct.unpack(">I", header)[0]
+        if not 0 < size <= _MAX_RESPONSE:
+            raise _TransportError("response_oversize")
+        payload = self.read_frame_with_deadline(expected_size=size, context=context, max_size=_MAX_RESPONSE, reject_trailing=False)
+        available, _ = self._peek(self._read_fd)
+        if available:
+            raise _TransportError("trailing_data")
+        return payload
+
 
 class CodexHelperExecutor:
     """Own one supervisor and dispatch only after its READY authorization."""
@@ -253,6 +264,7 @@ class CodexHelperExecutor:
     def __init__(self, supervisor_factory: Callable[..., object] = _CodexSupervisor, timeout_seconds: float = 2.0) -> None:
         self._factory, self._timeout, self._pending_supervisor = supervisor_factory, timeout_seconds, None
         self._lifecycle, self._active, self._retrying = threading.Lock(), False, False
+        self._last_supervisor = None
 
     def run(self, runner: Sequence[str]) -> ProviderView:
         if isinstance(runner, (str, bytes)) or not isinstance(runner, Sequence) or not all(isinstance(item, str) for item in runner):
@@ -283,6 +295,7 @@ class CodexHelperExecutor:
                 transport_factory=transport_factory,
                 timeout_seconds=self._timeout,
             )
+            self._last_supervisor = supervisor
             supervisor.acquire()
             transport = transport_box[0]
             nonce = getattr(supervisor, "_nonce", b"")
@@ -313,11 +326,81 @@ class CodexHelperExecutor:
         return result
 
     def run_with_deadline(self, runner: Sequence[str], context) -> ProviderView:
-        """V2-only adapter retaining the legacy run signature."""
+        """V2-only execution path consuming one shared absolute endpoint."""
+        if isinstance(runner, (str, bytes)) or not isinstance(runner, Sequence) or not all(isinstance(item, str) for item in runner):
+            return _error(SafeErrorCode.INVOCATION_INVALID)
+        if len(json.dumps({"nonce": "x" * _NONCE_LIMIT, "runner": list(runner)}).encode("utf-8")) > _MAX_REQUEST:
+            return _error(SafeErrorCode.INVOCATION_INVALID)
+        if not self._retry_cleanup_with_deadline(context):
+            return _error(SafeErrorCode.INTERNAL_ERROR)
+        with self._lifecycle:
+            if self._pending_supervisor is not None or self._active or self._retrying:
+                return _error(SafeErrorCode.INTERNAL_ERROR)
+            self._active = True
+        transport_box: list[_PersistentTransport] = []
 
-        if context.usable_ns() <= 0:
-            return _error(SafeErrorCode.TIMEOUT)
-        return self.run(runner)
+        def transport_factory(read_fd, write_fd, *, nonblocking):
+            peek = _peek_named_pipe
+            if os.name == "nt":
+                read_handle = _fd_handle(read_fd)
+                peek = lambda _fd: _peek_named_pipe_handle(read_handle)
+            transport = _PersistentTransport(read_fd, write_fd, peek=peek, nonblocking=nonblocking)
+            transport_box.append(transport)
+            return transport
+
+        supervisor, result = None, _error(SafeErrorCode.INTERNAL_ERROR)
+        try:
+            supervisor = self._factory(
+                command=(sys.executable, "-I", "-E", "-c", _CHILD_BOOTSTRAP),
+                transport_factory=transport_factory,
+                timeout_seconds=self._timeout,
+            )
+            self._last_supervisor = supervisor
+            supervisor.acquire_with_deadline(context)
+            transport = transport_box[0]
+            nonce = getattr(supervisor, "_nonce", b"")
+            if not isinstance(nonce, bytes):
+                raise TypeError
+            request = json.dumps({"nonce": nonce.decode("ascii"), "runner": list(runner)}, separators=(",", ":")).encode("utf-8")
+            if len(request) > _MAX_REQUEST:
+                return _error(SafeErrorCode.INVOCATION_INVALID)
+            transport.write_control_with_deadline(struct.pack(">I", len(request)) + request, context=context)
+            result = _decode(transport.read_response_with_deadline(context))
+        except (_TransportTimeout, TimeoutError):
+            result = _error(SafeErrorCode.TIMEOUT)
+        except Exception:
+            result = _error(SafeErrorCode.PROVIDER_ERROR)
+        finally:
+            if supervisor is not None:
+                try:
+                    supervisor.close_with_deadline(context)
+                except Exception:
+                    with self._lifecycle:
+                        self._pending_supervisor = supervisor
+                    result = _error(SafeErrorCode.INTERNAL_ERROR)
+            with self._lifecycle:
+                self._active = False
+        return result
+
+    def _retry_cleanup_with_deadline(self, context) -> bool:
+        with self._lifecycle:
+            if self._pending_supervisor is None:
+                return True
+            if self._active or self._retrying:
+                return False
+            self._retrying, supervisor = True, self._pending_supervisor
+        try:
+            supervisor.close_with_deadline(context)
+        except Exception:
+            with self._lifecycle:
+                self._retrying = False
+            return False
+        with self._lifecycle:
+            self._retrying = False
+            released = self._pending_supervisor is supervisor
+            if released:
+                self._pending_supervisor = None
+        return released
 
     def retry_cleanup(self) -> bool:
         with self._lifecycle:
