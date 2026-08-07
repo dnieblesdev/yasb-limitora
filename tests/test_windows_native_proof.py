@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -25,6 +26,9 @@ from yasb_limitora.isolation.windows_job import (
     WindowsJobBoundary,
 )
 from yasb_limitora.model import ProviderOutcome, ProviderState, PublicProviderState, SafeErrorCode, SnapshotFreshness
+from yasb_limitora.v2_deadline import DeadlineContext
+from yasb_limitora.v2_guard import GuardError, V2Guard
+from yasb_limitora.v2_path import V2FileError, canonicalize_v2_path, read_v2_config
 
 
 pytestmark = [
@@ -275,6 +279,61 @@ def test_native_v2_default_configuration_reads_localappdata() -> None:
         assert str(config_path) not in stdout.getvalue().decode() + stderr.getvalue()
     finally:
         shutil.rmtree(temp_localappdata, ignore_errors=True)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
+def test_native_guard_competition_abandonment_and_provider_barrier(tmp_path: Path) -> None:
+    script = """import sys, time
+from yasb_limitora.v2_deadline import DeadlineContext
+from yasb_limitora.v2_guard import GuardError, V2Guard
+path = sys.argv[1]
+try:
+    lease = V2Guard().acquire(path, DeadlineContext.from_seconds(float(sys.argv[2])))
+    print("owned", flush=True)
+    if len(sys.argv) > 3: time.sleep(30)
+except GuardError as error:
+    print(error.code, flush=True)
+"""
+    path = str(tmp_path / "guard.json")
+    first = subprocess.Popen([sys.executable, "-c", script, path, "5", "hold"], stdout=subprocess.PIPE, text=True)
+    try:
+        assert first.stdout is not None and first.stdout.readline().strip() == "owned"
+        blocked = subprocess.run([sys.executable, "-c", script, path, "1"], capture_output=True, text=True, timeout=5)
+        assert blocked.stdout.strip() == "guard_wait_timeout"
+        assert "provider" not in blocked.stdout.lower()
+        first.terminate()
+        first.wait(timeout=5)
+        abandoned = subprocess.run([sys.executable, "-c", script, path, "5"], capture_output=True, text=True, timeout=5)
+        assert abandoned.stdout.strip() == "owned"
+    finally:
+        if first.poll() is None:
+            first.kill()
+            first.wait(timeout=5)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
+def test_native_path_and_file_limits_reject_before_provider_open(tmp_path: Path) -> None:
+    context = DeadlineContext.from_seconds(5)
+    with pytest.raises(ValueError):
+        canonicalize_v2_path(r"\\server\share\config.json")
+    with pytest.raises(ValueError):
+        canonicalize_v2_path(r"\\?\C:\config.json")
+    oversized = tmp_path / "oversized.json"
+    oversized.write_bytes(b"x" * 16_385)
+    with pytest.raises(V2FileError):
+        read_v2_config(oversized, context)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
+def test_native_release_fault_is_deterministic_and_sanitized() -> None:
+    class Api:
+        def CreateMutexW(self, *_): return 1
+        def WaitForSingleObject(self, *_): return 0
+        def ReleaseMutex(self, _): return False
+        def CloseHandle(self, _): return True
+
+    lease = V2Guard(api=Api(), sid_provider=lambda: b"native-test-sid").acquire(r"C:\native.json", DeadlineContext.from_seconds(1))
+    assert lease.release() is False
 
 
 def test_sentinel_scan_failure_diagnostics_are_redacted(tmp_path: Path) -> None:

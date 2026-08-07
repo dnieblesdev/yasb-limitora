@@ -14,6 +14,7 @@ jobs:
       YASB_NATIVE_EVIDENCE_PATH: native-proof.json
       YASB_NATIVE_CHECKPOINT_PATH: native-proof.checkpoint
       PYTHONUTF8: "1"
+      YASB_R8_NATIVE_GATE: "1"
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -31,6 +32,7 @@ jobs:
         shell: pwsh
         run: |
           . .github/workflows/windows-proof-functions.ps1
+          if ($env:YASB_R8_NATIVE_GATE -ne "1") { throw "R8 native gate is not enabled" }
           $rawLog = "native-proof.raw.log"
           $proofExit = Invoke-NativePytestWmi -Mode "selected" -Phase "Native proof" -RawLogName $rawLog
           $exitClass = if ($proofExit -eq 0) { "zero" } else { "nonzero" }
