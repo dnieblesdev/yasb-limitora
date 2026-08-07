@@ -50,6 +50,32 @@ def test_v2_config_read_uses_usable_budget_before_cleanup_reserve(tmp_path):
         read_v2_config(path, context, open_fn=lambda *args: os.open(*args))
 
 
+def test_v2_config_read_closes_descriptor_when_deadline_expires_during_read(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text("{}", encoding="utf-8")
+    opened = []
+    ticks = iter((0, 0, 0, 1))
+
+    def open_file(*args):
+        descriptor = os.open(*args)
+        opened.append(descriptor)
+        return descriptor
+
+    context = DeadlineContext(t0_ns=0, deadline_ns=1, reserve_ns=0, clock_ns=lambda: next(ticks))
+    with pytest.raises(V2DeadlineError):
+        read_v2_config(path, context, open_fn=open_file, close_fn=lambda descriptor: os.close(descriptor))
+
+    descriptor = opened[0]
+    try:
+        with pytest.raises(OSError):
+            os.fstat(descriptor)
+    finally:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+
+
 def test_v2_config_read_close_failure_is_sanitized(tmp_path):
     path = tmp_path / "config.json"
     path.write_text("{}", encoding="utf-8")

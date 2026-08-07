@@ -12,6 +12,7 @@ from yasb_limitora.cli import main
 from yasb_limitora.codex_helper import CodexHelperExecutor, _payload
 from yasb_limitora.config import LocalConfig
 from yasb_limitora.coordinator import RuntimeCoordinator
+from yasb_limitora.limitora_api import read_opencode_go
 from yasb_limitora.model import (
     DocumentView,
     ProviderKey,
@@ -215,6 +216,55 @@ def test_v2_default_resolution_reads_injected_localappdata(monkeypatch):
     assert paths == [ntpath.join(localappdata, "yasb-limitora", "config.json")]
     assert json.loads(stdout.getvalue())["version"] == 2
     assert stderr.getvalue() == ""
+
+
+def test_v2_cli_missing_opencode_credentials_is_clean_not_run(monkeypatch, tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps({"codex": {}, "opencode_go": {"enabled": True, "workspace_id": "workspace"}}),
+        encoding="utf-8",
+    )
+
+    class Lease:
+        def release(self):
+            return True
+
+        def close(self):
+            return True
+
+    class Guard:
+        def acquire(self, path, context):
+            return Lease()
+
+    class Worker:
+        record = None
+
+        def run_with_deadline(self, workspace, environment, context):
+            return read_opencode_go(workspace, environment)
+
+    orchestrator = V2ExecutionOrchestrator(
+        guard_factory=Guard,
+        opencode_factory=Worker,
+    )
+    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
+    stdout, stderr = io.BytesIO(), io.StringIO()
+
+    code = main(
+        ("--output-version", "2", "--config", str(path)),
+        environment={},
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    data = stdout.getvalue()
+    document = json.loads(data)
+    assert code == 0
+    assert stderr.getvalue() == ""
+    assert data.endswith(b"\n") and not data.endswith(b"\n\n")
+    assert document["execution_state"] == "not_run"
+    assert document["execution_error"] is None
+    assert all(provider["outcome"] == "not_run" for provider in document["providers"])
+    assert all(provider["not_run_reason"] == "disabled" for provider in document["providers"])
 
 
 def test_v2_configuration_failure_starts_no_provider(monkeypatch):
