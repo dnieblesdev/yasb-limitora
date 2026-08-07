@@ -274,7 +274,6 @@ def read_v2_config(
         failure = error
     finally:
         try:
-            _usable_or_fail(context)
             if close_fn is os.close:
                 close_fn(descriptor)
             else:
@@ -282,12 +281,14 @@ def read_v2_config(
                 # injected close behind the deadline, then close the owned
                 # descriptor locally regardless of the injected outcome.
                 try:
+                    _usable_or_fail(context)
                     _bounded_file_call(close_fn, (descriptor,), context)
                 finally:
                     try:
                         os.close(descriptor)
                     except OSError:
                         pass
+            _usable_or_fail(context)
         except BaseException as error:  # noqa: BLE001 - cleanup failures are sanitized
             if failure is None:
                 failure = error
