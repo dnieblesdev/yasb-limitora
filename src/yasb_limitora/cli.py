@@ -16,6 +16,8 @@ from .coordinator import RuntimeCoordinator
 from .model import DocumentView, ProviderKey, ProviderState, ProviderView, SafeError, SafeErrorCode
 from .projection import project_bytes
 from .projection_v2 import V2ProjectionInput, project_v2_bytes, project_v2_failure_bytes
+from .v2_deadline import DeadlineContext
+from .v2_path import read_v2_config
 
 _SECRET = re.compile(r"auth.?cookie|cookie|token|password|secret|credential|api.?key|authorization", re.I)
 
@@ -94,6 +96,9 @@ def _read_config(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
 
 
+_LEGACY_READ_CONFIG = _read_config
+
+
 def _load_explicit(path: str) -> LocalConfig:
     try:
         value = json.loads(_read_config(path))
@@ -117,11 +122,11 @@ def _reject_json_constant(value: str) -> None:
 
 def _load_v2_explicit(path: str) -> LocalConfig:
     try:
-        value = json.loads(
-            _read_config(path),
-            object_pairs_hook=_unique_json_object,
-            parse_constant=_reject_json_constant,
-        )
+        if _read_config is not _LEGACY_READ_CONFIG:
+            raw = _read_config(path)
+        else:
+            raw = read_v2_config(path, DeadlineContext.from_seconds(1))
+        value = json.loads(raw, object_pairs_hook=_unique_json_object, parse_constant=_reject_json_constant)
     except ConfigError:
         raise
     except Exception as error:  # noqa: BLE001 - path and parser details never cross the boundary
