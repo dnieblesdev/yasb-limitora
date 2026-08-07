@@ -290,12 +290,12 @@ path = sys.argv[1]
 try:
     lease = V2Guard().acquire(path, DeadlineContext.from_seconds(float(sys.argv[2])))
     print("owned", flush=True)
-    time.sleep(30)
+    if len(sys.argv) > 3: time.sleep(30)
 except GuardError as error:
     print(error.code, flush=True)
 """
     path = str(tmp_path / "guard.json")
-    first = subprocess.Popen([sys.executable, "-c", script, path, "5"], stdout=subprocess.PIPE, text=True)
+    first = subprocess.Popen([sys.executable, "-c", script, path, "5", "hold"], stdout=subprocess.PIPE, text=True)
     try:
         assert first.stdout is not None and first.stdout.readline().strip() == "owned"
         blocked = subprocess.run([sys.executable, "-c", script, path, "1"], capture_output=True, text=True, timeout=5)
