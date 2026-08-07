@@ -409,6 +409,23 @@ def test_transport_times_out_during_nonblocking_read_stall():
     assert clock.sleeps and all(seconds > 0 for seconds in clock.sleeps)
 
 
+def test_v2_transport_consumes_one_absolute_context_endpoint_without_reset():
+    class Context:
+        deadline_ns = 2_000_000
+        def __init__(self): self.now = 0
+        def clock_ns(self): return self.now
+    context = Context()
+    sleeps = []
+    available = iter(((0, False), (1, False), (0, True)))
+    transport = s._PipeTransport(
+        1, 2, peek=lambda fd: next(available), read=lambda fd, size: b"x",
+        sleep=lambda seconds: (sleeps.append(seconds), setattr(context, "now", context.now + int(seconds * 1_000_000))),
+        nonblocking=True,
+    )
+    assert transport.read_frame_with_deadline(expected_size=1, context=context) == b"x"
+    assert sleeps and sum(sleeps) <= 0.002
+
+
 def test_transport_rejects_cumulative_split_oversize_and_trailing_data():
     available = iter(((2, False), (2, False)))
     transport = s._PipeTransport(
