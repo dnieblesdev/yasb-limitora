@@ -12,6 +12,9 @@ class ConfigError(ValueError):
 
 DEFAULT_TIMEOUT_SECONDS = 7.0
 MAX_TIMEOUT_SECONDS = 120.0
+DEFAULT_DEADLINE_SECONDS = 7.0
+MIN_DEADLINE_SECONDS = 1.0
+MAX_DEADLINE_SECONDS = 120.0
 _INVALID_TIMEOUT = "invalid timeout_seconds"
 _CREDENTIAL_KEY = re.compile(
     r"(?:auth.?cookie|cookie|token|password|secret|credential|api.?key|authorization)",
@@ -48,6 +51,18 @@ def _timeout(value: object) -> float:
         raise ConfigError(_INVALID_TIMEOUT) from None
     if not math.isfinite(result) or not 0 < result <= MAX_TIMEOUT_SECONDS:
         raise ConfigError(_INVALID_TIMEOUT)
+    return result
+
+
+def _deadline(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ConfigError("invalid deadline_seconds")
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        raise ConfigError("invalid deadline_seconds") from None
+    if not math.isfinite(result) or not MIN_DEADLINE_SECONDS <= result <= MAX_DEADLINE_SECONDS:
+        raise ConfigError("invalid deadline_seconds")
     return result
 
 def _workspace(value: object) -> None:
@@ -117,10 +132,12 @@ class OpenCodeGoConfig:
 class LocalConfig:
     codex: CodexConfig = CodexConfig()
     opencode_go: OpenCodeGoConfig = OpenCodeGoConfig()
+    deadline_seconds: float = DEFAULT_DEADLINE_SECONDS
 
     def __post_init__(self) -> None:
         if not isinstance(self.codex, CodexConfig) or not isinstance(self.opencode_go, OpenCodeGoConfig):
             raise ConfigError("provider configuration has an invalid shape")
+        object.__setattr__(self, "deadline_seconds", _deadline(self.deadline_seconds))
 
     @classmethod
     def from_mapping(cls, value: object) -> "LocalConfig":
@@ -129,6 +146,16 @@ class LocalConfig:
         return cls(
             codex=CodexConfig.from_mapping(fields.get("codex", {})),
             opencode_go=OpenCodeGoConfig.from_mapping(fields.get("opencode_go", {})),
+        )
+
+    @classmethod
+    def from_v2_mapping(cls, value: object) -> "LocalConfig":
+        fields = _mapping(value)
+        _fields(fields, {"deadline_seconds", "codex", "opencode_go"})
+        return cls(
+            codex=CodexConfig.from_mapping(fields.get("codex", {})),
+            opencode_go=OpenCodeGoConfig.from_mapping(fields.get("opencode_go", {})),
+            deadline_seconds=fields.get("deadline_seconds", DEFAULT_DEADLINE_SECONDS),
         )
 
     def __repr__(self) -> str:

@@ -299,3 +299,48 @@ def test_v2_selected_inaccessible_file_does_not_fall_back(monkeypatch):
     assert document["execution_error"] == {"code": "configuration_invalid", "phase": "configuration"}
     assert stderr == "yasb-limitora: configuration_invalid\n"
     assert selected not in raw.decode() + stderr
+
+
+@pytest.mark.parametrize("value", (0, 121, True, "7", None, float("inf")))
+def test_v2_deadline_seconds_rejects_invalid_values(tmp_path, value):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"deadline_seconds": value}), encoding="utf-8")
+    code, document, stderr, _ = _run(("--output-version", "2", "--config", str(path)))
+    assert code == 2
+    assert document["execution_error"] == {"code": "configuration_invalid", "phase": "configuration"}
+    assert stderr == "yasb-limitora: configuration_invalid\n"
+
+
+def test_v2_deadline_defaults_to_seven_seconds(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"codex": {}, "opencode_go": {}}), encoding="utf-8")
+    coordinator = _Coordinator(_disabled_document())
+    code, _, stderr, _ = _run(("--output-version", "2", "--config", str(path)), coordinator=coordinator)
+    assert code == 0 and stderr == ""
+    assert coordinator.calls[0][0].deadline_seconds == 7.0
+
+
+@pytest.mark.parametrize(
+    "raw",
+    (
+        '{"deadline_seconds": 7, "deadline_seconds": 8}',
+        '{"unknown": {}, "codex": {}, "opencode_go": {}}',
+        '{"codex": {}, "opencode_go": {}} trailing',
+    ),
+)
+def test_v2_grammar_rejects_duplicate_unknown_and_trailing_data(tmp_path, raw):
+    path = tmp_path / "config.json"
+    path.write_text(raw, encoding="utf-8")
+    code, document, stderr, _ = _run(("--output-version", "2", "--config", str(path)))
+    assert code == 2
+    assert document["execution_error"] == {"code": "configuration_invalid", "phase": "configuration"}
+    assert stderr == "yasb-limitora: configuration_invalid\n"
+
+
+def test_v1_loader_keeps_deadline_seconds_out_of_its_grammar(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"deadline_seconds": 7}), encoding="utf-8")
+    code, document, stderr, _ = _run(("--config", str(path)))
+    assert code == 2
+    assert document["version"] == 1
+    assert stderr == "yasb-limitora: configuration_invalid\n"
