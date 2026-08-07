@@ -212,7 +212,12 @@ def read_opencode_go(
 ) -> ProviderView:
     cookie = environment.get(AUTH_COOKIE_ENV)
     if not isinstance(cookie, str) or not cookie or not isinstance(workspace_id, str) or not workspace_id:
-        return ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN)
+        return ProviderView(
+            ProviderKey.OPENCODE_GO,
+            ProviderState.UNAVAILABLE,
+            outcome=ProviderOutcome.NOT_RUN,
+            not_run_reason="disabled",
+        )
     try:
         client = activate_provider(OpenCodeGoConfig(workspace_id, cookie))
     except (CompositionError, TypeError, ValueError):

@@ -128,3 +128,19 @@ class _JobOwner:
                 raise
             raise _JobCleanupError from None
         self._state = _OwnerState.CLOSED
+
+    def close_with_deadline(self, context) -> None:
+        """Close the real Job boundary using the shared v2 deadline."""
+        if self._state is _OwnerState.CLOSED:
+            return
+        if self._state is _OwnerState.CLOSING:
+            raise _OwnershipError from None
+        self._state = _OwnerState.CLOSING
+        try:
+            self._boundary.close_with_deadline(context)
+        except JobError as error:
+            self._state = _OwnerState.CLOSED if self._boundary.state is JobState.CLOSED else _OwnerState.BROKEN
+            if error.code is JobErrorCode.TIMEOUT:
+                raise
+            raise _JobCleanupError from None
+        self._state = _OwnerState.CLOSED

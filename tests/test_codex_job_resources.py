@@ -5,6 +5,7 @@ import pytest
 import yasb_limitora.codex_job_resources as r
 from yasb_limitora.isolation.windows_job import DEFAULT_CLEANUP_BUDGET_SECONDS, PROCESS_ACCESS, JobError, JobErrorCode, WAIT_OBJECT_0
 from yasb_limitora.isolation.windows_job import WindowsJobBoundary
+from yasb_limitora.v2_deadline import DeadlineContext
 
 class Api:
     def __init__(self, **flags: object) -> None:
@@ -111,6 +112,18 @@ def test_job_owner_close_is_retryable_and_redacted() -> None:
     assert repr(owner) == "<_JobOwner>" and repr(r._JobCleanupError()) == "<_JobCleanupError>"
     owner.close(); owner.close()
     assert owner._state is r._OwnerState.CLOSED
+
+def test_job_owner_v2_close_uses_real_boundary_deadline_adapter() -> None:
+    api, borrowed = Api(), object()
+    owner = r._JobOwner(WindowsJobBoundary(api=api))
+    owner.assign_borrowed_handle(borrowed)
+    context = DeadlineContext(t0_ns=0, deadline_ns=1_000_000_000, reserve_ns=250_000_000, clock_ns=lambda: 0)
+
+    owner.close_with_deadline(context)
+
+    assert owner._state is r._OwnerState.CLOSED
+    assert api.closed == ["job"]
+    assert any(call[0] == "wait" and call[1] is borrowed for call in api.calls if isinstance(call, tuple))
 
 def test_private_job_module_has_no_popen_or_ipc_surface() -> None:
     assert r.__all__ == () and not hasattr(r, "Popen") and not hasattr(r, "_PopenProcessOwner") and not hasattr(r, "_IpcPair")

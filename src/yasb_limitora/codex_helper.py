@@ -247,7 +247,7 @@ class _PersistentTransport(_PipeTransport):
         return payload
 
     def read_response_with_deadline(self, context) -> bytes:
-        header = self.read_frame_with_deadline(expected_size=4, context=context)
+        header = self.read_frame_with_deadline(expected_size=4, context=context, reject_trailing=False)
         size = struct.unpack(">I", header)[0]
         if not 0 < size <= _MAX_RESPONSE:
             raise _TransportError("response_oversize")
@@ -331,6 +331,13 @@ class CodexHelperExecutor:
             return _error(SafeErrorCode.INVOCATION_INVALID)
         if len(json.dumps({"nonce": "x" * _NONCE_LIMIT, "runner": list(runner)}).encode("utf-8")) > _MAX_REQUEST:
             return _error(SafeErrorCode.INVOCATION_INVALID)
+        if context.usable_ns() <= 0:
+            return ProviderView(
+                ProviderKey.CODEX,
+                ProviderState.UNAVAILABLE,
+                outcome=ProviderOutcome.NOT_RUN,
+                not_run_reason="deadline_exhausted",
+            )
         if not self._retry_cleanup_with_deadline(context):
             return _error(SafeErrorCode.INTERNAL_ERROR)
         with self._lifecycle:

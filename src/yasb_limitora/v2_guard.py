@@ -147,7 +147,13 @@ class GuardLease:
 
 
 class V2Guard:
-    """Acquire one opaque named mutex for a SID/path tuple."""
+    """Acquire one opaque named mutex for a SID/path tuple.
+
+    The ``Global\\`` namespace is intentional: cross-session serialization for
+    the same Windows user requires the runner to possess
+    ``SeCreateGlobalPrivilege``. The native proof verifies acquisition in the
+    privileged CI environment; the namespace is not changed to ``Local\\``.
+    """
 
     def __init__(
         self,

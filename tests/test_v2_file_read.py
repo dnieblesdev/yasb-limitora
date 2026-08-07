@@ -3,7 +3,7 @@ import os
 import pytest
 
 from yasb_limitora.v2_deadline import DeadlineContext
-from yasb_limitora.v2_path import V2FileError, read_v2_config
+from yasb_limitora.v2_path import V2DeadlineError, V2FileError, read_v2_config
 
 
 def _context():
@@ -39,6 +39,15 @@ def test_v2_config_read_does_not_open_after_deadline_expiry(tmp_path):
     with pytest.raises(V2FileError):
         read_v2_config(path, expired, open_fn=open_file)
     assert opened == []
+
+
+def test_v2_config_read_uses_usable_budget_before_cleanup_reserve(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text("{}", encoding="utf-8")
+    context = DeadlineContext(t0_ns=0, deadline_ns=1_000_000_000, reserve_ns=250_000_000, clock_ns=lambda: 800_000_000)
+
+    with pytest.raises(V2DeadlineError):
+        read_v2_config(path, context, open_fn=lambda *args: os.open(*args))
 
 
 def test_v2_config_read_close_failure_is_sanitized(tmp_path):

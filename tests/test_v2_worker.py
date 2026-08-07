@@ -2,9 +2,11 @@ import io
 import json
 import queue
 
+import pytest
+
 from yasb_limitora.cli import main
 from yasb_limitora.config import LocalConfig
-from yasb_limitora.model import ProviderKey, ProviderOutcome, ProviderState, ProviderView
+from yasb_limitora.model import ProviderKey, ProviderOutcome, ProviderState, ProviderView, SafeErrorCode
 from yasb_limitora.v2_deadline import DeadlineContext
 from yasb_limitora.v2_worker import V2ExecutionOrchestrator, WorkerRecord, cleanup_complete
 
@@ -83,6 +85,57 @@ def test_opencode_authorizes_job_before_releasing_provider_start():
     assert events[:3] == ["process-start", "job-assign", "provider-release"]
 
 
+def test_prestart_deadline_exhaustion_marks_opencode_not_run_without_spawning():
+    expired = DeadlineContext(t0_ns=0, deadline_ns=0, reserve_ns=0, clock_ns=lambda: 0)
+    worker = __import__("yasb_limitora.v2_worker", fromlist=["OpenCodeWorkerProcess"]).OpenCodeWorkerProcess(
+        process_factory=lambda **kwargs: (_ for _ in ()).throw(AssertionError("provider spawned")),
+    )
+
+    result = worker.run_with_deadline("workspace", {}, expired)
+
+    assert result.outcome is ProviderOutcome.NOT_RUN
+    assert result.not_run_reason == "deadline_exhausted"
+
+
+def test_started_opencode_overrun_remains_provider_timeout():
+    class Process:
+        pid, exitcode = 42, None
+
+        def __init__(self, target, args):
+            self.alive = True
+
+        def start(self):
+            pass
+
+        def join(self, timeout=None):
+            pass
+
+        def is_alive(self):
+            return self.alive
+
+    class Job:
+        active_processes = 0
+        state = "assigned"
+
+        def assign_process(self, pid):
+            pass
+
+        def close_with_deadline(self, context):
+            self.state = "closed"
+
+    worker = __import__("yasb_limitora.v2_worker", fromlist=["OpenCodeWorkerProcess"]).OpenCodeWorkerProcess(
+        process_factory=lambda **kwargs: Process(kwargs["target"], kwargs["args"]),
+        job_factory=Job,
+        context_factory=lambda _name: type("Context", (), {"Queue": lambda self: queue.Queue(), "Event": lambda self: type("Event", (), {"set": lambda self: None})()})(),
+    )
+
+    result = worker.run_with_deadline("workspace", {}, context())
+
+    assert result.outcome is ProviderOutcome.EXECUTION_ERROR
+    assert result.error is not None
+    assert result.error.code is SafeErrorCode.TIMEOUT
+
+
 def test_orchestrator_preserves_outcomes_when_mutex_cleanup_fails():
     events, lease = [], Lease([], close=False)
     lease.events = events
@@ -94,6 +147,43 @@ def test_orchestrator_preserves_outcomes_when_mutex_cleanup_fails():
     assert events == ["release-mutex", "close-mutex"]
 
 
+def test_unexpected_provider_exception_is_not_relabelled_as_guard_failure():
+    events, lease = [], Lease([])
+    lease.events = events
+    config = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": r"C:\codex.exe"}, "opencode_go": {}})
+
+    class ExplodingExecutor:
+        def run_with_deadline(self, runner, deadline):
+            raise RuntimeError("private provider detail")
+
+    orchestrator = V2ExecutionOrchestrator(guard_factory=lambda: Guard(lease), codex_executor=ExplodingExecutor())
+    with pytest.raises(RuntimeError, match="private provider detail"):
+        orchestrator.run(config, {}, context(), r"C:\config.json")
+    assert events == ["release-mutex", "close-mutex"]
+
+
+def test_unexpected_provider_exception_emits_schema_safe_internal_document(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"codex": {"enabled": True, "runner": r"C:\codex.exe"}, "opencode_go": {}}), encoding="utf-8")
+    lease = Lease([])
+
+    class ExplodingExecutor:
+        def run_with_deadline(self, runner, deadline):
+            raise RuntimeError("private provider detail")
+
+    monkeypatch.setattr(
+        "yasb_limitora.cli.V2ExecutionOrchestrator",
+        lambda: V2ExecutionOrchestrator(guard_factory=lambda: Guard(lease), codex_executor=ExplodingExecutor()),
+    )
+    stdout, stderr = io.BytesIO(), io.StringIO()
+
+    assert main(("--output-version", "2", "--config", str(config_path)), stdout=stdout, stderr=stderr) == 1
+    document = json.loads(stdout.getvalue())
+    assert document["execution_error"] == {"code": "internal_error", "phase": "document"}
+    assert all(provider["not_run_reason"] == "document_aborted" for provider in document["providers"])
+    assert stderr.getvalue() == "yasb-limitora: runtime_error\n"
+
+
 def test_v2_default_path_fails_closed_without_a_process_local_lock(tmp_path):
     config = tmp_path / "config.json"
     config.write_text(json.dumps({"codex": {"enabled": True, "runner": r"C:\codex.exe"}, "opencode_go": {}}), encoding="utf-8")
@@ -101,7 +191,7 @@ def test_v2_default_path_fails_closed_without_a_process_local_lock(tmp_path):
     code = main(("--output-version", "2", "--config", str(config)), stdout=stdout, stderr=stderr)
     projected = json.loads(stdout.getvalue())
     assert code == 1
-    assert projected["execution_error"]["code"] in {"guard_acquisition_failed", "cleanup_failed"}
+    assert projected["execution_error"]["code"] in {"guard_acquisition_failed", "cleanup_failed", "provider_failed"}
     if projected["execution_error"]["code"] == "guard_acquisition_failed":
         assert all(item["not_run_reason"] == "document_aborted" for item in projected["providers"])
     assert stderr.getvalue() == "yasb-limitora: runtime_error\n"

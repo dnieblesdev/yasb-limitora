@@ -25,6 +25,12 @@ def test_device_and_unc_paths_are_rejected(path):
         canonicalize_v2_path(path)
 
 
+@pytest.mark.parametrize("path", ("//server/share/config.json", "//?/C:/config.json"))
+def test_forward_slash_unc_and_device_paths_are_rejected_before_open(path):
+    with pytest.raises(V2PathError):
+        canonicalize_v2_path(path)
+
+
 def test_utf16_path_limit_is_checked_before_open():
     accepted = "C:\\" + "a" * (32_767 - 3)
     rejected = "C:\\" + "a" * (32_768 - 3)
