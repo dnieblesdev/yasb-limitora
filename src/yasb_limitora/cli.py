@@ -102,8 +102,39 @@ def _load_explicit(path: str) -> LocalConfig:
     return LocalConfig.from_mapping(value)
 
 
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ConfigError("duplicate configuration key")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ConfigError("non-finite configuration number")
+
+
+def _load_v2_explicit(path: str) -> LocalConfig:
+    try:
+        value = json.loads(
+            _read_config(path),
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except ConfigError:
+        raise
+    except Exception as error:  # noqa: BLE001 - path and parser details never cross the boundary
+        raise ConfigError("invalid local configuration") from error
+    return LocalConfig.from_v2_mapping(value)
+
+
 def _load_path(path: str | None) -> LocalConfig:
     return LocalConfig() if path is None else _load_explicit(path)
+
+
+def _load_v2_path(path: str | None) -> LocalConfig:
+    return LocalConfig() if path is None else _load_v2_explicit(path)
 
 
 def _resolve_config_path(argv: Sequence[str], environment: Mapping[str, str]) -> str:
@@ -146,7 +177,7 @@ def main(
         return 2
     try:
         config = (
-            _load_path(_resolve_config_path(load_args, effective_environment))
+            _load_v2_path(_resolve_config_path(load_args, effective_environment))
             if version == 2
             else _load(load_args)
         )
