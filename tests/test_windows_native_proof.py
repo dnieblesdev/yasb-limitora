@@ -175,7 +175,7 @@ def _assert_artifacts_are_sentinel_free(paths: tuple[Path, ...], sentinel: str) 
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
-def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path) -> None:
+def test_native_helper_adapter_ipc_job_tree_and_v2_deadline_cleanup(tmp_path: Path) -> None:
     sentinel = "native-redaction-sentinel"
     _write_checkpoint(_CHECKPOINT_START)
     success_evidence = tmp_path / "success.json"
@@ -236,6 +236,19 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
     _assert_gone(timeout_pids)
     _write_checkpoint(_CHECKPOINT_TIMEOUT_TREE_GONE)
 
+    v2_evidence = tmp_path / "v2-codex.json"
+    v2_marker = tmp_path / "v2-codex-descendant.attempted"
+    v2_executor = CodexHelperExecutor(timeout_seconds=5.0)
+    v2_result = v2_executor.run_with_deadline(
+        _runner("success", v2_evidence, sentinel, v2_marker),
+        DeadlineContext.from_seconds(10.0),
+    )
+    assert v2_result.state is ProviderState.SUCCESS
+    assert v2_result.outcome is ProviderOutcome.SNAPSHOT
+    assert v2_result.snapshot is not None
+    assert v2_executor._pending_supervisor is None
+    assert cleanup_complete([], helpers=(v2_executor,))
+
     artifact_path = os.environ.get("YASB_NATIVE_EVIDENCE_PATH")
     if artifact_path:
         artifact = {
@@ -253,27 +266,6 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
         Path(artifact_path).write_text(json.dumps(artifact, sort_keys=True) + "\n", encoding="utf-8")
     _assert_artifacts_are_sentinel_free(tuple(tmp_path.iterdir()), sentinel)
     _write_checkpoint(_CHECKPOINT_FINAL_SCAN_COMPLETE)
-
-
-@pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
-def test_native_v2_codex_deadline_cleanup_preserves_provider_result(tmp_path: Path) -> None:
-    sentinel = "native-v2-codex-sentinel"
-    evidence = tmp_path / "v2-codex.json"
-    marker = tmp_path / "v2-codex-descendant.attempted"
-    executor = CodexHelperExecutor(timeout_seconds=5.0)
-    context = DeadlineContext.from_seconds(10.0)
-
-    result = executor.run_with_deadline(
-        _runner("success", evidence, sentinel, marker),
-        context,
-    )
-
-    assert result.state is ProviderState.SUCCESS
-    assert result.outcome is ProviderOutcome.SNAPSHOT
-    assert result.snapshot is not None
-    assert executor._pending_supervisor is None
-    assert cleanup_complete([], helpers=(executor,))
-    assert not marker.exists() or marker.read_text(encoding="utf-8") == _DESCENDANT_ATTEMPT
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
