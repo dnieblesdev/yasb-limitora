@@ -164,7 +164,13 @@ class V2ExecutionOrchestrator:
             guard = self.guard_factory()
             lease = guard.acquire(config_path, context)
             if context.usable_ns() <= 0:
-                result = self._document(views, V2SafeErrorCode.DEADLINE_EXHAUSTED)
+                result = self._document(
+                    {
+                        key: _not_run(key, "deadline_exhausted") if key in enabled else view
+                        for key, view in views.items()
+                    },
+                    V2SafeErrorCode.DEADLINE_EXHAUSTED,
+                )
             elif ProviderKey.CODEX in enabled:
                 executor = self.codex_executor
                 if executor is None:
@@ -208,7 +214,7 @@ class V2ExecutionOrchestrator:
                             record.handles_closed = self._job_closed(record.job)
                         except Exception:
                             cleanup_error = True
-                if not cleanup_complete(self.worker_records, helpers=self.codex_helpers):
+                if (self.worker_records or self.codex_helpers) and not cleanup_complete(self.worker_records, helpers=self.codex_helpers):
                     cleanup_error = True
                 try:
                     release_ok = lease.release()

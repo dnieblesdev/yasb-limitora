@@ -14,7 +14,7 @@ from typing import TextIO
 
 from .config import ConfigError, LocalConfig
 from .coordinator import RuntimeCoordinator
-from .model import DocumentView, ProviderKey, ProviderState, ProviderView, SafeError, SafeErrorCode
+from .model import DocumentView, ProviderKey, ProviderState, ProviderView, SafeError, SafeErrorCode, V2SafeErrorCode
 from .projection import project_bytes
 from .projection_v2 import V2ProjectionInput, project_v2_bytes, project_v2_failure_bytes
 from .v2_deadline import DeadlineContext
@@ -235,7 +235,11 @@ def main(
         if version == 2:
             try:
                 exit_code = 1 if document.document_error is not None or any(view.state is ProviderState.SAFE_ERROR for view in document.providers) else 0
-                diagnostic = "runtime_error" if exit_code else ""
+                diagnostic = (
+                    "guard_wait_timeout"
+                    if document.document_error is not None and document.document_error.code is V2SafeErrorCode.GUARD_WAIT_TIMEOUT
+                    else "runtime_error" if exit_code else ""
+                )
                 enabled = frozenset(
                     provider
                     for provider, enabled_flag in (
