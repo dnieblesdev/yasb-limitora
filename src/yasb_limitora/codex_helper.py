@@ -312,6 +312,13 @@ class CodexHelperExecutor:
                 self._active = False
         return result
 
+    def run_with_deadline(self, runner: Sequence[str], context) -> ProviderView:
+        """V2-only adapter retaining the legacy run signature."""
+
+        if context.usable_ns() <= 0:
+            return _error(SafeErrorCode.TIMEOUT)
+        return self.run(runner)
+
     def retry_cleanup(self) -> bool:
         with self._lifecycle:
             if self._pending_supervisor is None: return True

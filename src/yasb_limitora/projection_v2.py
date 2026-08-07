@@ -23,6 +23,8 @@ from .model import (
     QuotaWindowKind,
     QuotaWindowView,
     SafeErrorCode,
+    SafeError,
+    V2SafeErrorCode,
     SnapshotFreshness,
 )
 
@@ -35,6 +37,9 @@ _FAILURES = {
     "invocation_invalid": ("configuration", "invocation_invalid"),
     "configuration_invalid": ("configuration", "invalid_configuration"),
     "internal_error": ("document", "document_aborted"),
+    "guard_acquisition_failed": ("guard_wait", "document_aborted"),
+    "guard_wait_timeout": ("guard_wait", "guard_wait_timeout"),
+    "deadline_exhausted": ("document", "deadline_exhausted"),
 }
 _MAX_DOCUMENT_BYTES = 65_536
 _MAX_TOOLTIP_SCALARS = 4_096
@@ -43,6 +48,8 @@ _NOT_RUN_TEXT = {
     "invalid_configuration": "configuration invalid",
     "invocation_invalid": "invocation invalid",
     "document_aborted": "document aborted",
+    "guard_wait_timeout": "guard wait timeout",
+    "deadline_exhausted": "deadline exhausted",
 }
 @dataclass(frozen=True, slots=True)
 class V2ProjectionInput:
@@ -132,6 +139,8 @@ def _error(code: SafeErrorCode) -> dict[str, str]:
         SafeErrorCode.TIMEOUT: "provider_timeout",
         SafeErrorCode.INVALID_PROVIDER_DATA: "invalid_provider_data",
         SafeErrorCode.UNKNOWN_PROVIDER_STATE: "unknown_provider_state",
+        V2SafeErrorCode.GUARD_WAIT_TIMEOUT: "guard_wait_timeout",
+        V2SafeErrorCode.DEADLINE_EXHAUSTED: "deadline_exhausted",
     }.get(code, "provider_failed")
     return {"code": mapped, "phase": "provider"}
 def _fallback(outcome: str) -> dict[str, Any]:
@@ -304,7 +313,7 @@ def _provider(view: ProviderView, enabled: frozenset[ProviderKey], tooltip_limit
     elif outcome is ProviderOutcome.NOT_RUN:
         if view.snapshot is not None or view.error is not None or provider in enabled:
             raise ValueError("invalid v2 not-run outcome")
-        item["not_run_reason"] = "disabled"
+        item["not_run_reason"] = view.not_run_reason or "disabled"
     else:
         if view.snapshot is not None or view.error is None:
             raise ValueError("invalid v2 execution-error outcome")
@@ -323,7 +332,15 @@ def _project_v2_document(input: V2ProjectionInput, tooltip_limit: int) -> dict[s
         raise ValueError("document providers are not canonical")
     providers, outcomes = zip(*(_provider(views[provider], input.enabled_providers, tooltip_limit) for provider in PROVIDER_ORDER))
     successful = {ProviderOutcome.SNAPSHOT.value, ProviderOutcome.UNDETECTED.value}
-    if all(outcome in successful for outcome in outcomes):
+    document_error = input.document.document_error
+    if document_error is not None and document_error.code is V2SafeErrorCode.CLEANUP_FAILED:
+        execution_state, execution_error = "execution_error", {"code": "cleanup_failed", "phase": "cleanup"}
+    elif document_error is not None and document_error.code in (V2SafeErrorCode.GUARD_WAIT_TIMEOUT, V2SafeErrorCode.DEADLINE_EXHAUSTED):
+        execution_state = "not_run"
+        execution_error = {"code": document_error.code.value, "phase": "guard_wait" if document_error.code is V2SafeErrorCode.GUARD_WAIT_TIMEOUT else "document"}
+    elif document_error is not None:
+        execution_state, execution_error = "execution_error", {"code": document_error.code.value, "phase": "guard_wait"}
+    elif all(outcome in successful for outcome in outcomes):
         execution_state, execution_error = "complete", None
     elif any(outcome in successful for outcome in outcomes):
         execution_state, execution_error = "partial", None
@@ -337,6 +354,21 @@ def _project_v2_document(input: V2ProjectionInput, tooltip_limit: int) -> dict[s
         "execution_error": execution_error,
         "providers": list(providers),
     }
+
+
+def project_v2_not_run_bytes(reason: str) -> bytes:
+    """Project a document-level not-run matrix entry."""
+
+    if reason not in {"guard_wait_timeout", "deadline_exhausted"}:
+        raise ValueError("unsupported v2 not-run reason")
+    code = V2SafeErrorCode.GUARD_WAIT_TIMEOUT if reason == "guard_wait_timeout" else V2SafeErrorCode.DEADLINE_EXHAUSTED
+    error = SafeError(code)
+    document = DocumentView.ordered(
+        ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason=reason),
+        ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason=reason),
+        error,
+    )
+    return project_v2_bytes(V2ProjectionInput(document))
 
 
 def project_v2_document(input: V2ProjectionInput) -> dict[str, Any]:

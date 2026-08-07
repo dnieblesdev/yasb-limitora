@@ -78,6 +78,15 @@ class SafeErrorCode(str, Enum):
     INVALID_PROVIDER_DATA = "invalid_provider_data"
     UNKNOWN_PROVIDER_STATE = "unknown_provider_state"
 
+
+class V2SafeErrorCode(str, Enum):
+    """Document/provider error codes added without changing the v1 enum."""
+
+    GUARD_ACQUISITION_FAILED = "guard_acquisition_failed"
+    GUARD_WAIT_TIMEOUT = "guard_wait_timeout"
+    DEADLINE_EXHAUSTED = "deadline_exhausted"
+    CLEANUP_FAILED = "cleanup_failed"
+
 def _enum(enum: type[Enum], value: object, message: str) -> Enum:
     try:
         return enum(value)
@@ -161,10 +170,14 @@ def _source_id(value: object) -> str | None:
 
 @dataclass(frozen=True, slots=True)
 class SafeError:
-    code: SafeErrorCode
+    code: SafeErrorCode | V2SafeErrorCode
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "code", _enum(SafeErrorCode, self.code, "invalid safe error code"))
+        try:
+            code = _enum(SafeErrorCode, self.code, "invalid safe error code")
+        except ValueError:
+            code = _enum(V2SafeErrorCode, self.code, "invalid safe error code")
+        object.__setattr__(self, "code", code)
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,6 +287,7 @@ class ProviderView:
     display_label: str | None = None
     outcome: ProviderOutcome | None = None
     snapshot: ProviderSnapshotView | None = None
+    not_run_reason: str | None = None
 
     def __post_init__(self) -> None:
         provider = _enum(ProviderKey, self.provider, "invalid provider key")
@@ -304,12 +318,15 @@ class ProviderView:
         elif self.snapshot is not None:
             raise ValueError("snapshot requires a snapshot outcome")
         object.__setattr__(self, "display_label", _label(self.display_label))
+        if self.not_run_reason is not None and self.outcome is not ProviderOutcome.NOT_RUN:
+            raise ValueError("only not_run may carry a not-run reason")
         object.__setattr__(self, "provider", provider)
         object.__setattr__(self, "state", state)
 
 @dataclass(frozen=True, slots=True)
 class DocumentView:
     providers: tuple[ProviderView, ...]
+    document_error: SafeError | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.providers, tuple):
@@ -318,7 +335,9 @@ class DocumentView:
             raise TypeError("providers must contain ProviderView values")
         if tuple(view.provider for view in self.providers) != PROVIDER_ORDER:
             raise ValueError("providers must be ordered codex, opencode_go")
+        if self.document_error is not None and not isinstance(self.document_error, SafeError):
+            raise ValueError("invalid document error")
 
     @classmethod
-    def ordered(cls, codex: ProviderView, opencode_go: ProviderView) -> "DocumentView":
-        return cls((codex, opencode_go))
+    def ordered(cls, codex: ProviderView, opencode_go: ProviderView, document_error: SafeError | None = None) -> "DocumentView":
+        return cls((codex, opencode_go), document_error)

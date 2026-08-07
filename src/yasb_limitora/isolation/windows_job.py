@@ -280,4 +280,10 @@ class WindowsJobBoundary:
         else: self.state = JobState.BROKEN
         if timed_out: raise JobError(JobErrorCode.TIMEOUT) from None
         if not ok: raise JobError(CLEANUP_ERROR) from None
+
+    def close_with_deadline(self, context) -> None:
+        remaining = context.cleanup_ns()
+        if remaining <= 0:
+            raise JobError(JobErrorCode.TIMEOUT)
+        self.close(remaining / 1_000_000_000)
     finalize = close

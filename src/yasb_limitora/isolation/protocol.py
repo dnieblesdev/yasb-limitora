@@ -182,6 +182,20 @@ def write_frame(transport: BoundedTransport, message: Mapping[str, Any], timeout
         if not isinstance(written, int) or written <= 0:
             raise ProtocolError(ProtocolErrorCode.TRANSPORT_FAILURE)
         offset += written
+
+
+def read_frame_with_deadline(transport: BoundedTransport, deadline_ns: int, *, clock_ns=time.monotonic_ns, limit: int | None = None) -> dict[str, Any]:
+    remaining = max(0, deadline_ns - clock_ns())
+    if not remaining:
+        raise ProtocolError(ProtocolErrorCode.TRANSPORT_TIMEOUT)
+    return read_frame(transport, remaining / 1_000_000_000, limit=limit)
+
+
+def write_frame_with_deadline(transport: BoundedTransport, message: Mapping[str, Any], deadline_ns: int, *, clock_ns=time.monotonic_ns) -> None:
+    remaining = max(0, deadline_ns - clock_ns())
+    if not remaining:
+        raise ProtocolError(ProtocolErrorCode.TRANSPORT_TIMEOUT)
+    write_frame(transport, message, remaining / 1_000_000_000)
 def _state(kind: str, nonce: str) -> dict[str, str]:
     _nonce(nonce)
     return {"type": kind, "nonce": nonce}

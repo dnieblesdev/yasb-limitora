@@ -186,6 +186,18 @@ class _PipeTransport:
                 continue
             offset += written
 
+    def read_frame_with_deadline(self, *, expected_size: int, deadline_ns: int, clock_ns) -> bytes:
+        remaining = max(0, deadline_ns - clock_ns())
+        if not remaining:
+            raise _TransportTimeout("timeout")
+        return self.read_frame(expected_size=expected_size, timeout_seconds=remaining / 1_000_000_000)
+
+    def write_control_with_deadline(self, data: bytes, *, deadline_ns: int, clock_ns) -> None:
+        remaining = max(0, deadline_ns - clock_ns())
+        if not remaining:
+            raise _TransportTimeout("timeout")
+        self.write_control(data, timeout_seconds=remaining / 1_000_000_000)
+
 
 _GATE_ENV = "_YASB_CODEX_GATE_HANDLE"
 _DATA_ENV = "_YASB_CODEX_DATA_HANDLE"
@@ -773,6 +785,17 @@ class _CodexSupervisor:
                 raise _AcquisitionError(self) from failures[0]
             self._helper = self._gate = self._data = self._owner = self._nonce = None
             self._state = _SupervisorState.CLOSED
+
+    def acquire_with_deadline(self, context):
+        if context.usable_ns() <= 0:
+            raise _TransportTimeout("timeout")
+        return self.acquire()
+
+    def close_with_deadline(self, context) -> None:
+        remaining = context.cleanup_ns()
+        if remaining <= 0:
+            raise _TransportTimeout("timeout")
+        self.close(remaining / 1_000_000_000)
 
     @staticmethod
     def _terminal_for(resource: object) -> Exception | None:
