@@ -31,8 +31,8 @@ jobs:
       - name: Execute selected proof and complete test suite
         shell: pwsh
         run: |
-           . .github/workflows/windows-proof-functions.ps1
-           if ($env:YASB_R8_NATIVE_GATE -ne "1") { throw "R8 native gate is not enabled" }
+          . .github/workflows/windows-proof-functions.ps1
+          if ($env:YASB_R8_NATIVE_GATE -ne "1") { throw "R8 native gate is not enabled" }
           $rawLog = "native-proof.raw.log"
           $proofExit = Invoke-NativePytestWmi -Mode "selected" -Phase "Native proof" -RawLogName $rawLog
           $exitClass = if ($proofExit -eq 0) { "zero" } else { "nonzero" }
