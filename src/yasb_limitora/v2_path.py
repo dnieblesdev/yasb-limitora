@@ -6,6 +6,7 @@ import ctypes
 import multiprocessing
 import ntpath
 import os
+import queue
 import stat
 
 from .v2_deadline import DeadlineContext
@@ -103,12 +104,12 @@ def _file_read_child(path: str, authorized, output) -> None:
         descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
         metadata = os.fstat(descriptor)
         if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > MAX_CONFIG_BYTES:
-            output.send((False, None))
+            output.put((False, None))
             return
         data = os.read(descriptor, CONFIG_READ_PROBE_BYTES)
-        output.send((isinstance(data, bytes) and len(data) <= MAX_CONFIG_BYTES, data))
+        output.put((isinstance(data, bytes) and len(data) <= MAX_CONFIG_BYTES, data))
     except Exception:
-        output.send((False, None))
+        output.put((False, None))
     finally:
         if descriptor is not None:
             try:
@@ -120,34 +121,40 @@ def _file_read_child(path: str, authorized, output) -> None:
 
 def _bounded_file_read(path: str, context) -> bytes:
     _remaining_or_fail(context)
-    receiver = None
+    output = None
     process = None
     job = None
     try:
         method = "fork" if "fork" in multiprocessing.get_all_start_methods() else "spawn"
         process_context = multiprocessing.get_context(method)
-        receiver, sender = process_context.Pipe(duplex=False)
+        output = process_context.Queue()
         authorized = process_context.Event()
-        process = process_context.Process(target=_file_read_child, args=(path, authorized, sender))
+        process = process_context.Process(target=_file_read_child, args=(path, authorized, output))
         process.start()
-        sender.close()
         if os.name == "nt":
             job = __import__("yasb_limitora.isolation.windows_job", fromlist=["WindowsJobBoundary"]).WindowsJobBoundary()
             job.assign_process(process.pid)
         authorized.set()
-        process.join(context.remaining_ns() / 1_000_000_000)
+        process.join(min(context.remaining_ns() / 1_000_000_000, 0.1))
         if process.is_alive():
-            if job is not None:
-                job.close_with_deadline(context)
-            else:
-                process.terminate()
-                process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
+            try:
+                success, data = output.get(timeout=context.remaining_ns() / 1_000_000_000)
+            except queue.Empty:
+                if job is not None:
+                    job.close_with_deadline(context)
+                else:
+                    process.terminate()
+                    process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
+                raise V2FileError("configuration read failed")
+            process.join(max(0.0, context.remaining_ns() / 1_000_000_000))
+        else:
+            success, data = output.get_nowait()
+        if process.is_alive():
             raise V2FileError("configuration read failed")
         if job is not None:
             job.close_with_deadline(context)
-        if context.remaining_ns() <= 0 or receiver is None or not receiver.poll():
+        if context.remaining_ns() <= 0:
             raise V2FileError("configuration read failed")
-        success, data = receiver.recv()
         if not success or not isinstance(data, bytes):
             raise V2FileError("configuration read failed")
         return data
@@ -162,8 +169,9 @@ def _bounded_file_read(path: str, context) -> bytes:
                 process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
             except Exception:
                 pass
-        if receiver is not None:
-            receiver.close()
+        if output is not None:
+            output.close()
+            output.join_thread()
 
 
 def _bounded_file_call(function, args, context):
