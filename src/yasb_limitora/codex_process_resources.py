@@ -128,6 +128,25 @@ class _PopenProcessOwner:
         if timeout_error:
             raise _PopenTimeoutError from None
 
+    def close_with_deadline(self, context) -> None:
+        if self._state is _PopenState.CLOSED:
+            return
+        if context.cleanup_ns() <= 0:
+            raise _PopenTimeoutError from None
+        self._state = _PopenState.CLOSING
+        try:
+            if self._popen.poll() is None:
+                self._popen.terminate()
+                remaining = context.cleanup_ns()
+                if remaining <= 0:
+                    raise _PopenTimeoutError from None
+                self._popen.wait(timeout=remaining / 1_000_000_000)
+            self._release_handle()
+        except Exception:
+            self._state = _PopenState.BROKEN
+            raise _PopenCleanupError from None
+        self._popen, self._native_handle, self._state = None, None, _PopenState.CLOSED
+
 
 class _HelperProcessResources:
     """Job-first aggregate that retains both owners while Job cleanup is pending."""
@@ -162,6 +181,32 @@ class _HelperProcessResources:
                 raise
             self._job_closed = True
         try: self._popen.close(timeout_seconds)
+        except _ProcessResourceError:
+            self._state = _HelperState.CLOSED if self._popen._state is _PopenState.CLOSED else _HelperState.BROKEN
+            raise
+        self._state = _HelperState.CLOSED
+
+    def close_with_deadline(self, context) -> None:
+        if self._state is _HelperState.CLOSED:
+            return
+        if self._state is _HelperState.CLOSING:
+            raise _OwnershipError from None
+        self._state = _HelperState.CLOSING
+        if self._job is not None and not self._job_closed:
+            try:
+                close = getattr(self._job, "close_with_deadline", None)
+                if close is None:
+                    raise _JobResourceError("deadline_adapter_missing")
+                close(context)
+            except Exception:
+                self._state = _HelperState.BROKEN
+                raise
+            self._job_closed = True
+        try:
+            close = getattr(self._popen, "close_with_deadline", None)
+            if close is None:
+                raise _PopenCleanupError from None
+            close(context)
         except _ProcessResourceError:
             self._state = _HelperState.CLOSED if self._popen._state is _PopenState.CLOSED else _HelperState.BROKEN
             raise

@@ -282,8 +282,62 @@ class WindowsJobBoundary:
         if not ok: raise JobError(CLEANUP_ERROR) from None
 
     def close_with_deadline(self, context) -> None:
-        remaining = context.cleanup_ns()
-        if remaining <= 0:
+        """Close against the original v2 endpoint, never a fresh timeout."""
+        if self.state is JobState.CLOSED:
+            return
+        if context.cleanup_ns() <= 0:
             raise JobError(JobErrorCode.TIMEOUT)
-        self.close(remaining / 1_000_000_000)
+        ok = True
+        process_waited = self.process is None or (self.borrowed_process and not self.assigned)
+        active_zero = self.job is None or not self.assigned
+        process_terminated = self.process is None or self.assigned or self.borrowed_process
+        job_terminated = self.job is None
+        if not self.assigned and self.process is not None and not self.borrowed_process:
+            process_terminated = self._safe("terminate_process", self.process)
+            ok &= process_terminated
+        if self.job is not None:
+            job_terminated = self._safe("terminate", self.job)
+            ok &= job_terminated
+        timed_out = False
+        while self.process is not None or self.job is not None:
+            remaining_ns = context.remaining_ns()
+            if remaining_ns <= 0:
+                timed_out = True
+                break
+            timeout_ms = max(MIN_WAIT_MILLISECONDS, min(MAX_WAIT_MILLISECONDS, remaining_ns // 1_000_000))
+            if self.process is not None and (not self.borrowed_process or self.assigned):
+                try:
+                    result = self._call("wait", self.process, int(timeout_ms))
+                except JobError:
+                    ok = process_waited = False
+                    result = WAIT_FAILED
+                if result == WAIT_OBJECT_0:
+                    process_waited = True
+                elif result == WAIT_TIMEOUT:
+                    process_waited = False
+                else:
+                    ok = process_waited = False
+            if self.job is None or not self.assigned:
+                if process_waited:
+                    break
+                continue
+            if context.remaining_ns() <= 0:
+                timed_out = True
+                break
+            try:
+                active = self._call("query_active", self.job)
+            except JobError:
+                ok = False
+                break
+            if active == 0 and process_waited:
+                active_zero = True
+                break
+            if active < 0:
+                ok = False
+                break
+        closed = self._close_handles(process_terminated and process_waited, job_terminated and active_zero)
+        if timed_out or not (ok and closed):
+            self.state = JobState.BROKEN
+            raise JobError(JobErrorCode.TIMEOUT if timed_out else CLEANUP_ERROR) from None
+        self.state = JobState.CLOSED
     finalize = close
