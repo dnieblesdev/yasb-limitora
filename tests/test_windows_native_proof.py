@@ -240,7 +240,7 @@ def test_native_helper_adapter_ipc_job_tree_and_v2_deadline_cleanup(tmp_path: Pa
     v2_marker = tmp_path / "v2-codex-descendant.attempted"
     v2_executor = CodexHelperExecutor(timeout_seconds=5.0)
     v2_result = v2_executor.run_with_deadline(
-        _runner("success", v2_evidence, sentinel, v2_marker),
+        _runner("success", v2_evidence, "", v2_marker),
         DeadlineContext.from_seconds(10.0),
     )
     assert v2_result.state is ProviderState.SUCCESS
