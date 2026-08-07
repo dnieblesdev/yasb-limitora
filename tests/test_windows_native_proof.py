@@ -29,6 +29,7 @@ from yasb_limitora.model import ProviderOutcome, ProviderState, PublicProviderSt
 from yasb_limitora.v2_deadline import DeadlineContext
 from yasb_limitora.v2_guard import GuardError, V2Guard
 from yasb_limitora.v2_path import V2FileError, canonicalize_v2_path, read_v2_config
+from yasb_limitora.v2_worker import cleanup_complete
 
 
 pytestmark = [
@@ -252,6 +253,27 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
         Path(artifact_path).write_text(json.dumps(artifact, sort_keys=True) + "\n", encoding="utf-8")
     _assert_artifacts_are_sentinel_free(tuple(tmp_path.iterdir()), sentinel)
     _write_checkpoint(_CHECKPOINT_FINAL_SCAN_COMPLETE)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
+def test_native_v2_codex_deadline_cleanup_preserves_provider_result(tmp_path: Path) -> None:
+    sentinel = "native-v2-codex-sentinel"
+    evidence = tmp_path / "v2-codex.json"
+    marker = tmp_path / "v2-codex-descendant.attempted"
+    executor = CodexHelperExecutor(timeout_seconds=5.0)
+    context = DeadlineContext.from_seconds(10.0)
+
+    result = executor.run_with_deadline(
+        _runner("success", evidence, sentinel, marker),
+        context,
+    )
+
+    assert result.state is ProviderState.SUCCESS
+    assert result.outcome is ProviderOutcome.SNAPSHOT
+    assert result.snapshot is not None
+    assert executor._pending_supervisor is None
+    assert cleanup_complete([], helpers=(executor,))
+    assert not marker.exists() or marker.read_text(encoding="utf-8") == _DESCENDANT_ATTEMPT
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
