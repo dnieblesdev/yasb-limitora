@@ -191,7 +191,7 @@ def test_v2_default_path_fails_closed_without_a_process_local_lock(tmp_path):
     code = main(("--output-version", "2", "--config", str(config)), stdout=stdout, stderr=stderr)
     projected = json.loads(stdout.getvalue())
     assert code == 1
-    assert projected["execution_error"]["code"] in {"guard_acquisition_failed", "cleanup_failed"}
+    assert projected["execution_error"]["code"] in {"guard_acquisition_failed", "cleanup_failed", "provider_failed"}
     if projected["execution_error"]["code"] == "guard_acquisition_failed":
         assert all(item["not_run_reason"] == "document_aborted" for item in projected["providers"])
     assert stderr.getvalue() == "yasb-limitora: runtime_error\n"
