@@ -97,6 +97,33 @@ def test_prestart_deadline_exhaustion_marks_opencode_not_run_without_spawning():
     assert result.not_run_reason == "deadline_exhausted"
 
 
+def test_prestart_deadline_exhaustion_retries_pending_codex_cleanup():
+    closed = []
+
+    class Supervisor:
+        def close_with_deadline(self, deadline):
+            closed.append(deadline)
+
+    from yasb_limitora.codex_helper import CodexHelperExecutor
+
+    executor = CodexHelperExecutor()
+    executor._pending_supervisor = Supervisor()
+    clock = iter((0, 200))
+    expiring = DeadlineContext(t0_ns=0, deadline_ns=100, reserve_ns=0, clock_ns=lambda: next(clock))
+    config = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": r"C:\codex.exe"}, "opencode_go": {}})
+
+    document = V2ExecutionOrchestrator(
+        guard_factory=lambda: Guard(Lease([])),
+        codex_executor=executor,
+    ).run(config, {}, expiring, r"C:\config.json")
+
+    assert document.document_error is None
+    assert document.providers[0].outcome is ProviderOutcome.NOT_RUN
+    assert document.providers[0].not_run_reason == "deadline_exhausted"
+    assert closed == [expiring]
+    assert executor._pending_supervisor is None
+
+
 def test_started_opencode_overrun_remains_provider_timeout():
     class Process:
         pid, exitcode = 42, None

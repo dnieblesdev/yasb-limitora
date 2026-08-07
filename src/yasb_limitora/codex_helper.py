@@ -331,6 +331,8 @@ class CodexHelperExecutor:
             return _error(SafeErrorCode.INVOCATION_INVALID)
         if len(json.dumps({"nonce": "x" * _NONCE_LIMIT, "runner": list(runner)}).encode("utf-8")) > _MAX_REQUEST:
             return _error(SafeErrorCode.INVOCATION_INVALID)
+        if not self._retry_cleanup_with_deadline(context):
+            return _error(SafeErrorCode.INTERNAL_ERROR)
         if context.usable_ns() <= 0:
             return ProviderView(
                 ProviderKey.CODEX,
@@ -338,8 +340,6 @@ class CodexHelperExecutor:
                 outcome=ProviderOutcome.NOT_RUN,
                 not_run_reason="deadline_exhausted",
             )
-        if not self._retry_cleanup_with_deadline(context):
-            return _error(SafeErrorCode.INTERNAL_ERROR)
         with self._lifecycle:
             if self._pending_supervisor is not None or self._active or self._retrying:
                 return _error(SafeErrorCode.INTERNAL_ERROR)
