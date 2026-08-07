@@ -304,7 +304,8 @@ def test_native_v2_default_configuration_reads_localappdata() -> None:
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
-def test_native_guard_competition_abandonment_and_provider_barrier(tmp_path: Path) -> None:
+def test_native_global_guard_privilege_competition_and_provider_barrier(tmp_path: Path) -> None:
+    # The real Global\ mutex acquisition is the runner privilege proof.
     script = """import sys, time
 from pathlib import Path
 from yasb_limitora.v2_deadline import DeadlineContext
@@ -344,16 +345,6 @@ except GuardError as error:
         if first.poll() is None:
             first.kill()
             first.wait(timeout=5)
-
-
-@pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
-def test_native_global_guard_acquires_with_runner_privilege(tmp_path: Path) -> None:
-    lease = V2Guard().acquire(str(tmp_path / "privilege.json"), DeadlineContext.from_seconds(1))
-    try:
-        assert lease.owned
-    finally:
-        assert lease.release()
-        assert lease.close()
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")

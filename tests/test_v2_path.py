@@ -1,5 +1,3 @@
-import os
-
 import pytest
 
 from yasb_limitora.v2_path import V2PathError, canonicalize_v2_path, path_identity
@@ -27,7 +25,6 @@ def test_device_and_unc_paths_are_rejected(path):
         canonicalize_v2_path(path)
 
 
-@pytest.mark.skipif(os.name == "nt", reason="forward-slash regression is non-Windows specific")
 @pytest.mark.parametrize("path", ("//server/share/config.json", "//?/C:/config.json"))
 def test_forward_slash_unc_and_device_paths_are_rejected_before_open(path):
     with pytest.raises(V2PathError):
