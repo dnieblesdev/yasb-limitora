@@ -259,7 +259,7 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
 def test_native_v2_codex_deadline_cleanup_preserves_provider_result(tmp_path: Path) -> None:
     executor = CodexHelperExecutor(timeout_seconds=5.0)
     result = executor.run_with_deadline(
-        _runner("success", tmp_path / "v2-codex.json", "", tmp_path / "v2-codex-descendant.attempted"),
+        _runner("success", tmp_path / "v2-codex.json", "v2-proof", tmp_path / "v2-codex-descendant.attempted"),
         DeadlineContext.from_seconds(10.0),
     )
 
