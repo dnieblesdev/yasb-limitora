@@ -75,7 +75,7 @@ class OpenCodeWorkerProcess:
 
     def run_with_deadline(self, workspace: str, environment: Mapping[str, str], context: DeadlineContext) -> ProviderView:
         if context.usable_ns() <= 0:
-            return _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.TIMEOUT)
+            return _not_run(ProviderKey.OPENCODE_GO, "deadline_exhausted")
         if self.process_factory is None and os.name != "nt":
             return _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR)
         try:

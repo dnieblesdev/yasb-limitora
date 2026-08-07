@@ -31,6 +31,7 @@ from yasb_limitora.model import (
     ProviderSnapshotView,
     SnapshotFreshness,
 )
+from yasb_limitora.v2_deadline import DeadlineContext
 
 
 def _snapshot(
@@ -85,7 +86,18 @@ def test_adapter_uses_root_public_api_and_maps_success_unavailable_stale_and_err
     view = read_opencode_go("private-workspace", {})
     assert view.state is ProviderState.UNAVAILABLE
     assert view.outcome is ProviderOutcome.NOT_RUN
+    assert view.not_run_reason == "disabled"
     assert "private-workspace" not in repr(view)
+
+
+def test_prestart_deadline_exhaustion_marks_codex_not_run_without_spawning():
+    expired = DeadlineContext(t0_ns=0, deadline_ns=0, reserve_ns=0, clock_ns=lambda: 0)
+    executor = CodexHelperExecutor(lambda **kwargs: (_ for _ in ()).throw(AssertionError("provider spawned")))
+
+    result = executor.run_with_deadline(("C:\\codex.exe",), expired)
+
+    assert result.outcome is ProviderOutcome.NOT_RUN
+    assert result.not_run_reason == "deadline_exhausted"
 
 
 def _quantity(value: str, metric=limitora.MetricKind.COMMERCIAL_QUOTA, unit="percentage_points"):

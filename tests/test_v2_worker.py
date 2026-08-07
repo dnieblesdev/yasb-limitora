@@ -4,7 +4,7 @@ import queue
 
 from yasb_limitora.cli import main
 from yasb_limitora.config import LocalConfig
-from yasb_limitora.model import ProviderKey, ProviderOutcome, ProviderState, ProviderView
+from yasb_limitora.model import ProviderKey, ProviderOutcome, ProviderState, ProviderView, SafeErrorCode
 from yasb_limitora.v2_deadline import DeadlineContext
 from yasb_limitora.v2_worker import V2ExecutionOrchestrator, WorkerRecord, cleanup_complete
 
@@ -81,6 +81,57 @@ def test_opencode_authorizes_job_before_releasing_provider_start():
     )
     worker.run_with_deadline("workspace", {}, context())
     assert events[:3] == ["process-start", "job-assign", "provider-release"]
+
+
+def test_prestart_deadline_exhaustion_marks_opencode_not_run_without_spawning():
+    expired = DeadlineContext(t0_ns=0, deadline_ns=0, reserve_ns=0, clock_ns=lambda: 0)
+    worker = __import__("yasb_limitora.v2_worker", fromlist=["OpenCodeWorkerProcess"]).OpenCodeWorkerProcess(
+        process_factory=lambda **kwargs: (_ for _ in ()).throw(AssertionError("provider spawned")),
+    )
+
+    result = worker.run_with_deadline("workspace", {}, expired)
+
+    assert result.outcome is ProviderOutcome.NOT_RUN
+    assert result.not_run_reason == "deadline_exhausted"
+
+
+def test_started_opencode_overrun_remains_provider_timeout():
+    class Process:
+        pid, exitcode = 42, None
+
+        def __init__(self, target, args):
+            self.alive = True
+
+        def start(self):
+            pass
+
+        def join(self, timeout=None):
+            pass
+
+        def is_alive(self):
+            return self.alive
+
+    class Job:
+        active_processes = 0
+        state = "assigned"
+
+        def assign_process(self, pid):
+            pass
+
+        def close_with_deadline(self, context):
+            self.state = "closed"
+
+    worker = __import__("yasb_limitora.v2_worker", fromlist=["OpenCodeWorkerProcess"]).OpenCodeWorkerProcess(
+        process_factory=lambda **kwargs: Process(kwargs["target"], kwargs["args"]),
+        job_factory=Job,
+        context_factory=lambda _name: type("Context", (), {"Queue": lambda self: queue.Queue(), "Event": lambda self: type("Event", (), {"set": lambda self: None})()})(),
+    )
+
+    result = worker.run_with_deadline("workspace", {}, context())
+
+    assert result.outcome is ProviderOutcome.EXECUTION_ERROR
+    assert result.error is not None
+    assert result.error.code is SafeErrorCode.TIMEOUT
 
 
 def test_orchestrator_preserves_outcomes_when_mutex_cleanup_fails():
