@@ -301,6 +301,23 @@ def test_v2_selected_inaccessible_file_does_not_fall_back(monkeypatch):
     assert selected not in raw.decode() + stderr
 
 
+def test_v2_config_deadline_expiry_emits_bounded_deadline_document(monkeypatch, tmp_path):
+    def expired_config(path, context):
+        raise cli.V2DeadlineError("configuration deadline exhausted")
+
+    monkeypatch.setattr(cli, "read_v2_config", expired_config)
+    path = tmp_path / "config.json"
+
+    code, document, stderr, raw = _run(("--output-version", "2", "--config", str(path)))
+
+    assert code == 1
+    assert document["execution_state"] == "execution_error"
+    assert document["execution_error"] == {"code": "deadline_exhausted", "phase": "document"}
+    assert all(provider["not_run_reason"] == "deadline_exhausted" for provider in document["providers"])
+    assert stderr == "yasb-limitora: runtime_error\n"
+    assert b"configuration deadline exhausted" not in raw
+
+
 @pytest.mark.parametrize("value", (0, 121, True, "7", None, float("inf")))
 def test_v2_deadline_seconds_rejects_invalid_values(tmp_path, value):
     path = tmp_path / "config.json"

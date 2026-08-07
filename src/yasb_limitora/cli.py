@@ -18,7 +18,7 @@ from .model import DocumentView, ProviderKey, ProviderState, ProviderView, SafeE
 from .projection import project_bytes
 from .projection_v2 import V2ProjectionInput, project_v2_bytes, project_v2_failure_bytes
 from .v2_deadline import DeadlineContext
-from .v2_path import read_v2_config
+from .v2_path import V2DeadlineError, read_v2_config
 from .v2_worker import V2ExecutionOrchestrator
 
 _SECRET = re.compile(r"auth.?cookie|cookie|token|password|secret|credential|api.?key|authorization", re.I)
@@ -129,6 +129,8 @@ def _load_v2_explicit(path: str, context: DeadlineContext | None = None) -> Loca
         else:
             raw = read_v2_config(path, context or DeadlineContext.from_seconds(1))
         value = json.loads(raw, object_pairs_hook=_unique_json_object, parse_constant=_reject_json_constant)
+    except V2DeadlineError as error:
+        raise V2DeadlineError("configuration deadline exhausted") from error
     except ConfigError:
         raise
     except Exception as error:  # noqa: BLE001 - path and parser details never cross the boundary
@@ -202,6 +204,14 @@ def main(
         err.write(f"yasb-limitora: {diagnostic}\n")
         err.flush()
         return 2
+    except V2DeadlineError:
+        if version == 2:
+            data, diagnostic = project_v2_failure_bytes("deadline_exhausted"), "runtime_error"
+            _write(out, data)
+            err.write(f"yasb-limitora: {diagnostic}\n")
+            err.flush()
+            return 1
+        raise
     except ConfigError:
         if version == 2:
             data, diagnostic = project_v2_failure_bytes("configuration_invalid"), "configuration_invalid"

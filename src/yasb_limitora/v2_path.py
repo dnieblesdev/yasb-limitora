@@ -23,6 +23,10 @@ class V2FileError(V2PathError):
     """Raised when bounded v2 configuration I/O cannot complete safely."""
 
 
+class V2DeadlineError(V2FileError):
+    """Raised when configuration I/O reaches the reserve-excluding endpoint."""
+
+
 MAX_CONFIG_BYTES = 16_384
 CONFIG_READ_PROBE_BYTES = MAX_CONFIG_BYTES + 1
 
@@ -88,6 +92,27 @@ def _remaining_or_fail(context: DeadlineContext) -> None:
         raise V2FileError("configuration read failed")
 
 
+def _usable_or_fail(context: DeadlineContext) -> None:
+    if context.usable_ns() <= 0:
+        raise V2DeadlineError("configuration deadline exhausted")
+
+
+def _close_output(output: object, context: DeadlineContext) -> None:
+    output.close()
+    thread = getattr(output, "_thread", None)
+    if thread is not None:
+        thread.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
+        if thread.is_alive():
+            output.cancel_join_thread()
+        return
+    cancel = getattr(output, "cancel_join_thread", None)
+    if cancel is not None:
+        cancel()
+    join_thread = getattr(output, "join_thread", None)
+    if join_thread is not None:
+        join_thread()
+
+
 def _file_call_child(function, args, output) -> None:
     try:
         output.send((True, function(*args)))
@@ -120,7 +145,7 @@ def _file_read_child(path: str, authorized, output) -> None:
 
 
 def _bounded_file_read(path: str, context) -> bytes:
-    _remaining_or_fail(context)
+    _usable_or_fail(context)
     output = None
     process = None
     job = None
@@ -135,26 +160,25 @@ def _bounded_file_read(path: str, context) -> bytes:
             job = __import__("yasb_limitora.isolation.windows_job", fromlist=["WindowsJobBoundary"]).WindowsJobBoundary()
             job.assign_process(process.pid)
         authorized.set()
-        process.join(min(context.remaining_ns() / 1_000_000_000, 0.1))
+        process.join(min(context.usable_ns() / 1_000_000_000, 0.1))
         if process.is_alive():
             try:
-                success, data = output.get(timeout=context.remaining_ns() / 1_000_000_000)
+                success, data = output.get(timeout=context.usable_ns() / 1_000_000_000)
             except queue.Empty:
                 if job is not None:
                     job.close_with_deadline(context)
                 else:
                     process.terminate()
                     process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
-                raise V2FileError("configuration read failed")
-            process.join(max(0.0, context.remaining_ns() / 1_000_000_000))
+                raise V2DeadlineError("configuration deadline exhausted")
+            process.join(max(0.0, context.usable_ns() / 1_000_000_000))
         else:
             success, data = output.get_nowait()
         if process.is_alive():
             raise V2FileError("configuration read failed")
         if job is not None:
             job.close_with_deadline(context)
-        if context.remaining_ns() <= 0:
-            raise V2FileError("configuration read failed")
+        _usable_or_fail(context)
         if not success or not isinstance(data, bytes):
             raise V2FileError("configuration read failed")
         return data
@@ -170,13 +194,12 @@ def _bounded_file_read(path: str, context) -> bytes:
             except Exception:
                 pass
         if output is not None:
-            output.close()
-            output.join_thread()
+            _close_output(output, context)
 
 
 def _bounded_file_call(function, args, context):
     """Run an injectable potentially-blocking file primitive behind a deadline."""
-    _remaining_or_fail(context)
+    _usable_or_fail(context)
     try:
         method = "fork" if "fork" in multiprocessing.get_all_start_methods() else "spawn"
         process_context = multiprocessing.get_context(method)
@@ -184,13 +207,13 @@ def _bounded_file_call(function, args, context):
         process = process_context.Process(target=_file_call_child, args=(function, args, sender))
         process.start()
         sender.close()
-        process.join(context.remaining_ns() / 1_000_000_000)
+        process.join(context.usable_ns() / 1_000_000_000)
         if process.is_alive():
             process.terminate()
             process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
-            raise V2FileError("configuration read failed")
-        if context.remaining_ns() <= 0 or not receiver.poll():
-            raise V2FileError("configuration read failed")
+            raise V2DeadlineError("configuration deadline exhausted")
+        if context.usable_ns() <= 0 or not receiver.poll():
+            raise V2DeadlineError("configuration deadline exhausted")
         success, value = receiver.recv()
         if not success:
             raise V2FileError("configuration read failed")
@@ -222,13 +245,13 @@ def read_v2_config(
         canonical = canonicalize_v2_path(source_path)
         if stat_fn is os.stat and open_fn is os.open and read_fn is os.read and close_fn is os.close:
             return _bounded_file_read(canonical, context)
-        _remaining_or_fail(context)
+        _usable_or_fail(context)
         metadata = stat_fn(canonical)
         if not stat.S_ISREG(metadata.st_mode):
             raise V2FileError("configuration read failed")
         if metadata.st_size > MAX_CONFIG_BYTES:
             raise V2FileError("configuration read failed")
-        _remaining_or_fail(context)
+        _usable_or_fail(context)
         flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
         descriptor = open_fn(canonical, flags)
     except V2FileError:
@@ -239,7 +262,7 @@ def read_v2_config(
     data: bytes | None = None
     failure: BaseException | None = None
     try:
-        _remaining_or_fail(context)
+        _usable_or_fail(context)
         if read_fn is os.read:
             data = read_fn(descriptor, CONFIG_READ_PROBE_BYTES)
         else:
@@ -250,7 +273,7 @@ def read_v2_config(
         failure = error
     finally:
         try:
-            _remaining_or_fail(context)
+            _usable_or_fail(context)
             if close_fn is os.close:
                 close_fn(descriptor)
             else:
@@ -278,6 +301,7 @@ __all__ = (
     "CONFIG_READ_PROBE_BYTES",
     "MAX_CONFIG_BYTES",
     "MAX_PATH_UTF16_UNITS",
+    "V2DeadlineError",
     "V2FileError",
     "V2PathError",
     "canonicalize_v2_path",
