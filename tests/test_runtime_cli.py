@@ -12,7 +12,20 @@ from yasb_limitora.cli import main
 from yasb_limitora.codex_helper import CodexHelperExecutor, _payload
 from yasb_limitora.config import LocalConfig
 from yasb_limitora.coordinator import RuntimeCoordinator
-from yasb_limitora.model import DocumentView, ProviderKey, ProviderState, ProviderView, SafeError, SafeErrorCode
+from yasb_limitora.model import (
+    DocumentView,
+    ProviderKey,
+    ProviderOutcome,
+    ProviderState,
+    ProviderView,
+    SafeError,
+    SafeErrorCode,
+    V2SafeErrorCode,
+)
+from yasb_limitora.projection_v2 import V2ProjectionInput, project_v2_bytes, project_v2_failure_bytes, project_v2_not_run_bytes
+from yasb_limitora.v2_deadline import DeadlineContext
+from yasb_limitora.v2_guard import GuardError
+from yasb_limitora.v2_worker import V2ExecutionOrchestrator
 
 
 def view(provider, state=ProviderState.SUCCESS, code=None, display_label=None):
@@ -238,3 +251,81 @@ def test_success_bytes_have_one_newline_and_provider_order():
     data = stdout.getvalue()
     assert code == 0 and stderr.getvalue() == "" and data.endswith(b"\n") and not data.endswith(b"\n\n")
     assert [item["provider"] for item in json.loads(data)["providers"]] == ["codex", "opencode_go"]
+
+
+class _MatrixLease:
+    def __init__(self, *, close=True):
+        self.close_ok = close
+
+    def release(self):
+        return True
+
+    def close(self):
+        return self.close_ok
+
+
+class _MatrixGuard:
+    def __init__(self, *, error=None, lease=None):
+        self.error = error
+        self.lease = lease or _MatrixLease()
+
+    def acquire(self, path, context):
+        if self.error is not None:
+            raise GuardError(self.error)
+        return self.lease
+
+
+class _MatrixCodex:
+    def run_with_deadline(self, runner, context):
+        return ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED)
+
+
+@pytest.mark.parametrize("scenario", ("guard_wait_timeout", "guard_acquisition_failed", "deadline_exhausted", "cleanup_failed"))
+def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, tmp_path, scenario):
+    path = tmp_path / "config.json"
+    opencode_config = {"enabled": True, "workspace_id": "workspace"} if scenario == "deadline_exhausted" else {}
+    path.write_text(json.dumps({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": opencode_config}), encoding="utf-8")
+
+    if scenario == "guard_wait_timeout":
+        orchestrator = V2ExecutionOrchestrator(guard_factory=lambda: _MatrixGuard(error=scenario))
+        expected = project_v2_not_run_bytes(scenario)
+        expected_stderr = "yasb-limitora: guard_wait_timeout\n"
+    elif scenario == "guard_acquisition_failed":
+        orchestrator = V2ExecutionOrchestrator(guard_factory=lambda: _MatrixGuard(error=scenario))
+        expected = project_v2_failure_bytes(scenario)
+        expected_stderr = "yasb-limitora: runtime_error\n"
+    elif scenario == "deadline_exhausted":
+        orchestrator = V2ExecutionOrchestrator(guard_factory=_MatrixGuard)
+        real_from_seconds = DeadlineContext.from_seconds
+        calls = []
+
+        def expired_after_config(cls, seconds, *, t0_ns=None, clock_ns=time.monotonic_ns):
+            calls.append(seconds)
+            if len(calls) == 2:
+                return DeadlineContext(t0_ns=0, deadline_ns=0, reserve_ns=0, clock_ns=lambda: 0)
+            return real_from_seconds(seconds, t0_ns=t0_ns, clock_ns=clock_ns)
+
+        monkeypatch.setattr(DeadlineContext, "from_seconds", classmethod(expired_after_config))
+        expected = project_v2_not_run_bytes(scenario)
+        expected_stderr = "yasb-limitora: runtime_error\n"
+    else:
+        orchestrator = V2ExecutionOrchestrator(
+            guard_factory=lambda: _MatrixGuard(lease=_MatrixLease(close=False)),
+            codex_executor=_MatrixCodex(),
+        )
+        expected_document = DocumentView.ordered(
+            ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED),
+            ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason="disabled"),
+            SafeError(V2SafeErrorCode.CLEANUP_FAILED),
+        )
+        expected = project_v2_bytes(V2ProjectionInput(expected_document, frozenset({ProviderKey.CODEX})))
+        expected_stderr = "yasb-limitora: runtime_error\n"
+
+    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
+    stdout, stderr = io.BytesIO(), io.StringIO()
+    code = main(("--output-version", "2", "--config", str(path)), stdout=stdout, stderr=stderr)
+
+    assert code == 1
+    assert stdout.getvalue() == expected
+    assert stdout.getvalue().endswith(b"\n") and not stdout.getvalue().endswith(b"\n\n")
+    assert stderr.getvalue() == expected_stderr
