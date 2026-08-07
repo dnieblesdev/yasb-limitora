@@ -311,7 +311,7 @@ def _provider(view: ProviderView, enabled: frozenset[ProviderKey], tooltip_limit
         if view.snapshot is not None or view.error is not None:
             raise ValueError("invalid v2 undetected outcome")
     elif outcome is ProviderOutcome.NOT_RUN:
-        if view.snapshot is not None or view.error is not None or provider in enabled:
+        if view.snapshot is not None or view.error is not None or (provider in enabled and view.not_run_reason not in {"document_aborted", "guard_wait_timeout", "deadline_exhausted"}):
             raise ValueError("invalid v2 not-run outcome")
         item["not_run_reason"] = view.not_run_reason or "disabled"
     else:

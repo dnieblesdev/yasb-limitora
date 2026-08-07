@@ -120,6 +120,8 @@ class V2ExecutionOrchestrator:
             enabled = enabled | {ProviderKey.CODEX}
         if config.opencode_go.enabled and config.opencode_go.workspace_id:
             enabled = enabled | {ProviderKey.OPENCODE_GO}
+        if not enabled:
+            return self._document(views)
         lease: GuardLease | None = None
         cleanup_error = False
         result: DocumentView | None = None

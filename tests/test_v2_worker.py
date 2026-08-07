@@ -3,7 +3,7 @@ import json
 
 from yasb_limitora.cli import main
 from yasb_limitora.config import LocalConfig
-from yasb_limitora.model import ProviderOutcome
+from yasb_limitora.model import ProviderKey, ProviderOutcome, ProviderState, ProviderView
 from yasb_limitora.v2_deadline import DeadlineContext
 from yasb_limitora.v2_worker import V2ExecutionOrchestrator, WorkerRecord, cleanup_complete
 
@@ -38,16 +38,17 @@ def test_cleanup_complete_requires_all_worker_evidence():
 def test_orchestrator_preserves_outcomes_when_mutex_cleanup_fails():
     events, lease = [], Lease([], close=False)
     lease.events = events
-    config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {}})
-    document = V2ExecutionOrchestrator(guard_factory=lambda: Guard(lease)).run(config, {}, context(), r"C:\config.json")
+    config = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": r"C:\codex.exe"}, "opencode_go": {}})
+    executor = type("Executor", (), {"run_with_deadline": lambda self, runner, deadline: ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED)})()
+    document = V2ExecutionOrchestrator(guard_factory=lambda: Guard(lease), codex_executor=executor).run(config, {}, context(), r"C:\config.json")
     assert document.document_error.code.value == "cleanup_failed"
-    assert tuple(view.outcome for view in document.providers) == (ProviderOutcome.NOT_RUN, ProviderOutcome.NOT_RUN)
+    assert tuple(view.outcome for view in document.providers) == (ProviderOutcome.UNDETECTED, ProviderOutcome.NOT_RUN)
     assert events == ["close-mutex", "release-mutex"]
 
 
 def test_v2_default_path_fails_closed_without_a_process_local_lock(tmp_path):
     config = tmp_path / "config.json"
-    config.write_text(json.dumps({"codex": {}, "opencode_go": {}}), encoding="utf-8")
+    config.write_text(json.dumps({"codex": {"enabled": True, "runner": r"C:\codex.exe"}, "opencode_go": {}}), encoding="utf-8")
     stdout, stderr = io.BytesIO(), io.StringIO()
     code = main(("--output-version", "2", "--config", str(config)), stdout=stdout, stderr=stderr)
     projected = json.loads(stdout.getvalue())
