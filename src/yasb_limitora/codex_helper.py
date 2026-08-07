@@ -247,7 +247,7 @@ class _PersistentTransport(_PipeTransport):
         return payload
 
     def read_response_with_deadline(self, context) -> bytes:
-        header = self.read_frame_with_deadline(expected_size=4, context=context)
+        header = self.read_frame_with_deadline(expected_size=4, context=context, reject_trailing=False)
         size = struct.unpack(">I", header)[0]
         if not 0 < size <= _MAX_RESPONSE:
             raise _TransportError("response_oversize")

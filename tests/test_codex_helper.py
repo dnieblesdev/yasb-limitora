@@ -713,3 +713,22 @@ def test_persistent_response_reader_accepts_header_and_payload_in_one_write():
     transport = _PersistentTransport(1, 2, peek=peek, read=read, nonblocking=True)
 
     assert transport.read_response() == b"abc"
+
+
+def test_persistent_response_reader_with_deadline_accepts_header_and_payload_in_one_write():
+    from yasb_limitora.codex_helper import _PersistentTransport
+    import struct
+
+    stream = bytearray(struct.pack(">I", 3) + b"abc")
+
+    def peek(fd):
+        return len(stream), False
+
+    def read(fd, size):
+        chunk = bytes(stream[:size])
+        del stream[:size]
+        return chunk
+
+    transport = _PersistentTransport(1, 2, peek=peek, read=read, nonblocking=True)
+
+    assert transport.read_response_with_deadline(DeadlineContext.from_seconds(1)) == b"abc"
