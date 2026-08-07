@@ -19,7 +19,7 @@ Later units remain out of scope until their ordered turn.
 | R5 | Project and negotiate JSON v2 | Add the accepted JSON v2 projection and explicit CLI negotiation | Complete |
 | R6 | Refine truthful presentation projection | Produce bounded compact, alternate, and tooltip fields from preserved evidence | Complete — merged to `main` at `30c94d0` |
 | R7 | Resolve default Windows configuration | Add the accepted default Windows configuration resolution | Complete — merged to `main` at `2850169` |
-| R8 | Add the cross-process execution guard | Add bounded guard acquisition, deadlines, and cleanup behavior | Planned after R7 |
+| R8 | Add the cross-process execution guard | Add bounded guard acquisition, deadlines, and cleanup behavior | Complete — merged to `main` at `5bee184` |
 | R9 | Package CustomWidget examples and static CSS | Package the CustomWidget examples and static presentation assets | Planned after R8 |
 | R10 | Prove pinned YASB integration on Windows | Validate the pinned YASB CustomWidget integration on Windows | Planned after R9 |
 | R11 | Release and smoke-test 0.2.0 | Complete release readiness and the final smoke test | Planned after R10 |
@@ -168,6 +168,68 @@ v1 golden-fixture, runtime, and Windows-native-proof tests all pass;
 Tracker #37 was updated to mark R7 complete, and issue #89 was closed. R8 is
 the next authorized unit; it is not started and its scope (cross-process
 execution guard, deadlines, and cleanup) was not introduced by R7.
+
+## R8 closeout
+
+R8 is complete through issue #92 and merged implementation PRs #93-#103 under
+parent tracker #37. The delivered boundary is v2-only execution safety: a
+cross-process execution guard, one absolute CLI-entry deadline, and bounded v2
+configuration path/file limits.
+
+- Issue #92 defined and approved the R8 child work with `status:approved`.
+- Implementation PRs, all merged to `main`:
+  - PR #93, merged at `80cb9fc` — v2 deadline context, `deadline_seconds`
+    grammar, and lexical path canonicalization (slice A).
+  - PR #94, merged at `03d41a8` — bounded v2 local-file I/O (slice B).
+  - PR #95, merged at `c2890ad` — opaque named Win32 mutex guard (slice C).
+  - PR #96, merged at `c730dd3` — guarded worker integration, result
+    model/projection matrices, and cleanup-complete predicate (slice D).
+  - PR #97, merged at `4c11ece` — native two-process/abandonment proof and the
+    zero-skip workflow gate (slice E).
+  - PR #98, merged at `4e28b45` — absolute deadlines threaded through the v2
+    transport/protocol (remediation round 1).
+  - PR #99, merged at `2669457` — v2 supervisor/helper and Job cleanup deadline
+    propagation (remediation round 1).
+  - PR #100, merged at `a3390a6` — worker boundary, cleanup ordering, bounded
+    I/O, and native sentinel remediation (remediation round 1).
+  - PR #101, merged at `dc84a37` — v1 explicit device retention and integrated
+    v2 runtime matrices (remediation round 2).
+  - PR #102, merged at `5087c08` — closeout Judgment Day round 1 severity
+    fixes.
+  - PR #103, merged at `5bee184` — closeout Judgment Day round 2 fixes
+    (JDC-B-003 end-to-end, stale-supervisor cleanup, descriptor closure).
+- The delivered v2 boundary: the guard scope is the opaque SHA-256 hash of the
+  process-token SID bytes plus the canonical effective configuration path in a
+  `Global\\` named mutex; acquisition uses `CreateMutexW` and a bounded
+  `WaitForSingleObject(min(250ms, remaining-after-reserve))`; `WAIT_OBJECT_0`
+  and `WAIT_ABANDONED` establish ownership, timeout maps to
+  `guard_wait_timeout`, and create/open/identity failure to
+  `guard_acquisition_failed`; the owner always attempts release and handle
+  close in an outer `finally`, and a release/close fault maps to sanitized
+  `cleanup_failed` while preserving provider outcomes. The absolute `T0`
+  deadline starts at CLI entry and is never reset; providers run behind a hard
+  worker-process/Job boundary, so a provider not started at expiry is
+  `not_run: deadline_exhausted` and a started overrun is `provider_timeout`.
+  v2 configuration paths are canonicalized lexically
+  (`GetFullPathNameW`-equivalent, no existence/network lookup), device and UNC
+  paths are rejected before open, normalized paths are capped at 32,767 UTF-16
+  code units, and the selected file must be a regular local file of at most
+  16,384 UTF-8 bytes read through a bounded 16,385-byte probe.
+- v1 remains byte-for-byte frozen: CLI bytes, streams, exits, selectors, and
+  explicit-config behavior are unchanged; v1 never enters the R8 deadline,
+  guard, or canonicalization paths.
+- Post-merge evidence is 354 full-suite tests passed with 8 skipped (the 8
+  skips are the Windows-native proofs that run only on Windows), exit 0, with
+  the v1 golden fixtures byte-frozen; the native "Windows proof" workflow run
+  `31159008178` concludes `success` at `5bee184` with zero skipped proof tests
+  and checkpoint 9 satisfied.
+- No new dependency was added (`pyproject.toml` unchanged) and no schema or
+  specification edit was made (`docs/specifications/*` unchanged).
+
+Issue #92 is closed. The parent tracker #37 records this completion during the
+orchestrator closeout. R9 is the next authorized unit; it is not started and
+its scope (packaging the CustomWidget examples and static CSS) was not
+introduced by R8.
 
 ## Explicit exclusions for 0.2
 
