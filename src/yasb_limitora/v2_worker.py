@@ -160,6 +160,7 @@ class V2ExecutionOrchestrator:
         lease: GuardLease | None = None
         cleanup_error = False
         result: DocumentView | None = None
+        unexpected_error: Exception | None = None
         try:
             guard = self.guard_factory()
             lease = guard.acquire(config_path, context)
@@ -193,8 +194,9 @@ class V2ExecutionOrchestrator:
             code = V2SafeErrorCode.GUARD_WAIT_TIMEOUT if error.code == "guard_wait_timeout" else V2SafeErrorCode.GUARD_ACQUISITION_FAILED
             reason = "guard_wait_timeout" if error.code == "guard_wait_timeout" else "document_aborted"
             result = self._document({key: _not_run(key, reason) for key in views}, code)
-        except Exception:
-            result = self._document(views, V2SafeErrorCode.GUARD_ACQUISITION_FAILED)
+        except Exception as error:
+            views = {key: _not_run(key, "document_aborted") for key in views}
+            unexpected_error = error
         finally:
             if lease is not None:
                 for worker in self.workers:
@@ -229,6 +231,8 @@ class V2ExecutionOrchestrator:
                 if cleanup_error:
                     preserved = views if result is None else {view.provider: view for view in result.providers}
                     result = self._document(preserved, V2SafeErrorCode.CLEANUP_FAILED)
+        if unexpected_error is not None:
+            raise unexpected_error
         return result if result is not None else self._document(views, V2SafeErrorCode.GUARD_ACQUISITION_FAILED)
 
     @staticmethod

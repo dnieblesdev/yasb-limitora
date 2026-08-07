@@ -2,6 +2,8 @@ import io
 import json
 import queue
 
+import pytest
+
 from yasb_limitora.cli import main
 from yasb_limitora.config import LocalConfig
 from yasb_limitora.model import ProviderKey, ProviderOutcome, ProviderState, ProviderView, SafeErrorCode
@@ -143,6 +145,43 @@ def test_orchestrator_preserves_outcomes_when_mutex_cleanup_fails():
     assert document.document_error.code.value == "cleanup_failed"
     assert tuple(view.outcome for view in document.providers) == (ProviderOutcome.UNDETECTED, ProviderOutcome.NOT_RUN)
     assert events == ["release-mutex", "close-mutex"]
+
+
+def test_unexpected_provider_exception_is_not_relabelled_as_guard_failure():
+    events, lease = [], Lease([])
+    lease.events = events
+    config = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": r"C:\codex.exe"}, "opencode_go": {}})
+
+    class ExplodingExecutor:
+        def run_with_deadline(self, runner, deadline):
+            raise RuntimeError("private provider detail")
+
+    orchestrator = V2ExecutionOrchestrator(guard_factory=lambda: Guard(lease), codex_executor=ExplodingExecutor())
+    with pytest.raises(RuntimeError, match="private provider detail"):
+        orchestrator.run(config, {}, context(), r"C:\config.json")
+    assert events == ["release-mutex", "close-mutex"]
+
+
+def test_unexpected_provider_exception_emits_schema_safe_internal_document(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"codex": {"enabled": True, "runner": r"C:\codex.exe"}, "opencode_go": {}}), encoding="utf-8")
+    lease = Lease([])
+
+    class ExplodingExecutor:
+        def run_with_deadline(self, runner, deadline):
+            raise RuntimeError("private provider detail")
+
+    monkeypatch.setattr(
+        "yasb_limitora.cli.V2ExecutionOrchestrator",
+        lambda: V2ExecutionOrchestrator(guard_factory=lambda: Guard(lease), codex_executor=ExplodingExecutor()),
+    )
+    stdout, stderr = io.BytesIO(), io.StringIO()
+
+    assert main(("--output-version", "2", "--config", str(config_path)), stdout=stdout, stderr=stderr) == 1
+    document = json.loads(stdout.getvalue())
+    assert document["execution_error"] == {"code": "internal_error", "phase": "document"}
+    assert all(provider["not_run_reason"] == "document_aborted" for provider in document["providers"])
+    assert stderr.getvalue() == "yasb-limitora: runtime_error\n"
 
 
 def test_v2_default_path_fails_closed_without_a_process_local_lock(tmp_path):

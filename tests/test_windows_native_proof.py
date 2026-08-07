@@ -347,6 +347,16 @@ except GuardError as error:
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
+def test_native_global_guard_acquires_with_runner_privilege(tmp_path: Path) -> None:
+    lease = V2Guard().acquire(str(tmp_path / "privilege.json"), DeadlineContext.from_seconds(1))
+    try:
+        assert lease.owned
+    finally:
+        assert lease.release()
+        assert lease.close()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
 def test_native_path_and_file_limits_reject_before_provider_open(tmp_path: Path) -> None:
     context = DeadlineContext.from_seconds(5)
     with pytest.raises(ValueError):
