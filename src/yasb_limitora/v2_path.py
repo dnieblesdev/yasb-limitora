@@ -17,6 +17,12 @@ class V2PathError(ValueError):
 def _windows_full_path(value: str) -> str | None:
     if os.name != "nt":
         return None
+    # GetFullPathNameW rejects some paths at the documented boundary even
+    # though the normalized lexical contract permits exactly 32,767 units.
+    # Absolute drive paths need no current-directory lookup, so normalize
+    # those at the boundary with the same lexical rules instead.
+    if ntpath.splitdrive(value)[0] and len(value.encode("utf-16-le")) // 2 >= MAX_PATH_UTF16_UNITS - 7:
+        return None
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     get_full_path = kernel32.GetFullPathNameW
     get_full_path.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_wchar_p)]
@@ -36,7 +42,7 @@ def _windows_full_path(value: str) -> str | None:
 def _lexical_full_path(value: str) -> str:
     windows_value = _windows_full_path(value)
     if windows_value is not None:
-        return windows_value.replace("/", "\\")
+        return ntpath.normpath(windows_value.replace("/", "\\"))
     if ntpath.splitdrive(value)[0] or value.startswith(("\\", "/")):
         return ntpath.normpath(value.replace("/", "\\"))
     return os.path.normpath(os.path.abspath(value))
