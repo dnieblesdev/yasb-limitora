@@ -7,7 +7,7 @@ from yasb_limitora.v2_path import V2FileError, read_v2_config
 
 
 def _context():
-    return DeadlineContext(t0_ns=0, deadline_ns=10_000, reserve_ns=2_000, clock_ns=lambda: 0)
+    return DeadlineContext(t0_ns=0, deadline_ns=10_000_000_000, reserve_ns=250_000_000, clock_ns=lambda: 0)
 
 
 def test_v2_config_read_accepts_16384_bytes_and_rejects_the_extra_byte(tmp_path):
@@ -51,3 +51,17 @@ def test_v2_config_read_close_failure_is_sanitized(tmp_path):
     with pytest.raises(V2FileError) as error:
         read_v2_config(path, _context(), close_fn=close_file)
     assert str(error.value) == "configuration read failed"
+
+
+def test_v2_config_read_kills_a_blocking_injected_read_within_remaining_budget(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text("{}", encoding="utf-8")
+
+    def blocking_read(_fd, _size):
+        import time
+        time.sleep(2)
+        return b"{}"
+
+    context = DeadlineContext(t0_ns=0, deadline_ns=100_000_000, reserve_ns=20_000_000, clock_ns=lambda: 0)
+    with pytest.raises(V2FileError):
+        read_v2_config(path, context, read_fn=blocking_read)

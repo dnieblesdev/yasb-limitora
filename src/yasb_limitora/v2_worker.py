@@ -22,8 +22,10 @@ def _not_run(provider: ProviderKey, reason: str) -> ProviderView:
     return ProviderView(provider, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason=reason)
 
 
-def _opencode_bootstrap(reader: Callable[[str, Mapping[str, str]], ProviderView], workspace: str, environment: Mapping[str, str], output: Any) -> None:
+def _opencode_bootstrap(reader: Callable[[str, Mapping[str, str]], ProviderView], workspace: str, environment: Mapping[str, str], output: Any, authorized: Any = None) -> None:
     try:
+        if authorized is not None:
+            authorized.wait()
         output.put(reader(workspace, environment))
     except Exception:
         output.put(_safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR))
@@ -39,11 +41,28 @@ class WorkerRecord:
     handles_closed: bool = False
 
 
-def cleanup_complete(records: list[WorkerRecord]) -> bool:
-    return bool(records) and all(
+def _supervisor_quiescent(supervisor: Any) -> bool:
+    state = getattr(getattr(supervisor, "_state", None), "value", getattr(supervisor, "_state", None))
+    return state == "closed" and all(
+        getattr(supervisor, name, None) is None
+        for name in ("_pending", "_prepared", "_helper", "_gate", "_data")
+    )
+
+
+def _helper_quiescent(helper: Any) -> bool:
+    return (
+        getattr(helper, "_pending_supervisor", None) is None
+        and not getattr(helper, "_active", False)
+        and not getattr(helper, "_retrying", False)
+        and (_supervisor_quiescent(getattr(helper, "_last_supervisor", None)) if getattr(helper, "_last_supervisor", None) is not None else True)
+    )
+
+
+def cleanup_complete(records: list[WorkerRecord], *, supervisors=(), helpers=()) -> bool:
+    return bool(records or tuple(supervisors) or tuple(helpers)) and all(
         record.reaped and record.exit_code is not None and record.job_active_zero and record.handles_closed
         for record in records
-    )
+    ) and all(_supervisor_quiescent(supervisor) for supervisor in supervisors) and all(_helper_quiescent(helper) for helper in helpers)
 
 
 class OpenCodeWorkerProcess:
@@ -61,13 +80,16 @@ class OpenCodeWorkerProcess:
             return _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR)
         try:
             queue = self.context_factory("spawn").Queue()
+            authorized = self.context_factory("spawn").Event()
             process = (self.process_factory or self.context_factory("spawn").Process)(
-                target=_opencode_bootstrap, args=(self.reader, workspace, environment, queue)
+                target=_opencode_bootstrap, args=(self.reader, workspace, environment, queue, authorized)
             )
             process.start()
+            record = self.record = WorkerRecord(process, None)
             job = self.job_factory() if self.job_factory is not None else WindowsJobBoundary()
             job.assign_process(process.pid)
-            record = self.record = WorkerRecord(process, job)
+            record.job = job
+            authorized.set()
             process.join(context.usable_ns() / 1_000_000_000)
             if process.is_alive():
                 self._close_job(job, context)
@@ -85,6 +107,17 @@ class OpenCodeWorkerProcess:
             record.handles_closed = self._job_closed(job)
             return result if isinstance(result, ProviderView) else _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR)
         except Exception:
+            if self.record is not None and self.record.job is not None:
+                try:
+                    self._close_job(self.record.job, context)
+                except Exception:
+                    pass
+            if "process" in locals() and getattr(process, "is_alive", lambda: False)():
+                try:
+                    process.terminate()
+                    process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
+                except Exception:
+                    pass
             return _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR)
 
     def _close_job(self, job: Any, context: DeadlineContext) -> None:
@@ -109,6 +142,8 @@ class V2ExecutionOrchestrator:
         self.codex_executor = codex_executor
         self.opencode_factory = opencode_factory
         self.worker_records: list[WorkerRecord] = []
+        self.workers: list[Any] = []
+        self.codex_helpers: list[Any] = []
 
     def run(self, config: LocalConfig, environment: Mapping[str, str], context: DeadlineContext, config_path: str) -> DocumentView:
         views = {
@@ -135,13 +170,17 @@ class V2ExecutionOrchestrator:
                 if executor is None:
                     from .codex_helper import CodexHelperExecutor
                     executor = CodexHelperExecutor()
+                if executor not in self.codex_helpers:
+                    self.codex_helpers.append(executor)
                 run = getattr(executor, "run_with_deadline", None)
                 views[ProviderKey.CODEX] = run((config.codex.runner,), context) if run else executor.run((config.codex.runner,))
             if result is None and ProviderKey.OPENCODE_GO in enabled:
                 worker = self.opencode_factory()
+                self.workers.append(worker)
                 views[ProviderKey.OPENCODE_GO] = worker.run_with_deadline(config.opencode_go.workspace_id, environment, context)
                 if worker.record is not None:
-                    self.worker_records.append(worker.record)
+                    if worker.record not in self.worker_records:
+                        self.worker_records.append(worker.record)
             if result is None:
                 result = self._document(views)
         except GuardError as error:
@@ -152,14 +191,38 @@ class V2ExecutionOrchestrator:
             result = self._document(views, V2SafeErrorCode.GUARD_ACQUISITION_FAILED)
         finally:
             if lease is not None:
-                if not cleanup_complete(self.worker_records) and self.worker_records:
+                for worker in self.workers:
+                    if getattr(worker, "record", None) is not None and worker.record not in self.worker_records:
+                        self.worker_records.append(worker.record)
+                # Workers and their Job handles are closed before ownership is
+                # relinquished. This is the no-overlap boundary.
+                for record in self.worker_records:
+                    if not record.handles_closed and record.job is not None:
+                        try:
+                            close = getattr(record.job, "close_with_deadline", None)
+                            if close is not None:
+                                close(context)
+                            else:
+                                record.job.close(max(0.0, context.cleanup_ns() / 1_000_000_000))
+                            record.job_active_zero = self._job_zero(record.job)
+                            record.handles_closed = self._job_closed(record.job)
+                        except Exception:
+                            cleanup_error = True
+                if not cleanup_complete(self.worker_records, helpers=self.codex_helpers):
                     cleanup_error = True
-                close_ok = lease.close()
-                release_ok = lease.release()
+                try:
+                    release_ok = lease.release()
+                except Exception:
+                    release_ok = False
+                try:
+                    close_ok = lease.close()
+                except Exception:
+                    close_ok = False
                 if not close_ok or not release_ok:
                     cleanup_error = True
                 if cleanup_error:
-                    result = self._document(dict(result.providers and {view.provider: view for view in result.providers} or views), V2SafeErrorCode.CLEANUP_FAILED)
+                    preserved = views if result is None else {view.provider: view for view in result.providers}
+                    result = self._document(preserved, V2SafeErrorCode.CLEANUP_FAILED)
         return result if result is not None else self._document(views, V2SafeErrorCode.GUARD_ACQUISITION_FAILED)
 
     @staticmethod

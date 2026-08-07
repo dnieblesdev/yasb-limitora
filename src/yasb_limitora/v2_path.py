@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import ctypes
+import multiprocessing
 import ntpath
 import os
+import queue
 import stat
 
 from .v2_deadline import DeadlineContext
@@ -86,6 +88,124 @@ def _remaining_or_fail(context: DeadlineContext) -> None:
         raise V2FileError("configuration read failed")
 
 
+def _file_call_child(function, args, output) -> None:
+    try:
+        output.send((True, function(*args)))
+    except Exception:
+        output.send((False, None))
+    finally:
+        output.close()
+
+
+def _file_read_child(path: str, authorized, output) -> None:
+    descriptor = None
+    try:
+        authorized.wait()
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > MAX_CONFIG_BYTES:
+            output.put((False, None))
+            return
+        data = os.read(descriptor, CONFIG_READ_PROBE_BYTES)
+        output.put((isinstance(data, bytes) and len(data) <= MAX_CONFIG_BYTES, data))
+    except Exception:
+        output.put((False, None))
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except Exception:
+                pass
+        output.close()
+
+
+def _bounded_file_read(path: str, context) -> bytes:
+    _remaining_or_fail(context)
+    output = None
+    process = None
+    job = None
+    try:
+        method = "fork" if "fork" in multiprocessing.get_all_start_methods() else "spawn"
+        process_context = multiprocessing.get_context(method)
+        output = process_context.Queue()
+        authorized = process_context.Event()
+        process = process_context.Process(target=_file_read_child, args=(path, authorized, output))
+        process.start()
+        if os.name == "nt":
+            job = __import__("yasb_limitora.isolation.windows_job", fromlist=["WindowsJobBoundary"]).WindowsJobBoundary()
+            job.assign_process(process.pid)
+        authorized.set()
+        process.join(min(context.remaining_ns() / 1_000_000_000, 0.1))
+        if process.is_alive():
+            try:
+                success, data = output.get(timeout=context.remaining_ns() / 1_000_000_000)
+            except queue.Empty:
+                if job is not None:
+                    job.close_with_deadline(context)
+                else:
+                    process.terminate()
+                    process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
+                raise V2FileError("configuration read failed")
+            process.join(max(0.0, context.remaining_ns() / 1_000_000_000))
+        else:
+            success, data = output.get_nowait()
+        if process.is_alive():
+            raise V2FileError("configuration read failed")
+        if job is not None:
+            job.close_with_deadline(context)
+        if context.remaining_ns() <= 0:
+            raise V2FileError("configuration read failed")
+        if not success or not isinstance(data, bytes):
+            raise V2FileError("configuration read failed")
+        return data
+    except V2FileError:
+        raise
+    except Exception:
+        raise V2FileError("configuration read failed") from None
+    finally:
+        if process is not None and process.is_alive():
+            try:
+                process.terminate()
+                process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
+            except Exception:
+                pass
+        if output is not None:
+            output.close()
+            output.join_thread()
+
+
+def _bounded_file_call(function, args, context):
+    """Run an injectable potentially-blocking file primitive behind a deadline."""
+    _remaining_or_fail(context)
+    try:
+        method = "fork" if "fork" in multiprocessing.get_all_start_methods() else "spawn"
+        process_context = multiprocessing.get_context(method)
+        receiver, sender = process_context.Pipe(duplex=False)
+        process = process_context.Process(target=_file_call_child, args=(function, args, sender))
+        process.start()
+        sender.close()
+        process.join(context.remaining_ns() / 1_000_000_000)
+        if process.is_alive():
+            process.terminate()
+            process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
+            raise V2FileError("configuration read failed")
+        if context.remaining_ns() <= 0 or not receiver.poll():
+            raise V2FileError("configuration read failed")
+        success, value = receiver.recv()
+        if not success:
+            raise V2FileError("configuration read failed")
+        return value
+    except V2FileError:
+        raise
+    except Exception:
+        raise V2FileError("configuration read failed") from None
+    finally:
+        try:
+            receiver.close()
+        except Exception:
+            pass
+
+
 def read_v2_config(
     path: object,
     context: DeadlineContext,
@@ -100,6 +220,8 @@ def read_v2_config(
     try:
         source_path = os.fspath(path) if isinstance(path, os.PathLike) else path
         canonical = canonicalize_v2_path(source_path)
+        if stat_fn is os.stat and open_fn is os.open and read_fn is os.read and close_fn is os.close:
+            return _bounded_file_read(canonical, context)
         _remaining_or_fail(context)
         metadata = stat_fn(canonical)
         if not stat.S_ISREG(metadata.st_mode):
@@ -118,7 +240,10 @@ def read_v2_config(
     failure: BaseException | None = None
     try:
         _remaining_or_fail(context)
-        data = read_fn(descriptor, CONFIG_READ_PROBE_BYTES)
+        if read_fn is os.read:
+            data = read_fn(descriptor, CONFIG_READ_PROBE_BYTES)
+        else:
+            data = _bounded_file_call(read_fn, (descriptor, CONFIG_READ_PROBE_BYTES), context)
         if not isinstance(data, bytes) or len(data) > MAX_CONFIG_BYTES:
             raise V2FileError("configuration read failed")
     except BaseException as error:  # noqa: BLE001 - cleanup must run for every failure
@@ -126,7 +251,19 @@ def read_v2_config(
     finally:
         try:
             _remaining_or_fail(context)
-            close_fn(descriptor)
+            if close_fn is os.close:
+                close_fn(descriptor)
+            else:
+                # The child cannot close the parent's descriptor. Run the
+                # injected close behind the deadline, then close the owned
+                # descriptor locally regardless of the injected outcome.
+                try:
+                    _bounded_file_call(close_fn, (descriptor,), context)
+                finally:
+                    try:
+                        os.close(descriptor)
+                    except OSError:
+                        pass
         except BaseException as error:  # noqa: BLE001 - cleanup failures are sanitized
             if failure is None:
                 failure = error

@@ -284,27 +284,40 @@ def test_native_v2_default_configuration_reads_localappdata() -> None:
 @pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
 def test_native_guard_competition_abandonment_and_provider_barrier(tmp_path: Path) -> None:
     script = """import sys, time
+from pathlib import Path
 from yasb_limitora.v2_deadline import DeadlineContext
 from yasb_limitora.v2_guard import GuardError, V2Guard
 path = sys.argv[1]
+sentinel = Path(sys.argv[3])
+def provider():
+    sentinel.write_text("PROVIDER_STARTED\\n", encoding="ascii")
 try:
     lease = V2Guard().acquire(path, DeadlineContext.from_seconds(float(sys.argv[2])))
     print("owned", flush=True)
-    if len(sys.argv) > 3: time.sleep(30)
+    provider()
+    if len(sys.argv) > 4: time.sleep(30)
 except GuardError as error:
     print(error.code, flush=True)
 """
     path = str(tmp_path / "guard.json")
-    first = subprocess.Popen([sys.executable, "-c", script, path, "5", "hold"], stdout=subprocess.PIPE, text=True)
+    owner_sentinel = str(tmp_path / "owner-provider.sentinel")
+    blocked_sentinel = str(tmp_path / "blocked-provider.sentinel")
+    first = subprocess.Popen([sys.executable, "-c", script, path, "5", owner_sentinel, "hold"], stdout=subprocess.PIPE, text=True)
     try:
         assert first.stdout is not None and first.stdout.readline().strip() == "owned"
-        blocked = subprocess.run([sys.executable, "-c", script, path, "1"], capture_output=True, text=True, timeout=5)
+        provider_deadline = time.monotonic() + 5
+        while not Path(owner_sentinel).exists() and time.monotonic() < provider_deadline:
+            time.sleep(0.01)
+        assert Path(owner_sentinel).read_text(encoding="ascii") == "PROVIDER_STARTED\n"
+        blocked = subprocess.run([sys.executable, "-c", script, path, "1", blocked_sentinel], capture_output=True, text=True, timeout=5)
         assert blocked.stdout.strip() == "guard_wait_timeout"
-        assert "provider" not in blocked.stdout.lower()
+        assert not Path(blocked_sentinel).exists()
         first.terminate()
         first.wait(timeout=5)
-        abandoned = subprocess.run([sys.executable, "-c", script, path, "5"], capture_output=True, text=True, timeout=5)
+        abandoned_sentinel = str(tmp_path / "abandoned-provider.sentinel")
+        abandoned = subprocess.run([sys.executable, "-c", script, path, "5", abandoned_sentinel], capture_output=True, text=True, timeout=5)
         assert abandoned.stdout.strip() == "owned"
+        assert Path(abandoned_sentinel).read_text(encoding="ascii") == "PROVIDER_STARTED\n"
     finally:
         if first.poll() is None:
             first.kill()
