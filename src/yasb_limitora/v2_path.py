@@ -73,7 +73,8 @@ def canonicalize_v2_path(path: object) -> str:
     if not isinstance(path, str) or not path:
         raise V2PathError("invalid path")
     lexical = path if os.name != "nt" and path.startswith("/") else path.replace("/", "\\")
-    if lexical.startswith(("\\\\?\\", "\\\\.\\", "\\\\")):
+    rejection_form = path.replace("/", "\\")
+    if rejection_form.startswith(("\\\\?\\", "\\\\.\\", "\\\\")):
         raise V2PathError("non-local path")
     canonical = _lexical_full_path(lexical)
     if len(canonical.encode("utf-16-le")) // 2 > MAX_PATH_UTF16_UNITS:
