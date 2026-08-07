@@ -305,6 +305,9 @@ except GuardError as error:
     first = subprocess.Popen([sys.executable, "-c", script, path, "5", owner_sentinel, "hold"], stdout=subprocess.PIPE, text=True)
     try:
         assert first.stdout is not None and first.stdout.readline().strip() == "owned"
+        provider_deadline = time.monotonic() + 5
+        while not Path(owner_sentinel).exists() and time.monotonic() < provider_deadline:
+            time.sleep(0.01)
         assert Path(owner_sentinel).read_text(encoding="ascii") == "PROVIDER_STARTED\n"
         blocked = subprocess.run([sys.executable, "-c", script, path, "1", blocked_sentinel], capture_output=True, text=True, timeout=5)
         assert blocked.stdout.strip() == "guard_wait_timeout"
