@@ -17,6 +17,34 @@ BASELINE = {
     "providers-disabled": ("not_run", ("not_run", None, None), (None, None)),
     "safe-error": ("execution_error", ("execution_error", None, None), (None, None)),
 }
+WINDOW_TOOLTIP_SUFFIXES = {
+    "complete": (
+        "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
+        "unit=percentage_points; source_id=\"codex-app-server-v2\"; result=80% remaining\n"
+        "Reset: 2026-08-02T00:00:00.000000Z",
+        "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
+        "unit=percentage_points; source_id=\"opencode-go-dashboard\"; result=60% remaining\n"
+        "Reset: 2026-08-02T00:00:00.000000Z",
+    ),
+    "partial": (None, None),
+    "stale": (
+        "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
+        "unit=percentage_points; source_id=\"codex-app-server-v2\"; result=40% remaining\n"
+        "Reset: 2026-08-02T00:00:00.000000Z",
+        "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
+        "unit=percentage_points; source_id=\"opencode-go-dashboard\"; result=40% remaining\n"
+        "Reset: 2026-08-02T00:00:00.000000Z",
+    ),
+    "undetected": (None, None),
+    "provider-unavailable": (
+        None,
+        "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
+        "unit=percentage_points; source_id=\"opencode-go-dashboard\"; result=60% remaining\n"
+        "Reset: 2026-08-02T00:00:00.000000Z",
+    ),
+    "providers-disabled": (None, None),
+    "safe-error": (None, None),
+}
 V1_SHA256 = {
     "json_v1_success.json": "974957799f3729bb4ee66ad405f1cbd4594a1024592103338fa4ffa1a57d1013",
     "json_v1_unicode_label.json": "9ebca8f5675145771aedb0b821d16b021763df4842fabea8fa9576c7f3dbacec",
@@ -45,7 +73,7 @@ def _assert_safe_leaf(value, tooltip=False):
     assert "\r" not in value and "stderr" not in value.lower()
 
 
-def _assert_provider(provider, expected, percentage, display_state=None):
+def _assert_provider(provider, expected, percentage, display_state=None, tooltip_suffix=None):
     assert list(provider) == [
         "provider", "outcome", "public_state", "freshness", "status_observed_at",
         "fetched_at", "data_at", "source_id", "windows", "execution_error",
@@ -63,7 +91,10 @@ def _assert_provider(provider, expected, percentage, display_state=None):
     if percentage is not None:
         assert provider["compact_text"] == f"Quota {percentage}% remaining; state={display_state}; freshness={freshness}"
         assert provider["alternate_text"] == f"Quota account / day: {percentage}% remaining; state={display_state}; freshness={freshness}"
-        assert provider["tooltip_text"] == f"State: {display_state}\nFreshness: {freshness}\nQuota: {percentage}% remaining"
+        tooltip = f"State: {display_state}\nFreshness: {freshness}\nQuota: {percentage}% remaining"
+        if tooltip_suffix is not None:
+            tooltip += f"\n{tooltip_suffix}"
+        assert provider["tooltip_text"] == tooltip
         assert provider["most_depleted_window"]["remaining_percentage"] == str(percentage)
     elif outcome == "snapshot":
         assert provider["compact_text"] == f"Quota percentage unavailable; state={display_state}; freshness={freshness}"
@@ -73,7 +104,8 @@ def _assert_provider(provider, expected, percentage, display_state=None):
     elif outcome == "undetected":
         assert provider["compact_text"] == provider["alternate_text"] == provider["tooltip_text"] == "Quota not detected"
     elif outcome == "not_run":
-        assert provider["compact_text"] == provider["alternate_text"] == provider["tooltip_text"] == "Quota not run: provider disabled"
+        assert provider["compact_text"] == provider["alternate_text"] == "Quota not run"
+        assert provider["tooltip_text"] == "Quota not run: provider disabled"
     else:
         assert provider["compact_text"] == provider["alternate_text"] == provider["tooltip_text"] == "Quota error"
 
@@ -94,17 +126,32 @@ class CustomWidgetExamplesTests(unittest.TestCase):
             serialized = json.dumps(value).lower()
             assert all(key not in serialized for key in ("exit_code", "stderr", "stdout", "traceback", "password", "api_key", "cookie", "/home/", "c:\\"))
             for provider, percent in zip(value["providers"], percentages if name not in ("providers-disabled", "safe-error") else (None, None)):
-                _assert_provider(provider, expected if name not in ("provider-unavailable",) else ("execution_error", None, None) if provider["provider"] == "codex" else ("snapshot", "available", "fresh"), percent, "stale" if name == "stale" else None)
+                _assert_provider(
+                    provider,
+                    expected if name not in ("provider-unavailable",) else ("execution_error", None, None) if provider["provider"] == "codex" else ("snapshot", "available", "fresh"),
+                    percent,
+                    "stale" if name == "stale" else None,
+                    WINDOW_TOOLTIP_SUFFIXES[name][value["providers"].index(provider)],
+                )
             if name == "provider-unavailable":
-                _assert_provider(value["providers"][1], ("snapshot", "available", "fresh"), 60)
+                _assert_provider(
+                    value["providers"][1],
+                    ("snapshot", "available", "fresh"),
+                    60,
+                    tooltip_suffix=WINDOW_TOOLTIP_SUFFIXES[name][1],
+                )
+            if name == "safe-error":
+                assert value["execution_error"] == {"code": "provider_failed", "phase": "provider"}
 
     def test_yaml_uses_only_bounded_public_paths_and_verified_options(self):
         text = (EXAMPLE / "customwidget.yaml").read_text(encoding="utf-8")
         assert text.endswith("\n") and "providers][0]" in text
+        assert text.startswith("widgets:\n  limitora_r9:\n    type: yasb.custom.CustomWidget\n    options:\n")
         assert "providers[1]" not in text and "callbacks" not in text and "keybindings" not in text
         assert 'run_cmd: "yasb-limitora --output-version 2"' in text
         assert not re.search(r"run_cmd:.*(?:;|&&|\|\||\||`|\$\(|>|<)", text)
-        assert set(re.findall(r"^\s{0,2}([a-z_]+):", text, re.MULTILINE)) <= {"class_name", "label", "label_alt", "tooltip", "tooltip_label", "exec_options", "run_cmd", "run_once", "run_interval", "return_format", "hide_empty", "use_shell"}
+        assert re.findall(r"^      ([a-z_]+):", text, re.MULTILINE) == ["class_name", "label", "label_alt", "tooltip", "tooltip_label", "exec_options"]
+        assert re.findall(r"^        ([a-z_]+):", text, re.MULTILINE) == ["run_cmd", "run_once", "run_interval", "return_format", "hide_empty", "use_shell"]
         assert "execution_state" not in text and "windows" not in text and "most_depleted_window" not in text
 
     def test_css_is_static_and_matches_supported_descendants(self):

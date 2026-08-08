@@ -7,8 +7,8 @@ widget runtime, provider logic, quota calculations, or CSS state machine.
 ## Quick path
 
 1. Install `yasb-limitora` using your preferred local method.
-2. Copy `customwidget.yaml` into the YASB widget configuration and add the
-   widget to a bar.
+2. Merge the named `limitora_r9` entry from `customwidget.yaml` into YASB's
+   `widgets:` map, then add `limitora_r9` to the desired bar widget list.
 3. Copy or merge `styles.css` into the YASB stylesheet.
 4. Restart YASB and confirm that the label and tooltip show the CLI output.
 
@@ -19,6 +19,8 @@ executable commands.
 
 ## What the YAML renders
 
+The YAML is a named YASB widget entry with `type: yasb.custom.CustomWidget`
+and its verified options nested under `options:`.
 The primary label uses `compact_text`, the alternate label uses
 `alternate_text`, and the tooltip uses `tooltip_text` as supplied. The YAML
 does not calculate percentages, inspect windows, infer quota models, invent
