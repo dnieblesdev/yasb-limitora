@@ -1,0 +1,16 @@
+.custom-widget.limitora-r9 {
+    color: #d7e3f4;
+    padding: 0 6px;
+}
+
+.custom-widget.limitora-r9 .widget-container .label {
+    font-weight: 600;
+}
+
+.custom-widget.limitora-r9 .widget-container .label.alt {
+    color: #a9bdd6;
+}
+
+.custom-widget.limitora-r9 .widget-container .icon {
+    color: #75b8ff;
+}
