@@ -17,6 +17,18 @@ BASELINE = {
     "providers-disabled": ("not_run", ("not_run", None, None), (None, None)),
     "safe-error": ("execution_error", ("execution_error", None, None), (None, None)),
 }
+EDGE = {
+    "guard-timeout": ("not_run", ("not_run", None, None), (None, None)),
+    "deadline-not-run": ("not_run", ("not_run", None, None), (None, None)),
+    "multiline-unicode": ("complete", ("snapshot", "available", "fresh"), (73, 73)),
+    "missing-data": ("partial", ("snapshot", "partial", "stale"), (None, None)),
+}
+ALL_FIXTURES = {**BASELINE, **EDGE}
+NOT_RUN_PRESENTATION = {
+    "disabled": "provider disabled",
+    "guard_wait_timeout": "guard wait timeout",
+    "deadline_exhausted": "deadline exhausted",
+}
 WINDOW_TOOLTIP_SUFFIXES = {
     "complete": (
         "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
@@ -44,6 +56,26 @@ WINDOW_TOOLTIP_SUFFIXES = {
     ),
     "providers-disabled": (None, None),
     "safe-error": (None, None),
+    "guard-timeout": (None, None),
+    "deadline-not-run": (None, None),
+    "multiline-unicode": ("Note: résumé ✓", "Note: résumé ✓"),
+    "missing-data": (None, None),
+}
+RUNTIME_METADATA = {
+    "guard-timeout": {
+        "exit_code": 1,
+        "stderr": b"yasb-limitora: guard_wait_timeout" + bytes([0x0A]),
+        "document": {"code": "guard_wait_timeout", "phase": "guard_wait"},
+        "reason": "guard_wait_timeout",
+        "tooltip": "Quota not run: guard wait timeout",
+    },
+    "deadline-not-run": {
+        "exit_code": 1,
+        "stderr": b"yasb-limitora: runtime_error" + bytes([0x0A]),
+        "document": {"code": "deadline_exhausted", "phase": "document"},
+        "reason": "deadline_exhausted",
+        "tooltip": "Quota not run: deadline exhausted",
+    },
 }
 V1_SHA256 = {
     "json_v1_success.json": "974957799f3729bb4ee66ad405f1cbd4594a1024592103338fa4ffa1a57d1013",
@@ -85,6 +117,11 @@ def _assert_provider(provider, expected, percentage, display_state=None, tooltip
     assert provider["outcome"] == outcome
     assert provider["public_state"] == state
     assert provider["freshness"] == freshness
+    if outcome != "execution_error":
+        assert provider["execution_error"] is None
+    if outcome != "not_run":
+        assert provider["not_run_reason"] is None
+    assert all(leaf in provider for leaf in ("compact_text", "alternate_text", "tooltip_text"))
     _assert_safe_leaf(provider["compact_text"])
     _assert_safe_leaf(provider["alternate_text"])
     _assert_safe_leaf(provider["tooltip_text"], tooltip=True)
@@ -104,28 +141,41 @@ def _assert_provider(provider, expected, percentage, display_state=None, tooltip
     elif outcome == "undetected":
         assert provider["compact_text"] == provider["alternate_text"] == provider["tooltip_text"] == "Quota not detected"
     elif outcome == "not_run":
+        reason_text = NOT_RUN_PRESENTATION[provider["not_run_reason"]]
         assert provider["compact_text"] == provider["alternate_text"] == "Quota not run"
-        assert provider["tooltip_text"] == "Quota not run: provider disabled"
+        assert provider["tooltip_text"] == f"Quota not run: {reason_text}"
     else:
         assert provider["compact_text"] == provider["alternate_text"] == provider["tooltip_text"] == "Quota error"
 
 
 class CustomWidgetExamplesTests(unittest.TestCase):
-    def test_slice_a_paths_and_slice_b_is_reserved(self):
+    def test_fixture_coverage_is_exact(self):
         expected = {"customwidget.yaml", "styles.css", "README.md"}
         assert expected <= {path.name for path in EXAMPLE.iterdir() if path.is_file()}
-        assert {f"{name}.json" for name in BASELINE} == {path.name for path in FIXTURES.iterdir()}
-        assert not any((FIXTURES / f"{name}.json").exists() for name in ("guard-timeout", "deadline-not-run", "multiline-unicode", "missing-data"))
+        assert {f"{name}.json" for name in ALL_FIXTURES} == {path.name for path in FIXTURES.iterdir()}
 
-    def test_baseline_matrix_is_exact_and_strict_v2(self):
-        for name, (execution_state, expected, percentages) in BASELINE.items():
+    def test_fixture_matrix_is_exact_and_strict_v2(self):
+        for name, (execution_state, expected, percentages) in ALL_FIXTURES.items():
+            raw = (FIXTURES / f"{name}.json").read_bytes()
+            assert raw.endswith(bytes([0x0A])) and b"\r" not in raw
             value = _json_document(FIXTURES / f"{name}.json")
             assert list(value) == ["version", "execution_state", "execution_error", "providers"]
             assert value["version"] == 2 and value["execution_state"] == execution_state and len(value["providers"]) == 2
             assert [provider["provider"] for provider in value["providers"]] == ["codex", "opencode_go"]
             serialized = json.dumps(value).lower()
             assert all(key not in serialized for key in ("exit_code", "stderr", "stdout", "traceback", "password", "api_key", "cookie", "/home/", "c:\\"))
-            for provider, percent in zip(value["providers"], percentages if name not in ("providers-disabled", "safe-error") else (None, None)):
+            expected_errors = {
+                "provider-unavailable": [
+                    {"code": "provider_failed", "phase": "provider"},
+                    None,
+                ],
+                "safe-error": [
+                    {"code": "invalid_provider_data", "phase": "provider"},
+                    {"code": "invalid_provider_data", "phase": "provider"},
+                ],
+            }.get(name, [None, None])
+            for index, (provider, percent) in enumerate(zip(value["providers"], percentages if name not in ("providers-disabled", "safe-error") else (None, None))):
+                assert provider["execution_error"] == expected_errors[index]
                 _assert_provider(
                     provider,
                     expected if name not in ("provider-unavailable",) else ("execution_error", None, None) if provider["provider"] == "codex" else ("snapshot", "available", "fresh"),
@@ -142,6 +192,25 @@ class CustomWidgetExamplesTests(unittest.TestCase):
                 )
             if name == "safe-error":
                 assert value["execution_error"] == {"code": "provider_failed", "phase": "provider"}
+            if name in RUNTIME_METADATA:
+                assert value["execution_error"] == RUNTIME_METADATA[name]["document"]
+
+    def test_guard_and_deadline_runtime_metadata_is_separate_from_fixtures(self):
+        for name, expected in RUNTIME_METADATA.items():
+            value = _json_document(FIXTURES / f"{name}.json")
+            assert expected["exit_code"] == 1
+            expected_stderr = (
+                b"yasb-limitora: guard_wait_timeout" + bytes([0x0A])
+                if name == "guard-timeout"
+                else b"yasb-limitora: runtime_error" + bytes([0x0A])
+            )
+            assert expected["stderr"] == expected_stderr
+            assert value["execution_error"] == expected["document"]
+            assert [provider["outcome"] for provider in value["providers"]] == ["not_run", "not_run"]
+            assert [provider["not_run_reason"] for provider in value["providers"]] == [expected["reason"]] * 2
+            assert [provider["tooltip_text"] for provider in value["providers"]] == [expected["tooltip"]] * 2
+            serialized = json.dumps(value).lower()
+            assert "exit_code" not in serialized and "stderr" not in serialized
 
     def test_yaml_uses_only_bounded_public_paths_and_verified_options(self):
         text = (EXAMPLE / "customwidget.yaml").read_text(encoding="utf-8")
@@ -170,6 +239,23 @@ class CustomWidgetExamplesTests(unittest.TestCase):
             _assert_provider(value["providers"][0], ("snapshot", "available", "fresh"), 80)
         for name, digest in V1_SHA256.items():
             assert hashlib.sha256((ROOT / "tests/fixtures" / name).read_bytes()).hexdigest() == digest
+
+    def test_multiline_unicode_uses_utf8_and_lf_only(self):
+        value = _json_document(FIXTURES / "multiline-unicode.json")
+        for provider in value["providers"]:
+            assert "Note: résumé ✓" in provider["tooltip_text"]
+            assert bytes([0x0A]) in provider["tooltip_text"].encode("utf-8")
+            assert b"\r" not in provider["tooltip_text"].encode("utf-8")
+
+    def test_missing_data_never_becomes_zero_percent(self):
+        value = _json_document(FIXTURES / "missing-data.json")
+        serialized = json.dumps(value)
+        assert "0%" not in serialized
+        for provider in value["providers"]:
+            assert provider["most_depleted_window"] is None
+            assert provider["compact_text"] == "Quota percentage unavailable; state=partial; freshness=stale"
+            assert provider["alternate_text"] == provider["compact_text"]
+            assert provider["tooltip_text"].endswith("No eligible percentage basis")
 
 
 if __name__ == "__main__":
