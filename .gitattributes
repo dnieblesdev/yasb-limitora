@@ -1,1 +1,2 @@
 tests/fixtures/*.json text eol=lf
+examples/customwidget/fixtures/*.json text eol=lf
