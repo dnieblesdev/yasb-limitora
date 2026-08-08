@@ -246,9 +246,8 @@ provider, guard, JSON-v2 contract, packaging, R10, or R11 behavior changed.
   missing-data documents use `execution_state: complete`, while stale
   presentation uses `public_state=available` with `freshness=stale`.
 - Verified R9 artifact HEAD: `2d529ae5d436608a5625edde0d79003940d9eedf`.
-- Documentation closeout PR #109 closed the R9 roadmap/documentation record in
-  commit `d9d7b93dfde06f76c22b385063054807a2047b9b`; current `main` is
-  synchronized at that docs closeout HEAD.
+- R9 documentation closeout PR #109: `d9d7b93dfde06f76c22b385063054807a2047b9b`.
+- R9 closeout-record correction PR #110: `a75c7d49a4300c9d86e090f2406fed98779eaf59`.
 - Final SDD verification passed all 4 requirements and 5 scenarios. Focused
   tests passed 8; the full suite passed 362 with 8 skipped and 4 warnings.
   Native repository proof run `31278200496` passed 9 selected checks and the
