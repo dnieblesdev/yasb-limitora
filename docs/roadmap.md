@@ -2,7 +2,7 @@
 
 This is the product source of truth for the approved R1-R11 order. The 0.2
 integration is exclusively `YASB CustomWidget -> yasb-limitora CLI / JSON v2 ->
-Limitora public API`. R1-R5 are complete. R6 implementation and runtime
+Limitora public API`. R1-R9 are complete. R6 implementation and runtime
 verification are complete at the exact pre-closeout integration candidate
 `352e8f03c4f877a877de8b2e0b2d3b10e815fa27`; final publication is merged to
 `main` at `30c94d00f780b597644c1494833d4dd50738556b`.
@@ -20,7 +20,7 @@ Later units remain out of scope until their ordered turn.
 | R6 | Refine truthful presentation projection | Produce bounded compact, alternate, and tooltip fields from preserved evidence | Complete — merged to `main` at `30c94d0` |
 | R7 | Resolve default Windows configuration | Add the accepted default Windows configuration resolution | Complete — merged to `main` at `2850169` |
 | R8 | Add the cross-process execution guard | Add bounded guard acquisition, deadlines, and cleanup behavior | Complete — merged to `main` at `5bee184` |
-| R9 | Package CustomWidget examples and static CSS | Package the CustomWidget examples and static presentation assets | Planned after R8 |
+| R9 | Package CustomWidget examples and static CSS | Package the CustomWidget examples and static presentation assets | Complete — merged to `main` at `2d529ae` |
 | R10 | Prove pinned YASB integration on Windows | Validate the pinned YASB CustomWidget integration on Windows | Planned after R9 |
 | R11 | Release and smoke-test 0.2.0 | Complete release readiness and the final smoke test | Planned after R10 |
 
@@ -227,9 +227,35 @@ configuration path/file limits.
   specification edit was made (`docs/specifications/*` unchanged).
 
 Issue #92 is closed. The parent tracker #37 records this completion during the
-orchestrator closeout. R9 is the next authorized unit; it is not started and
-its scope (packaging the CustomWidget examples and static CSS) was not
-introduced by R8.
+orchestrator closeout. R9 followed as the next authorized unit and is now
+closed out below; its scope (packaging the CustomWidget examples and static
+CSS) was not introduced by R8.
+
+## R9 closeout
+
+R9 is complete through approved child issue #105 and merged PRs #106, #107,
+and #108 under parent tracker #37. The delivered boundary is additive,
+copy-ready YASB v2.0.5 CustomWidget YAML, static CSS, English documentation,
+eleven JSON v2 validation fixtures, and deterministic tests. No runtime,
+provider, guard, JSON-v2 contract, packaging, R10, or R11 behavior changed.
+
+- PR #106 delivered the baseline YAML, CSS, README, and seven fixtures.
+- PR #107 delivered four edge fixtures, exact semantic/runtime metadata tests,
+  and the fixture LF checkout rule.
+- PR #108 corrected the final fixture semantics: all-snapshot partial and
+  missing-data documents use `execution_state: complete`, while stale
+  presentation uses `public_state=available` with `freshness=stale`.
+- Final `main` is `2d529ae5d436608a5625edde0d79003940d9eedf`.
+- Final SDD verification passed all 4 requirements and 5 scenarios. Focused
+  tests passed 8; the full suite passed 362 with 8 skipped and 4 warnings.
+  Native repository proof run `31278200496` passed 9 selected checks and the
+  full Windows suite (370 passed). This is repository/native proof, not R10
+  real YASB or live-provider proof.
+- Planning, Slice A, Slice B, and final fixture Judgment Day gates are
+  approved after bounded corrections, with no open BLOCKER or CRITICAL.
+
+R10 is the next authorized unit and remains not started. R11 remains deferred
+until R10 evidence exists.
 
 ## Explicit exclusions for 0.2
 
