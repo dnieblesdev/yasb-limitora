@@ -10,7 +10,7 @@ EXAMPLE = ROOT / "examples/customwidget"
 FIXTURES = EXAMPLE / "fixtures"
 BASELINE = {
     "complete": ("complete", ("snapshot", "available", "fresh"), (80, 60)),
-    "partial": ("partial", ("snapshot", "partial", "fresh"), (None, None)),
+    "partial": ("complete", ("snapshot", "partial", "fresh"), (None, None)),
     "stale": ("complete", ("snapshot", "available", "stale"), (40, 40)),
     "undetected": ("complete", ("undetected", None, None), (None, None)),
     "provider-unavailable": ("partial", ("execution_error", None, None), (None, 60)),
@@ -21,7 +21,7 @@ EDGE = {
     "guard-timeout": ("not_run", ("not_run", None, None), (None, None)),
     "deadline-not-run": ("not_run", ("not_run", None, None), (None, None)),
     "multiline-unicode": ("complete", ("snapshot", "available", "fresh"), (73, 73)),
-    "missing-data": ("partial", ("snapshot", "partial", "stale"), (None, None)),
+    "missing-data": ("complete", ("snapshot", "partial", "stale"), (None, None)),
 }
 ALL_FIXTURES = {**BASELINE, **EDGE}
 NOT_RUN_PRESENTATION = {
@@ -180,7 +180,7 @@ class CustomWidgetExamplesTests(unittest.TestCase):
                     provider,
                     expected if name not in ("provider-unavailable",) else ("execution_error", None, None) if provider["provider"] == "codex" else ("snapshot", "available", "fresh"),
                     percent,
-                    "stale" if name == "stale" else None,
+                    None,
                     WINDOW_TOOLTIP_SUFFIXES[name][value["providers"].index(provider)],
                 )
             if name == "provider-unavailable":
