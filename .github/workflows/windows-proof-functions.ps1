@@ -92,7 +92,7 @@ function Invoke-NativePytestWmi {
   $pytestArguments = if ($Mode -eq "selected") {
     @("-m", "pytest", "-q", "--strict-markers", "tests/test_windows_native_proof.py", "--junitxml=native-proof.xml")
   } else {
-    @("-m", "pytest", "-q", "--strict-markers", "tests")
+    @("-m", "pytest", "-q", "--strict-markers", "tests", "-m", "not windows_yasb_admission")
   }
   $argumentLines = ($pytestArguments | ForEach-Object { "    `"$_`"" }) -join "`r`n"
   $launcher = @"

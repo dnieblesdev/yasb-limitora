@@ -44,6 +44,17 @@ def test_pytest_privacy_summary_rejects_raw_diagnostics(tmp_path):
     assert not status.exists()
 
 
+def test_pytest_privacy_summary_requires_real_admission_case(tmp_path):
+    raw = tmp_path / "pytest.raw"
+    report = tmp_path / "pytest.xml"
+    status = tmp_path / "status.json"
+    raw.write_text("5 passed\n", encoding="utf-8")
+    report.write_text('<testsuites><testsuite tests="1" skipped="0" failures="0" errors="0"><testcase name="lock" /></testsuite></testsuites>', encoding="utf-8")
+    with pytest.raises(ValueError):
+        write_safe_pytest_status(raw, report, 0, status, "test_real_yasb_205_custom_widget_is_imported_constructed_and_observed")
+    assert not status.exists()
+
+
 @pytest.mark.windows_yasb_admission
 @pytest.mark.skipif(os.name != "nt", reason="real YASB admission requires Windows")
 def test_real_yasb_205_custom_widget_is_imported_constructed_and_observed():

@@ -1,5 +1,17 @@
 {
   "python": "3.14",
+  "runtime_dependencies": [
+    "pytest==8.4.1",
+    "PyQt6==6.10.2",
+    "pydantic==2.13.4",
+    "pywin32==312",
+    "PyYAML==6.0.3",
+    "winrt.windows.foundation==3.2.1",
+    "winrt.windows.foundation.collections==3.2.1",
+    "winrt.windows.data.xml.dom==3.2.1",
+    "winrt.windows.management.deployment==3.2.1",
+    "winrt.windows.ui.notifications==3.2.1"
+  ],
   "sources": [
     {
       "name": "yasb",

@@ -5,11 +5,24 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import tarfile
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 LOCK_PATH = Path(__file__).with_name("r10_yasb_lock.json")
+RUNTIME_DEPENDENCIES = {
+    "pytest==8.4.1",
+    "PyQt6==6.10.2",
+    "pydantic==2.13.4",
+    "pywin32==312",
+    "PyYAML==6.0.3",
+    "winrt.windows.foundation==3.2.1",
+    "winrt.windows.foundation.collections==3.2.1",
+    "winrt.windows.data.xml.dom==3.2.1",
+    "winrt.windows.management.deployment==3.2.1",
+    "winrt.windows.ui.notifications==3.2.1",
+}
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 UNSAFE_DIAGNOSTIC = re.compile(
@@ -23,7 +36,11 @@ def load_lock() -> dict:
 
 
 def validate_lock(lock: dict) -> None:
-    if lock.get("python") != "3.14" or not isinstance(lock.get("sources"), list):
+    if (
+        lock.get("python") != "3.14"
+        or set(lock.get("runtime_dependencies", ())) != RUNTIME_DEPENDENCIES
+        or not isinstance(lock.get("sources"), list)
+    ):
         raise ValueError("invalid Python or source lock")
     expected = {"yasb", "pyvda", "qt-css-engine"}
     sources = {item.get("name"): item for item in lock["sources"]}
@@ -66,6 +83,26 @@ def verify_archives(directory: Path) -> None:
             raise ValueError(f"{source['name']} artifact hash mismatch")
 
 
+def materialize_yasb(archive: Path, destination: Path) -> None:
+    lock = load_lock()
+    validate_lock(lock)
+    yasb = next(item for item in lock["sources"] if item["name"] == "yasb")
+    if not archive.is_file() or hashlib.sha256(archive.read_bytes()).hexdigest() != yasb["sha256"]:
+        raise ValueError("YASB archive identity mismatch")
+    if destination.exists() and any(destination.iterdir()):
+        raise ValueError("YASB source destination is not empty")
+    destination.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(archive, "r:gz") as source_archive:
+        for member in source_archive.getmembers():
+            target = (destination / member.name).resolve()
+            if destination.resolve() not in target.parents or member.issym() or member.islnk():
+                raise ValueError("unsafe YASB source archive")
+        source_archive.extractall(destination, filter="data")
+    candidates = list(destination.glob("*/src/core/widgets/yasb/custom.py"))
+    if len(candidates) != 1 or verify_yasb_module(str(candidates[0])).parent.name != "yasb":
+        raise ValueError("YASB source identity unavailable")
+
+
 def verify_yasb_module(path: str) -> Path:
     source = Path(path).resolve()
     expected = next(item for item in load_lock()["sources"] if item["name"] == "yasb")
@@ -85,13 +122,23 @@ def _junit_counts(report: str) -> dict[str, int]:
     return {field: sum(int(suite.attrib.get(field, "0")) for suite in suites) for field in fields}
 
 
-def write_safe_pytest_status(raw_path: Path, report_path: Path, exit_code: int, output_path: Path) -> None:
+def _require_test(report: str, test_name: str) -> None:
+    root = ET.fromstring(report)
+    if not any(case.attrib.get("name") == test_name for case in root.iter("testcase")):
+        raise ValueError("required admission test was not executed")
+
+
+def write_safe_pytest_status(
+    raw_path: Path, report_path: Path, exit_code: int, output_path: Path, required_test: str | None = None
+) -> None:
     raw = raw_path.read_bytes()
     report = report_path.read_bytes()
     raw_text = raw.decode("utf-8", errors="replace")
     report_text = report.decode("utf-8", errors="replace")
     if UNSAFE_DIAGNOSTIC.search(raw_text) or UNSAFE_DIAGNOSTIC.search(report_text):
         raise ValueError("pytest diagnostics failed privacy scan")
+    if required_test is not None:
+        _require_test(report_text, required_test)
     status = {
         "schema": "r10-admission-status/v1",
         "pytest_exit": int(exit_code),
@@ -109,8 +156,16 @@ if __name__ == "__main__":
             validate_lock(load_lock())
         elif len(sys.argv) == 3 and sys.argv[1] == "verify-archives":
             verify_archives(Path(sys.argv[2]))
+        elif len(sys.argv) == 4 and sys.argv[1] == "materialize-yasb":
+            materialize_yasb(Path(sys.argv[2]), Path(sys.argv[3]))
         elif len(sys.argv) == 6 and sys.argv[1] == "summarize-pytest":
-            write_safe_pytest_status(Path(sys.argv[2]), Path(sys.argv[3]), int(sys.argv[4]), Path(sys.argv[5]))
+            write_safe_pytest_status(
+                Path(sys.argv[2]),
+                Path(sys.argv[3]),
+                int(sys.argv[4]),
+                Path(sys.argv[5]),
+                "test_real_yasb_205_custom_widget_is_imported_constructed_and_observed",
+            )
         else:
             raise ValueError("invalid verification command")
     except Exception as error:

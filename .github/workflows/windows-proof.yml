@@ -48,9 +48,9 @@ jobs:
             if ($exitCode -ne 0) { throw "$Label failed; exit=$exitCode; diagnostics withheld" }
             Write-Host "$Label passed"
           }
-          Invoke-PythonChecked "pip upgrade" @("-m", "pip", "install", "--upgrade", "pip")
-          Invoke-PythonChecked "test/runtime dependency install" @("-m", "pip", "install", "pytest>=8,<9", "PyQt6==6.10.2", "pydantic==2.13.4", "pywin32==312")
-          Invoke-PythonChecked "verified YASB source install" @("-m", "pip", "install", "--no-deps", ".r10-admission/pyvda.tar.gz", ".r10-admission/qt-css-engine.tar.gz", ".r10-admission/yasb.tar.gz")
+          Invoke-PythonChecked "test/runtime dependency install" @("-m", "pip", "install", "pytest==8.4.1", "PyQt6==6.10.2", "pydantic==2.13.4", "pywin32==312", "PyYAML==6.0.3", "winrt.windows.foundation==3.2.1", "winrt.windows.foundation.collections==3.2.1", "winrt.windows.data.xml.dom==3.2.1", "winrt.windows.management.deployment==3.2.1", "winrt.windows.ui.notifications==3.2.1")
+          Invoke-PythonChecked "verified YASB source materialization" @("tests/r10_yasb_support.py", "materialize-yasb", ".r10-admission/yasb.tar.gz", (Join-Path $env:RUNNER_TEMP "r10-yasb-source"))
+          Invoke-PythonChecked "verified direct dependency install" @("-m", "pip", "install", "--no-deps", ".r10-admission/pyvda.tar.gz", ".r10-admission/qt-css-engine.tar.gz")
       - name: Run R10 admission first with zero selected skips
         shell: pwsh
         run: |
@@ -58,6 +58,9 @@ jobs:
           $rawLog = Join-Path $env:RUNNER_TEMP "r10-admission-pytest.raw.log"
           $scanLog = Join-Path $env:RUNNER_TEMP "r10-admission-scan.log"
           $statusPath = "r10-admission-status.json"
+          $sourceCandidates = @(Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP "r10-yasb-source") -Directory | ForEach-Object { Join-Path $_.FullName "src" } | Where-Object { Test-Path (Join-Path $_ "core/widgets/yasb/custom.py") })
+          if ($sourceCandidates.Count -ne 1) { throw "R10 YASB source layout unavailable; diagnostics withheld" }
+          $env:PYTHONPATH = $sourceCandidates[0]
           $pytestArgs = @("-m", "pytest", "-q", "--strict-markers", "tests/test_r10_pinned_yasb_windows.py", "-k", "lock or admission", "--junitxml=r10-admission.xml")
           try { & python @pytestArgs *> $rawLog; $pytestExit = $LASTEXITCODE }
           catch { $pytestExit = 1 }
