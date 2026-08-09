@@ -75,6 +75,21 @@ jobs:
           Assert-SafeScan $scan $exitClass "Full-suite" $suiteCheckpoint
           Emit-SafeLog $rawLog $exitClass "Full-suite"
           if ($suiteExit -ne 0) { throw "Full test suite failed; checkpoint=$suiteCheckpoint" }
+      - name: Execute exact native junction gate
+        shell: pwsh
+        run: |
+          $nativeEvidencePath = "native-evidence.json"
+          $env:R10_ACQUISITION_NATIVE_EVIDENCE_PATH = $nativeEvidencePath
+          & python -m pytest -q --strict-markers "tests/test_r10_yasb_acquisition_native.py::test_real_junction_rejected_before_mutation" "--junitxml=native-junction.xml"
+          if ($LASTEXITCODE -ne 0) { throw "Native junction proof failed" }
+          try { $report = [xml](Get-Content native-junction.xml -Raw) } catch { throw "Native junction JUnit was invalid" }
+          $suite = @($report.testsuites.testsuite); if ($suite.Count -eq 0) { $suite = @($report.testsuite) }
+          if ($suite.Count -ne 1 -or [int]$suite.tests -ne 1 -or [int]$suite.skipped -ne 0 -or [int]$suite.failures -ne 0 -or [int]$suite.errors -ne 0) { throw "Native junction JUnit count gate failed" }
+          try { $raw = [IO.File]::ReadAllText((Resolve-Path $nativeEvidencePath)); $evidence = $raw | ConvertFrom-Json } catch { throw "Native junction evidence was invalid" }
+          $fields = @("schema", "junction", "reparse_attribute", "rejected_before_mutation", "sentinel_unchanged", "selected_tests", "skips")
+          if (@(Compare-Object @($evidence.PSObject.Properties.Name) $fields).Count -ne 0 -or $evidence.schema -isnot [string] -or $evidence.schema -ne "r10-acquisition-native/v1") { throw "Native junction evidence schema or fields were invalid" }
+          foreach ($field in $fields[1..4]) { if ($evidence.$field -isnot [bool] -or -not $evidence.$field) { throw "Native junction evidence boolean was invalid" } }
+          if ($evidence.selected_tests -isnot [int64] -or $evidence.selected_tests -ne 1 -or $evidence.skips -isnot [int64] -or $evidence.skips -ne 0 -or $raw -match '(?i)([a-z]:[\\/]|/(home|Users|tmp|var)/|\\(Users|Temp)\\|native-redaction-sentinel)') { throw "Native junction evidence count or privacy gate failed" }
       - name: Validate artifacts before publication
         if: always()
         shell: pwsh
@@ -96,4 +111,4 @@ jobs:
           name: native-windows-proof
           path: |
             native-proof.json
-            native-proof.xml
+            native-evidence.json
