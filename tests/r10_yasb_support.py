@@ -7,22 +7,11 @@ import json
 import re
 import tarfile
 import sys
+import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 LOCK_PATH = Path(__file__).with_name("r10_yasb_lock.json")
-RUNTIME_DEPENDENCIES = {
-    "pytest==8.4.1",
-    "PyQt6==6.10.2",
-    "pydantic==2.13.4",
-    "pywin32==312",
-    "PyYAML==6.0.3",
-    "winrt.windows.foundation==3.2.1",
-    "winrt.windows.foundation.collections==3.2.1",
-    "winrt.windows.data.xml.dom==3.2.1",
-    "winrt.windows.management.deployment==3.2.1",
-    "winrt.windows.ui.notifications==3.2.1",
-}
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 UNSAFE_DIAGNOSTIC = re.compile(
@@ -36,12 +25,14 @@ def load_lock() -> dict:
 
 
 def validate_lock(lock: dict) -> None:
-    if (
-        lock.get("python") != "3.14"
-        or set(lock.get("runtime_dependencies", ())) != RUNTIME_DEPENDENCIES
-        or not isinstance(lock.get("sources"), list)
-    ):
+    if lock.get("python") != "3.14" or not isinstance(lock.get("sources"), list):
         raise ValueError("invalid Python or source lock")
+    wheels = lock.get("wheelhouse")
+    if not isinstance(wheels, list) or len(wheels) != 26 or len({item[0] for item in wheels}) != 26:
+        raise ValueError("invalid wheelhouse lock")
+    for filename, url, digest in wheels:
+        if not filename.endswith(".whl") or not ("none-any" in filename or "win_amd64" in filename) or not url.startswith("https://files.pythonhosted.org/") or not SHA256.fullmatch(digest):
+            raise ValueError("invalid wheelhouse artifact")
     expected = {"yasb", "pyvda", "qt-css-engine"}
     sources = {item.get("name"): item for item in lock["sources"]}
     if set(sources) != expected:
@@ -81,6 +72,19 @@ def verify_archives(directory: Path) -> None:
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         if digest != source["sha256"]:
             raise ValueError(f"{source['name']} artifact hash mismatch")
+
+
+def acquire_wheels(destination: Path) -> None:
+    validate_lock(load_lock())
+    destination.mkdir(parents=True, exist_ok=True)
+    for filename, url, expected in load_lock()["wheelhouse"]:
+        target, partial = destination / filename, destination / f"{filename}.part"
+        with urllib.request.urlopen(url) as response:
+            partial.write_bytes(response.read())
+        if hashlib.sha256(partial.read_bytes()).hexdigest() != expected:
+            partial.unlink(missing_ok=True)
+            raise ValueError("wheelhouse artifact hash mismatch")
+        partial.replace(target)
 
 
 def materialize_yasb(archive: Path, destination: Path) -> None:
@@ -156,6 +160,8 @@ if __name__ == "__main__":
             validate_lock(load_lock())
         elif len(sys.argv) == 3 and sys.argv[1] == "verify-archives":
             verify_archives(Path(sys.argv[2]))
+        elif len(sys.argv) == 3 and sys.argv[1] == "acquire-wheels":
+            acquire_wheels(Path(sys.argv[2]))
         elif len(sys.argv) == 4 and sys.argv[1] == "materialize-yasb":
             materialize_yasb(Path(sys.argv[2]), Path(sys.argv[3]))
         elif len(sys.argv) == 6 and sys.argv[1] == "summarize-pytest":
