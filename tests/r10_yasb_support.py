@@ -122,11 +122,19 @@ def _junit(report: str):
     root = ET.fromstring(report); suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
     if not suites: raise ValueError("missing JUnit suites")
     counts = tuple(sum(int(s.attrib.get(k, "0")) for s in suites) for k in ("tests", "skipped", "failures", "errors"))
-    return counts, next((c for c in root.iter("testcase") if c.attrib.get("name") == ADMISSION_TEST), None)
+    case = next((c for c in root.iter("testcase") if c.attrib.get("name") == ADMISSION_TEST), None)
+    return counts, ADMISSION_TEST if case is not None else None, *(case is not None and case.find(tag) is not None for tag in ("skipped", "failure", "error"))
 
 def _status(classification, exit_code, counts=(0, 0, 0, 0), case=None, privacy="passed", raw=b"", report=b""):
     tests, skipped, failures, errors = counts
     return {"schema":"r10-admission-status/v2", "classification":classification, "pytest_exit":int(exit_code), "junit_available":classification != "junit_unavailable", "tests":tests, "skipped":skipped, "failures":failures, "errors":errors, "admission_test":case, "privacy":privacy, "raw_sha256":hashlib.sha256(raw).hexdigest(), "junit_sha256":hashlib.sha256(report).hexdigest()}
+
+def _write_status(status, output_path: Path) -> None:
+    safe = json.dumps(status, sort_keys=True)
+    if UNSAFE_DIAGNOSTIC.search(safe):
+        status = {**status, "classification":"diagnostics_rejected", "privacy":"rejected"}
+        safe = json.dumps(status, sort_keys=True)
+    output_path.write_text(safe + "\n", encoding="utf-8")
 
 
 def write_safe_pytest_status(
@@ -134,25 +142,18 @@ def write_safe_pytest_status(
 ) -> None:
     try: raw = raw_path.read_bytes(); report = report_path.read_bytes()
     except OSError:
-        output_path.write_text(json.dumps(_status("junit_unavailable", exit_code, raw=locals().get("raw", b""))) + "\n", encoding="utf-8"); return
-    raw_text = raw.decode("utf-8", errors="replace")
-    report_text = report.decode("utf-8", errors="replace")
-    if UNSAFE_DIAGNOSTIC.search(raw_text) or UNSAFE_DIAGNOSTIC.search(report_text):
-        status = _status("diagnostics_rejected", exit_code, privacy="rejected", raw=raw, report=report)
-    else:
-        try:
-            counts, case = _junit(report_text)
-            if required_test is not None and case is None:
-                status = _status("admission_case_not_executed", exit_code, counts, raw=raw, report=report)
-            elif case is None or case.find("skipped") is not None:
-                status = _status("admission_case_not_executed", exit_code, counts, case=ADMISSION_TEST if case else None, raw=raw, report=report)
-            elif exit_code or case.find("failure") is not None or case.find("error") is not None:
-                status = _status("admission_case_failed", exit_code, counts, case=ADMISSION_TEST, raw=raw, report=report)
-            else:
-                status = _status("admission_case_passed", exit_code, counts, case=ADMISSION_TEST, raw=raw, report=report)
-        except (ET.ParseError, TypeError, ValueError):
-            status = _status("junit_unavailable", exit_code, raw=raw, report=report)
-    output_path.write_text(json.dumps(status, sort_keys=True) + "\n", encoding="utf-8")
+        _write_status(_status("junit_unavailable", exit_code, raw=locals().get("raw", b"")), output_path); return
+    try:
+        counts, case, skipped, failed, error = _junit(report.decode("utf-8", errors="replace"))
+        if case is None or skipped:
+            status = _status("admission_case_not_executed", exit_code, counts, case=case, raw=raw, report=report)
+        elif exit_code or failed or error or counts[2] or counts[3]:
+            status = _status("admission_case_failed", exit_code, counts, case=case, raw=raw, report=report)
+        else:
+            status = _status("admission_case_passed", exit_code, counts, case=case, raw=raw, report=report)
+    except (ET.ParseError, TypeError, ValueError):
+        status = _status("junit_unavailable", exit_code, raw=raw, report=report)
+    _write_status(status, output_path)
 
 
 if __name__ == "__main__":

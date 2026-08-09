@@ -33,14 +33,15 @@ def test_lock_rejects_missing_artifact_identity(field):
         validate_lock(lock)
 
 
-@pytest.mark.parametrize(("raw_text", "report_text", "exit_code", "expected"), [
-    ("5 passed\n", '<testsuites><testsuite tests="1" skipped="0" failures="1" errors="0"><testcase name="test_real_yasb_205_custom_widget_is_imported_constructed_and_observed"><failure /></testcase></testsuite></testsuites>', 1, "admission_case_failed"),
-    ("5 passed\n", '<testsuites><testsuite tests="1" skipped="1" failures="0" errors="0"><testcase name="lock" /></testsuite></testsuites>', 0, "admission_case_not_executed"),
-    ("5 passed\n", None, 1, "junit_unavailable"),
-    ("Traceback: C:\\Users\\runner\\secret.py\n", '<testsuites />', 1, "diagnostics_rejected"),
-    ("5 passed\n", '<testsuites><testsuite tests="1" skipped="0" failures="0" errors="0"><testcase name="test_real_yasb_205_custom_widget_is_imported_constructed_and_observed" /></testsuite></testsuites>', 0, "admission_case_passed"),
+@pytest.mark.parametrize(("raw_text", "report_text", "exit_code", "expected", "counts", "case"), [
+    ("Traceback: C:\\Users\\runner\\secret.py\n", '<testsuites><testsuite tests="1" skipped="0" failures="1" errors="0"><testcase name="test_real_yasb_205_custom_widget_is_imported_constructed_and_observed"><failure message="Traceback in C:\\Users\\runner\\secret.py" /></testcase></testsuite></testsuites>', 1, "admission_case_failed", (1, 0, 1, 0), "test_real_yasb_205_custom_widget_is_imported_constructed_and_observed"),
+    ("5 passed\n", '<testsuites><testsuite tests="1" skipped="0" failures="0" errors="1"><testcase name="test_real_yasb_205_custom_widget_is_imported_constructed_and_observed"><error /></testcase></testsuite></testsuites>', 0, "admission_case_failed", (1, 0, 0, 1), "test_real_yasb_205_custom_widget_is_imported_constructed_and_observed"),
+    ("5 passed\n", '<testsuites><testsuite tests="1" skipped="1" failures="0" errors="0"><testcase name="test_real_yasb_205_custom_widget_is_imported_constructed_and_observed"><skipped /></testcase></testsuite></testsuites>', 0, "admission_case_not_executed", (1, 1, 0, 0), "test_real_yasb_205_custom_widget_is_imported_constructed_and_observed"),
+    ("5 passed\n", "<testsuites>", 1, "junit_unavailable", (0, 0, 0, 0), None),
+    ("5 passed\n", None, 1, "junit_unavailable", (0, 0, 0, 0), None),
+    ("5 passed\n", '<testsuites><testsuite tests="1" skipped="0" failures="0" errors="0"><testcase name="test_real_yasb_205_custom_widget_is_imported_constructed_and_observed" /></testsuite></testsuites>', 0, "admission_case_passed", (1, 0, 0, 0), "test_real_yasb_205_custom_widget_is_imported_constructed_and_observed"),
 ])
-def test_pytest_summary_classifies_failures_without_raw_diagnostics(tmp_path, raw_text, report_text, exit_code, expected):
+def test_pytest_summary_classifies_structural_status_without_raw_diagnostics(tmp_path, raw_text, report_text, exit_code, expected, counts, case):
     raw = tmp_path / "pytest.raw"
     report = tmp_path / "pytest.xml"
     status = tmp_path / "status.json"
@@ -48,8 +49,14 @@ def test_pytest_summary_classifies_failures_without_raw_diagnostics(tmp_path, ra
     if report_text is None: report.unlink(missing_ok=True)
     else: report.write_text(report_text, encoding="utf-8")
     write_safe_pytest_status(raw, report, exit_code, status, "test_real_yasb_205_custom_widget_is_imported_constructed_and_observed")
-    value = __import__("json").loads(status.read_text(encoding="utf-8"))
-    assert value["classification"] == expected and value["privacy"] in {"passed", "rejected"}
+    serialized = status.read_text(encoding="utf-8")
+    value = __import__("json").loads(serialized)
+    assert value["classification"] == expected and value["privacy"] == "passed"
+    assert tuple(value[field] for field in ("tests", "skipped", "failures", "errors")) == counts
+    assert value["admission_test"] == case and "Traceback" not in serialized and "C:\\Users\\runner\\secret.py" not in serialized
+    assert value["pytest_exit"] == exit_code and value["junit_available"] == (expected != "junit_unavailable")
+    assert value["raw_sha256"] == __import__("hashlib").sha256(raw.read_bytes()).hexdigest()
+    assert value["junit_sha256"] == __import__("hashlib").sha256(report.read_bytes() if report.exists() else b"").hexdigest()
 
 
 @pytest.mark.windows_yasb_admission
