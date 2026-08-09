@@ -7,7 +7,82 @@ on:
     branches: [main]
 
 jobs:
+  r10-admission:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: "1"
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up isolated Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Verify immutable lock before acquisition
+        shell: pwsh
+        run: python tests/r10_yasb_support.py verify-lock
+      - name: Acquire and verify pinned source artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force .r10-admission | Out-Null
+          $sources = @(
+            @{ Url = "https://codeload.github.com/amnweb/yasb/tar.gz/ee8ea9e683f3a4c41a27476adaab4c799a856643"; Name = "yasb.tar.gz" },
+            @{ Url = "https://codeload.github.com/amnweb/pyvda/tar.gz/5d549eb5f8427ec771af98ae7b2c7ee38b98da6a"; Name = "pyvda.tar.gz" },
+            @{ Url = "https://codeload.github.com/Video-Nomad/qt-css-engine/tar.gz/2a178cf7c994c63cab46224554bedf21e9639541"; Name = "qt-css-engine.tar.gz" }
+          )
+          foreach ($source in $sources) {
+            Invoke-WebRequest -Uri $source.Url -OutFile (Join-Path .r10-admission $source.Name)
+          }
+          python tests/r10_yasb_support.py verify-archives .r10-admission
+      - name: Install only verified YASB sources and fixed runtime dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installLog = Join-Path $env:RUNNER_TEMP "r10-admission-install.log"
+          function Invoke-PythonChecked {
+            param([string]$Label, [string[]]$Arguments)
+            try { & python @Arguments *> $installLog; $exitCode = $LASTEXITCODE }
+            catch { throw "$Label unavailable; diagnostics withheld" }
+            if ($exitCode -ne 0) { throw "$Label failed; exit=$exitCode; diagnostics withheld" }
+            Write-Host "$Label passed"
+          }
+          Invoke-PythonChecked "pip upgrade" @("-m", "pip", "install", "--upgrade", "pip")
+          Invoke-PythonChecked "test/runtime dependency install" @("-m", "pip", "install", "pytest>=8,<9", "PyQt6==6.10.2", "pydantic==2.13.4", "pywin32==312")
+          Invoke-PythonChecked "verified YASB source install" @("-m", "pip", "install", "--no-deps", ".r10-admission/pyvda.tar.gz", ".r10-admission/qt-css-engine.tar.gz", ".r10-admission/yasb.tar.gz")
+      - name: Run R10 admission first with zero selected skips
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $rawLog = Join-Path $env:RUNNER_TEMP "r10-admission-pytest.raw.log"
+          $scanLog = Join-Path $env:RUNNER_TEMP "r10-admission-scan.log"
+          $statusPath = "r10-admission-status.json"
+          $pytestArgs = @("-m", "pytest", "-q", "--strict-markers", "tests/test_r10_pinned_yasb_windows.py", "-k", "lock or admission", "--junitxml=r10-admission.xml")
+          try { & python @pytestArgs *> $rawLog; $pytestExit = $LASTEXITCODE }
+          catch { $pytestExit = 1 }
+          try {
+            & python tests/r10_yasb_support.py summarize-pytest $rawLog r10-admission.xml $pytestExit $statusPath *> $scanLog
+            $scanExit = $LASTEXITCODE
+          } catch { $scanExit = 1 }
+          if ($scanExit -ne 0) {
+            @{ schema = "r10-admission-status/v1"; pytest_exit = $pytestExit; privacy = "failed"; report = "withheld" } |
+              ConvertTo-Json -Compress | Set-Content -LiteralPath $statusPath -Encoding utf8
+            throw "R10 admission privacy scan failed; diagnostics withheld"
+          }
+          $status = Get-Content -LiteralPath $statusPath -Raw | ConvertFrom-Json
+          Write-Host "R10 admission safe status: pytest_exit=$($status.pytest_exit); tests=$($status.tests); skipped=$($status.skipped); failures=$($status.failures); errors=$($status.errors); privacy=$($status.privacy)"
+          if ($status.pytest_exit -ne 0 -or $status.tests -lt 1 -or $status.skipped -ne 0 -or $status.failures -ne 0 -or $status.errors -ne 0) { throw "R10 admission failed or was skipped; diagnostics withheld" }
+      - name: Publish sanitized admission status
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r10-yasb-admission
+          path: r10-admission-status.json
+          if-no-files-found: ignore
+
   native-proof:
+    needs: r10-admission
     runs-on: windows-latest
     timeout-minutes: 10
     env:

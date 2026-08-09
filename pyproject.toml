@@ -29,6 +29,7 @@ test = ["pytest>=8,<9"]
 [tool.pytest.ini_options]
 markers = [
     "windows_native: executable native Windows process-tree proof",
+    "windows_yasb_admission: isolated real YASB 2.0.5 admission proof",
 ]
 
 [project.scripts]

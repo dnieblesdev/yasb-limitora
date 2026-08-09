@@ -1,0 +1,32 @@
+{
+  "python": "3.14",
+  "sources": [
+    {
+      "name": "yasb",
+      "repository": "https://github.com/amnweb/yasb",
+      "tag": "v2.0.5",
+      "commit": "ee8ea9e683f3a4c41a27476adaab4c799a856643",
+      "module": "core/widgets/yasb/custom.py",
+      "module_sha256": "02ae36af55e4b72d430eb7d64337df0b085f714e13c1a00580e7fecec3279355",
+      "archive_url": "https://codeload.github.com/amnweb/yasb/tar.gz/ee8ea9e683f3a4c41a27476adaab4c799a856643",
+      "filename": "yasb.tar.gz",
+      "sha256": "5c743e06ee1e216c27f9b499bd7b0216d2d0d6f674c4e5ef4b8b71635ce93d98"
+    },
+    {
+      "name": "pyvda",
+      "repository": "https://github.com/amnweb/pyvda",
+      "commit": "5d549eb5f8427ec771af98ae7b2c7ee38b98da6a",
+      "archive_url": "https://codeload.github.com/amnweb/pyvda/tar.gz/5d549eb5f8427ec771af98ae7b2c7ee38b98da6a",
+      "filename": "pyvda.tar.gz",
+      "sha256": "585dbdc6715b1e6ba158a4ab06e73327676005e3871f4825c2bc54210293b75e"
+    },
+    {
+      "name": "qt-css-engine",
+      "repository": "https://github.com/Video-Nomad/qt-css-engine",
+      "commit": "2a178cf7c994c63cab46224554bedf21e9639541",
+      "archive_url": "https://codeload.github.com/Video-Nomad/qt-css-engine/tar.gz/2a178cf7c994c63cab46224554bedf21e9639541",
+      "filename": "qt-css-engine.tar.gz",
+      "sha256": "bd9809413c1c7b238b4c840a3f6f8730672d2727c168d2e1c2935eaec54db0d9"
+    }
+  ]
+}
