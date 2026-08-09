@@ -1,2 +1,3 @@
 tests/fixtures/*.json text eol=lf
 examples/customwidget/fixtures/*.json text eol=lf
+tests/r10_yasb_lock_manifest.json text eol=lf
