@@ -72,13 +72,15 @@ jobs:
             $scanExit = $LASTEXITCODE
           } catch { $scanExit = 1 }
           if ($scanExit -ne 0) {
-            @{ schema = "r10-admission-status/v1"; pytest_exit = $pytestExit; privacy = "failed"; report = "withheld" } |
+            @{ schema = "r10-admission-status/v2"; classification = "junit_unavailable"; pytest_exit = $pytestExit; junit_available = $false; tests = 0; skipped = 0; failures = 0; errors = 0; admission_test = $null; privacy = "passed" } |
               ConvertTo-Json -Compress | Set-Content -LiteralPath $statusPath -Encoding utf8
-            throw "R10 admission privacy scan failed; diagnostics withheld"
+            throw "R10 admission status unavailable; diagnostics withheld"
           }
           $status = Get-Content -LiteralPath $statusPath -Raw | ConvertFrom-Json
-          Write-Host "R10 admission safe status: pytest_exit=$($status.pytest_exit); tests=$($status.tests); skipped=$($status.skipped); failures=$($status.failures); errors=$($status.errors); privacy=$($status.privacy)"
-          if ($status.pytest_exit -ne 0 -or $status.tests -lt 1 -or $status.skipped -ne 0 -or $status.failures -ne 0 -or $status.errors -ne 0) { throw "R10 admission failed or was skipped; diagnostics withheld" }
+          $allowed = @("admission_case_passed", "admission_case_failed", "admission_case_not_executed", "junit_unavailable", "diagnostics_rejected")
+          Write-Host "R10 admission safe status: classification=$($status.classification); admission_test=$($status.admission_test); pytest_exit=$($status.pytest_exit); tests=$($status.tests); skipped=$($status.skipped); failures=$($status.failures); errors=$($status.errors); privacy=$($status.privacy)"
+          if ($status.classification -notin $allowed) { throw "R10 admission status classification invalid; diagnostics withheld" }
+          if ($status.classification -ne "admission_case_passed" -or $status.pytest_exit -ne 0 -or $status.tests -lt 1 -or $status.skipped -ne 0 -or $status.failures -ne 0 -or $status.errors -ne 0) { throw "R10 admission classified as $($status.classification); diagnostics withheld" }
       - name: Publish sanitized admission status
         if: always()
         uses: actions/upload-artifact@v4

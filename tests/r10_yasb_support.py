@@ -117,40 +117,41 @@ def verify_yasb_module(path: str) -> Path:
     return source
 
 
-def _junit_counts(report: str) -> dict[str, int]:
-    root = ET.fromstring(report)
-    suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
-    if not suites:
-        raise ValueError("missing JUnit suites")
-    fields = ("tests", "skipped", "failures", "errors")
-    return {field: sum(int(suite.attrib.get(field, "0")) for suite in suites) for field in fields}
+ADMISSION_TEST = "test_real_yasb_205_custom_widget_is_imported_constructed_and_observed"
+def _junit(report: str):
+    root = ET.fromstring(report); suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
+    if not suites: raise ValueError("missing JUnit suites")
+    counts = tuple(sum(int(s.attrib.get(k, "0")) for s in suites) for k in ("tests", "skipped", "failures", "errors"))
+    return counts, next((c for c in root.iter("testcase") if c.attrib.get("name") == ADMISSION_TEST), None)
 
-
-def _require_test(report: str, test_name: str) -> None:
-    root = ET.fromstring(report)
-    if not any(case.attrib.get("name") == test_name for case in root.iter("testcase")):
-        raise ValueError("required admission test was not executed")
+def _status(classification, exit_code, counts=(0, 0, 0, 0), case=None, privacy="passed", raw=b"", report=b""):
+    tests, skipped, failures, errors = counts
+    return {"schema":"r10-admission-status/v2", "classification":classification, "pytest_exit":int(exit_code), "junit_available":classification != "junit_unavailable", "tests":tests, "skipped":skipped, "failures":failures, "errors":errors, "admission_test":case, "privacy":privacy, "raw_sha256":hashlib.sha256(raw).hexdigest(), "junit_sha256":hashlib.sha256(report).hexdigest()}
 
 
 def write_safe_pytest_status(
     raw_path: Path, report_path: Path, exit_code: int, output_path: Path, required_test: str | None = None
 ) -> None:
-    raw = raw_path.read_bytes()
-    report = report_path.read_bytes()
+    try: raw = raw_path.read_bytes(); report = report_path.read_bytes()
+    except OSError:
+        output_path.write_text(json.dumps(_status("junit_unavailable", exit_code, raw=locals().get("raw", b""))) + "\n", encoding="utf-8"); return
     raw_text = raw.decode("utf-8", errors="replace")
     report_text = report.decode("utf-8", errors="replace")
     if UNSAFE_DIAGNOSTIC.search(raw_text) or UNSAFE_DIAGNOSTIC.search(report_text):
-        raise ValueError("pytest diagnostics failed privacy scan")
-    if required_test is not None:
-        _require_test(report_text, required_test)
-    status = {
-        "schema": "r10-admission-status/v1",
-        "pytest_exit": int(exit_code),
-        **_junit_counts(report_text),
-        "privacy": "passed",
-        "raw_sha256": hashlib.sha256(raw).hexdigest(),
-        "junit_sha256": hashlib.sha256(report).hexdigest(),
-    }
+        status = _status("diagnostics_rejected", exit_code, privacy="rejected", raw=raw, report=report)
+    else:
+        try:
+            counts, case = _junit(report_text)
+            if required_test is not None and case is None:
+                status = _status("admission_case_not_executed", exit_code, counts, raw=raw, report=report)
+            elif case is None or case.find("skipped") is not None:
+                status = _status("admission_case_not_executed", exit_code, counts, case=ADMISSION_TEST if case else None, raw=raw, report=report)
+            elif exit_code or case.find("failure") is not None or case.find("error") is not None:
+                status = _status("admission_case_failed", exit_code, counts, case=ADMISSION_TEST, raw=raw, report=report)
+            else:
+                status = _status("admission_case_passed", exit_code, counts, case=ADMISSION_TEST, raw=raw, report=report)
+        except (ET.ParseError, TypeError, ValueError):
+            status = _status("junit_unavailable", exit_code, raw=raw, report=report)
     output_path.write_text(json.dumps(status, sort_keys=True) + "\n", encoding="utf-8")
 
 
@@ -170,7 +171,7 @@ if __name__ == "__main__":
                 Path(sys.argv[3]),
                 int(sys.argv[4]),
                 Path(sys.argv[5]),
-                "test_real_yasb_205_custom_widget_is_imported_constructed_and_observed",
+                ADMISSION_TEST,
             )
         else:
             raise ValueError("invalid verification command")

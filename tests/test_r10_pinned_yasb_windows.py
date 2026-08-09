@@ -33,26 +33,23 @@ def test_lock_rejects_missing_artifact_identity(field):
         validate_lock(lock)
 
 
-def test_pytest_privacy_summary_rejects_raw_diagnostics(tmp_path):
+@pytest.mark.parametrize(("raw_text", "report_text", "exit_code", "expected"), [
+    ("5 passed\n", '<testsuites><testsuite tests="1" skipped="0" failures="1" errors="0"><testcase name="test_real_yasb_205_custom_widget_is_imported_constructed_and_observed"><failure /></testcase></testsuite></testsuites>', 1, "admission_case_failed"),
+    ("5 passed\n", '<testsuites><testsuite tests="1" skipped="1" failures="0" errors="0"><testcase name="lock" /></testsuite></testsuites>', 0, "admission_case_not_executed"),
+    ("5 passed\n", None, 1, "junit_unavailable"),
+    ("Traceback: C:\\Users\\runner\\secret.py\n", '<testsuites />', 1, "diagnostics_rejected"),
+    ("5 passed\n", '<testsuites><testsuite tests="1" skipped="0" failures="0" errors="0"><testcase name="test_real_yasb_205_custom_widget_is_imported_constructed_and_observed" /></testsuite></testsuites>', 0, "admission_case_passed"),
+])
+def test_pytest_summary_classifies_failures_without_raw_diagnostics(tmp_path, raw_text, report_text, exit_code, expected):
     raw = tmp_path / "pytest.raw"
     report = tmp_path / "pytest.xml"
     status = tmp_path / "status.json"
-    raw.write_text("Traceback (most recent call last): C:\\Users\\runner\\secret.py\n", encoding="utf-8")
-    report.write_text('<testsuites><testsuite tests="1" skipped="0" failures="1" errors="0" /></testsuites>', encoding="utf-8")
-    with pytest.raises(ValueError):
-        write_safe_pytest_status(raw, report, 1, status)
-    assert not status.exists()
-
-
-def test_pytest_privacy_summary_requires_real_admission_case(tmp_path):
-    raw = tmp_path / "pytest.raw"
-    report = tmp_path / "pytest.xml"
-    status = tmp_path / "status.json"
-    raw.write_text("5 passed\n", encoding="utf-8")
-    report.write_text('<testsuites><testsuite tests="1" skipped="0" failures="0" errors="0"><testcase name="lock" /></testsuite></testsuites>', encoding="utf-8")
-    with pytest.raises(ValueError):
-        write_safe_pytest_status(raw, report, 0, status, "test_real_yasb_205_custom_widget_is_imported_constructed_and_observed")
-    assert not status.exists()
+    raw.write_text(raw_text, encoding="utf-8")
+    if report_text is None: report.unlink(missing_ok=True)
+    else: report.write_text(report_text, encoding="utf-8")
+    write_safe_pytest_status(raw, report, exit_code, status, "test_real_yasb_205_custom_widget_is_imported_constructed_and_observed")
+    value = __import__("json").loads(status.read_text(encoding="utf-8"))
+    assert value["classification"] == expected and value["privacy"] in {"passed", "rejected"}
 
 
 @pytest.mark.windows_yasb_admission
