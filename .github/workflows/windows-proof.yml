@@ -89,7 +89,7 @@ jobs:
             $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
             if (-not (Test-Path -LiteralPath $csc)) { throw "C# compiler unavailable" }
             & $csc /nologo /target:exe /out:$fixture tests/fixtures/r10_yasb_fixture.cs *> (Join-Path $root "csc.log")
-            if ($LASTEXITCODE -ne 0) { throw "R10 fixture compilation failed" }
+            if ($LASTEXITCODE -ne 0) { $diagnostic = (([string](Get-Content -LiteralPath (Join-Path $root "csc.log") -Raw -ErrorAction SilentlyContinue)).Trim() -replace "[^\x20-\x7E]", " " -replace "\s+", " "); Write-Host ("R10 fixture compiler: " + $diagnostic.Substring(0, [Math]::Min(240, $diagnostic.Length))); throw "R10 fixture compilation failed" }
             Assert-R10Pe $fixture
             $launcher = Resolve-R10Launcher
             $env:R10_LAUNCHER_PATH = $launcher.FullName
@@ -185,7 +185,6 @@ jobs:
           Emit-SafeLog $rawLog $exitClass "Full-suite"
           if ($suiteExit -ne 0) { throw "Full test suite failed; checkpoint=$suiteCheckpoint" }
       - name: Validate artifacts before publication
-        if: always()
         shell: pwsh
         run: |
           . .github/workflows/windows-proof-functions.ps1
