@@ -116,6 +116,7 @@ jobs:
 
   native-proof:
     needs: r10-admission
+    if: always()
     runs-on: windows-latest
     timeout-minutes: 10
     env:
@@ -124,6 +125,11 @@ jobs:
       PYTHONUTF8: "1"
       YASB_R8_NATIVE_GATE: "1"
     steps:
+      - name: Enforce R10 admission delivery gate
+        if: always()
+        shell: pwsh
+        run: |
+          if ("${{ needs.r10-admission.result }}" -ne "success") { throw "R10 admission did not succeed" }
       - name: Check out source
         uses: actions/checkout@v4
       - name: Set up Python

@@ -112,6 +112,7 @@ def test_r10_admission_contract_rejects_identity_and_closure_drift() -> None:
     wrapper = (Path(__file__).parents[1] / ".github/workflows/windows-proof-functions.ps1").read_text(encoding="utf-8")
     contract = workflow + wrapper
     _require_r10_workflow_contract(contract)
+    assert re.search(r"native-proof:\s+needs: r10-admission\s+if: always\(\).*?steps:\s+- name: Enforce R10 admission delivery gate\s+if: always\(\).*?needs\.r10-admission\.result.*?-ne \"success\".*?throw", workflow, re.S)
     for original, replacement in (
         (_R10_YASB_COMMIT, "0" * 40),
         (_R10_YASB_ARCHIVE_SHA256, "0" * 64),
