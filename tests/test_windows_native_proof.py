@@ -112,7 +112,7 @@ def test_r10_admission_contract_rejects_identity_and_closure_drift() -> None:
     wrapper = (Path(__file__).parents[1] / ".github/workflows/windows-proof-functions.ps1").read_text(encoding="utf-8")
     contract = workflow + wrapper
     _require_r10_workflow_contract(contract)
-    assert re.search(r"native-proof:\s+needs: r10-admission\s+if: always\(\).*?steps:\s+- name: Enforce R10 admission delivery gate\s+if: always\(\).*?needs\.r10-admission\.result.*?-ne \"success\".*?throw", workflow, re.S)
+    assert re.search(r"native-proof:\s+needs: r10-admission\s+if: always\(\).*?steps:\s+- name: Enforce R10 admission delivery gate\s+if: always\(\).*?needs\.r10-admission\.result.*?-ne \"success\".*?throw", workflow, re.S) and re.search(r"r10-admission:.*?R10_YASB_SOURCE_ROOT=.*?Out-File \$env:GITHUB_ENV.*?R10_LAUNCHER_PATH=.*?Out-File \$env:GITHUB_ENV.*?R10_LAUNCHER_SHA256=.*?Out-File \$env:GITHUB_ENV.*?R10_FIXTURE_EXE=.*?Out-File \$env:GITHUB_ENV.*?- name: Run mandatory R10 admission before widget construction", workflow, re.S) and not re.search(r"- name: Run mandatory R10 admission before widget construction.*?R10_(?:YASB_SOURCE_ROOT|LAUNCHER_PATH|LAUNCHER_SHA256|FIXTURE_EXE)", workflow, re.S)
     assert re.search(r'\$fixtureSource = \[IO\.Path\]::GetFullPath\(\(Join-Path \$env:GITHUB_WORKSPACE "tests\\fixtures\\r10_yasb_fixture\.cs"\)\).*?& \$csc /nologo /target:exe "/out:\$fixture" "\$fixtureSource" \*> \(Join-Path \$root "csc\.log"\).*?R10 fixture compiler:.*?Math\]::Min\(240.*?throw "R10 fixture compilation failed"', workflow, re.S) and not re.search(r"(?s)- name: Validate artifacts before publication\s+if: always\(\)", workflow)
     for original, replacement in (
         (_R10_YASB_COMMIT, "0" * 40),
@@ -163,9 +163,13 @@ def test_r10_admission_contract_rejects_launcher_ambiguity_spaces_path_drift_and
 
 @pytest.mark.skipif(os.name != "nt", reason="R10 native admission requires Windows")
 def test_r10_native_admission_identity_imports_and_fixture() -> None:
-    if sys.version_info[:2] != (3, 14) or os.environ.get("PROCESSOR_ARCHITECTURE") not in ("AMD64", "ARM64"):
-        pytest.fail("R10 admission requires Python 3.14 x64")
-    source_root = Path(os.environ["R10_YASB_SOURCE_ROOT"])
+    source_root_value = os.environ.get("R10_YASB_SOURCE_ROOT")
+    if source_root_value is None:
+        assert all(name not in os.environ for name in ("R10_LAUNCHER_PATH", "R10_LAUNCHER_SHA256", "R10_FIXTURE_EXE"))
+        return
+    if sys.version_info[:2] != (3, 14) or os.environ.get("PROCESSOR_ARCHITECTURE") != "AMD64":
+        pytest.fail("R10 admission requires Python 3.14 AMD64")
+    source_root = Path(source_root_value)
     settings = source_root / "settings.py"
     module = source_root / "core/widgets/yasb/custom.py"
     assert 'BUILD_VERSION = "2.0.6"' in settings.read_text(encoding="utf-8")
