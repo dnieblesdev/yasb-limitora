@@ -7,7 +7,115 @@ on:
     branches: [main]
 
 jobs:
+  r10-admission:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: "1"
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up exact Python 3.14 x64
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          architecture: x64
+      - name: Acquire and verify exact YASB source and runtime closure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          . .github/workflows/windows-proof-functions.ps1
+          $root = Join-Path $env:RUNNER_TEMP "r10-admission"
+          $wheelDir = Join-Path $root "wheels"
+          $sourceDir = Join-Path $root "yasb"
+          New-Item -ItemType Directory -Force $wheelDir | Out-Null
+          New-Item -ItemType Directory -Force $sourceDir | Out-Null
+          Invoke-R10WithPath {
+            $source = [PSCustomObject]@{
+              Url = "https://codeload.github.com/amnweb/yasb/tar.gz/7e84e011156844bec5b3565cf73f543bc23160e9"
+              Filename = "yasb.tar.gz"
+              Sha256 = "6aa3d74689f7cd7d7a9e3493d2a709c56db4451749413b4e561a199928096f79"
+              ModuleSha256 = "5e9f5060cd16901bcf21aa7b070c2f4949d19752dcda18634a7c8c9fc5f70ba1"
+              Commit = "7e84e011156844bec5b3565cf73f543bc23160e9"
+              Tag = "v2.0.6"
+              Version = "2.0.6"
+            }
+            $wheels = @(
+              @("pyqt6-6.10.2-cp39-abi3-win_amd64.whl", "https://files.pythonhosted.org/packages/75/34/be7a55529607b21db00a49ca53cb07c3092d2a5a95ea19bb95cfa0346904/pyqt6-6.10.2-cp39-abi3-win_amd64.whl", "bd328cb70bc382c48861cd5f0a11b2b8ae6f5692d5a2d6679ba52785dced327b"),
+              @("pyqt6_qt6-6.10.2-py3-none-win_amd64.whl", "https://files.pythonhosted.org/packages/06/8e/595f215876d507417cc8565e05519916d3b0b76baedea6a1e4e5105633fc/pyqt6_qt6-6.10.2-py3-none-win_amd64.whl", "c4b7f7d66cc58bddf1bc1ca28dfcf7a45f58cfcb11d81d13a0510409dd4957ac"),
+              @("pyqt6_sip-13.10.2-cp314-cp314-win_amd64.whl", "https://files.pythonhosted.org/packages/be/44/b5e78b072d1594643b0f1ff348f2bf54d4adb5a3f9b9f0989c54e33238d6/pyqt6_sip-13.10.2-cp314-cp314-win_amd64.whl", "3213bb6e102d3842a3bb7e59d5f6e55f176c80880ff0b39d0dac0cfe58313fb3"),
+              @("pydantic-2.13.4-py3-none-any.whl", "https://files.pythonhosted.org/packages/fd/7b/122376b1fd3c62c1ed9dc80c931ace4844b3c55407b6fb2d199377c9736f/pydantic-2.13.4-py3-none-any.whl", "45a282cde31d808236fd7ea9d919b128653c8b38b393d1c4ab335c62924d9aba"),
+              @("pydantic_core-2.46.4-cp314-cp314-win_amd64.whl", "https://files.pythonhosted.org/packages/fc/b6/6b8de4c0a7d7ab3004c439c80c5c1e0a3e8d78bbae19379b01960383d9e5/pydantic_core-2.46.4-cp314-cp314-win_amd64.whl", "811ff8e9c313ab425368bcbb36e5c4ebd7108c2bbf4e4089cfbb0b01eff63fac"),
+              @("annotated_types-0.7.0-py3-none-any.whl", "https://files.pythonhosted.org/packages/78/b6/6307fbef88d9b5ee7421e68d78a9f162e0da4900bc5f5793f6d3d0e34fb8/annotated_types-0.7.0-py3-none-any.whl", "1f02e8b43a8fbbc3f3e0d4f0f4bfc8131bcb4eebe8849b8e5c773f3a1c582a53"),
+              @("typing_extensions-4.15.0-py3-none-any.whl", "https://files.pythonhosted.org/packages/18/67/36e9267722cc04a6b9f15c7f3441c2363321a3ea07da7ae0c0707beb2a9c/typing_extensions-4.15.0-py3-none-any.whl", "f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548"),
+              @("typing_inspection-0.4.2-py3-none-any.whl", "https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl", "4ed1cacbdc298c220f1bd249ed5287caa16f34d44ef4e9c3d0cbad5b521545e7"),
+              @("pywin32-312-cp314-cp314-win_amd64.whl", "https://files.pythonhosted.org/packages/21/82/3bf86d2e2808902013132e1ce905a7da0da53790f3836c64bf44d55e24f3/pywin32-312-cp314-cp314-win_amd64.whl", "a4dd3a848290ef724347b19f301045831d8e802fa4464f491b98b1e0a081432e"),
+              @("pyyaml-6.0.3-cp314-cp314-win_amd64.whl", "https://files.pythonhosted.org/packages/23/20/bb6982b26a40bb43951265ba29d4c246ef0ff59c9fdcdf0ed04e0687de4d/pyyaml-6.0.3-cp314-cp314-win_amd64.whl", "4a2e8cebe2ff6ab7d1050ecd59c25d4c8bd7e6f400f5f82b96557ac0abafd0ac"),
+              @("winrt_runtime-3.2.1-cp314-cp314-win_amd64.whl", "https://files.pythonhosted.org/packages/87/85/e5c2a10d287edd9d3ee8dc24bf7d7f335636b92bf47119768b7dd2fd1669/winrt_runtime-3.2.1-cp314-cp314-win_amd64.whl", "e36e587ab5fd681ee472cd9a5995743f75107a1a84d749c64f7e490bc86bc814"),
+              @("winrt_windows_data_xml_dom-3.2.1-cp314-cp314-win_amd64.whl", "https://files.pythonhosted.org/packages/ab/d2/3a4b7e38feafdec21cb044e0c1ee2c76a71cfbda02bfedcc50634e9fb652/winrt_windows_data_xml_dom-3.2.1-cp314-cp314-win_amd64.whl", "1cf1b6f31fff4e4c0ae30f1643b169da72b3b053a2996010f2c3a1e26b5d4970"),
+              @("winrt_windows_ui_notifications-3.2.1-cp314-cp314-win_amd64.whl", "https://files.pythonhosted.org/packages/17/d8/910a58698d722120f2401c3bfeb6018361d92f3b2814caae839f54693305/winrt_windows_ui_notifications-3.2.1-cp314-cp314-win_amd64.whl", "943599c727abf710ae94644b1d521e11857bd568e080e894a8be11aa717e383a"),
+              @("winrt_windows_management_deployment-3.2.1-cp314-cp314-win_amd64.whl", "https://files.pythonhosted.org/packages/d7/34/9a2205298282e4635bf2f065fa39b98fec48ce67c297de8c9b81822d57d1/winrt_windows_management_deployment-3.2.1-cp314-cp314-win_amd64.whl", "fbf20fa4becf20edb9980bfb9e4f45dfd323d57e4819c49c40a65fde82a1bb24"),
+               @("pytest-8.4.1-py3-none-any.whl", "https://files.pythonhosted.org/packages/29/16/c8a903f4c4dffe7a12843191437d7cd8e32751d5de349d45d3fe69544e87/pytest-8.4.1-py3-none-any.whl", "539c70ba6fcead8e78eebbf1115e8b589e7565830d7d006a8723f19ac8a0afb7"),
+               @("iniconfig-2.1.0-py3-none-any.whl", "https://files.pythonhosted.org/packages/2c/e1/e6716421ea10d38022b952c159d5161ca1193197fb744506875fbb87ea7b/iniconfig-2.1.0-py3-none-any.whl", "9deba5723312380e77435581c6bf4935c94cbfab9b1ed33ef8d238ea168eb760"),
+               @("packaging-25.0-py3-none-any.whl", "https://files.pythonhosted.org/packages/20/12/38679034af332785aac8774540895e234f4d07f7545804097de4b666afd8/packaging-25.0-py3-none-any.whl", "29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484"),
+               @("pluggy-1.6.0-py3-none-any.whl", "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", "e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746"),
+               @("pygments-2.19.2-py3-none-any.whl", "https://files.pythonhosted.org/packages/c7/21/705964c7812476f378728bdf590ca4b771ec72385c533964653c68e86bdc/pygments-2.19.2-py3-none-any.whl", "86540386c03d588bb81d44bc3928634ff26449851e99741617ecb9037ee5ec0b"),
+               @("colorama-0.4.6-py2.py3-none-any.whl", "https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl", "4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6"),
+               @("limitora-0.1.0-py3-none-any.whl", "https://files.pythonhosted.org/packages/8b/aa/da0cbc23349bce31dd3785a88e203b9758b6fa03b535fe1df06ebebfe9e7/limitora-0.1.0-py3-none-any.whl", "84440f0b4c32c52559e91526c7c70d41532248fff817106e1775b4281d7b5c09"),
+               @("setuptools-80.9.0-py3-none-any.whl", "https://files.pythonhosted.org/packages/a3/dc/17031897dae0efacfea57dfd3a82fdd2a2aeb58e0ff71b77b87e44edc772/setuptools-80.9.0-py3-none-any.whl", "062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922")
+            )
+            $sourcePath = Join-Path $root $source.Filename
+            Invoke-WebRequest -Uri $source.Url -OutFile $sourcePath
+            Assert-R10Artifact $sourcePath $source.Filename $source.Sha256
+            if ((Get-FileHash $sourcePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $source.Sha256) { throw "YASB source hash mismatch" }
+            tar -xzf $sourcePath -C $sourceDir
+            $sourceRoots = @(Get-ChildItem -LiteralPath $sourceDir -Directory | Where-Object { $_.Name -like "yasb-$($source.Commit)*" })
+            if ($sourceRoots.Count -ne 1) { throw "YASB source commit unavailable" }
+            $env:R10_YASB_SOURCE_ROOT = Join-Path $sourceRoots[0].FullName "src"
+            $settings = Join-Path $env:R10_YASB_SOURCE_ROOT "settings.py"
+            if (-not (Select-String -LiteralPath $settings -Pattern 'BUILD_VERSION = "2.0.6"' -Quiet)) { throw "YASB version mismatch" }
+            Assert-R10Artifact (Join-Path $env:R10_YASB_SOURCE_ROOT "core/widgets/yasb/custom.py") "custom.py" $source.ModuleSha256
+            foreach ($wheel in $wheels) {
+              $path = Join-Path $wheelDir $wheel[0]
+              Invoke-WebRequest -Uri $wheel[1] -OutFile $path
+              Assert-R10Artifact $path $wheel[0] $wheel[2]
+            }
+            $wheelPaths = @(Get-ChildItem -LiteralPath $wheelDir -Filter "*.whl" -File | ForEach-Object FullName)
+            if ($wheelPaths.Count -ne 22) { throw "R10 wheel closure incomplete" }
+            Invoke-R10CheckedPython "fixed local runtime installation" (@("-m", "pip", "install", "--no-index", "--no-deps") + $wheelPaths)
+            Invoke-R10CheckedPython "local project launcher installation" @("-m", "pip", "install", "--no-index", "--no-deps", "--no-build-isolation", ".")
+            $fixture = Join-Path $root "r10-provider.exe"
+            $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+            if (-not (Test-Path -LiteralPath $csc)) { throw "C# compiler unavailable" }
+            & $csc /nologo /target:exe /out:$fixture tests/fixtures/r10_yasb_fixture.cs *> (Join-Path $root "csc.log")
+            if ($LASTEXITCODE -ne 0) { throw "R10 fixture compilation failed" }
+            Assert-R10Pe $fixture
+            $launcher = Resolve-R10Launcher
+            $env:R10_LAUNCHER_PATH = $launcher.FullName
+            $env:R10_LAUNCHER_SHA256 = (Get-FileHash $launcher.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "R10_YASB_SOURCE_ROOT=$env:R10_YASB_SOURCE_ROOT" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+            "R10_LAUNCHER_PATH=$env:R10_LAUNCHER_PATH" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+            "R10_LAUNCHER_SHA256=$env:R10_LAUNCHER_SHA256" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+            "R10_FIXTURE_EXE=$fixture" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+            Assert-R10WinRtImports
+          }
+      - name: Run mandatory R10 admission before widget construction
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          . .github/workflows/windows-proof-functions.ps1
+          $exitCode = Invoke-R10CheckedPython "R10 admission" @("-m", "pytest", "-q", "--strict-markers", "tests/test_windows_native_proof.py", "-k", "identity or closure or admission", "--junitxml=r10-admission.xml")
+          Assert-R10PytestResult "r10-admission.xml" $exitCode
+      - name: Publish safe admission evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r10-native-admission
+          path: r10-admission.xml
+
   native-proof:
+    needs: r10-admission
     runs-on: windows-latest
     timeout-minutes: 10
     env:
@@ -52,12 +160,7 @@ jobs:
           $suites = @($report.testsuites.testsuite)
           if ($suites.Count -eq 0 -and $report.testsuite) { $suites = @($report.testsuite) }
           $tests = 0; $skipped = 0; $failures = 0; $errors = 0
-          try {
-            foreach ($suite in $suites) {
-              $tests += [int]$suite.tests; $skipped += [int]$suite.skipped
-              $failures += [int]$suite.failures; $errors += [int]$suite.errors
-            }
-          } catch { throw "Native proof JUnit counts were invalid" }
+          try { foreach ($suite in $suites) { $tests += [int]$suite.tests; $skipped += [int]$suite.skipped; $failures += [int]$suite.failures; $errors += [int]$suite.errors } } catch { throw "Native proof JUnit counts were invalid" }
           if ($suites.Count -eq 0 -or $tests -lt 1 -or $skipped -ne 0 -or $failures -ne 0 -or $errors -ne 0) { throw "Native proof was skipped, deselected, or failed" }
           try { $evidence = Get-Content native-proof.json -Raw | ConvertFrom-Json } catch { throw "Native proof evidence was invalid" }
           if ($evidence.native -ne $true -or $evidence.ready_authorized -ne $true -or $evidence.tree_terminated -ne $true -or $evidence.streams_clean -ne $true) { throw "Native proof did not publish complete product evidence" }
@@ -84,10 +187,7 @@ jobs:
           if ($exitClass -notin @("zero", "nonzero")) { $exitClass = "unknown" }
           $checkpoint = $env:YASB_NATIVE_CHECKPOINT
           if ($checkpoint -notin @("1", "2", "3", "4", "5", "6", "7", "8", "9", "unknown")) { $checkpoint = "unknown" }
-          $scan = Scan-Candidates @(
-            [PSCustomObject]@{ Label = "junit"; Path = "native-proof.xml" },
-            [PSCustomObject]@{ Label = "evidence"; Path = "native-proof.json" }
-          )
+          $scan = Scan-Candidates @([PSCustomObject]@{ Label = "junit"; Path = "native-proof.xml" }, [PSCustomObject]@{ Label = "evidence"; Path = "native-proof.json" })
           Assert-SafeScan $scan $exitClass "Final artifact" $checkpoint
       - name: Publish safe native evidence
         if: success()
