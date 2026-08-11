@@ -113,7 +113,7 @@ def test_r10_admission_contract_rejects_identity_and_closure_drift() -> None:
     contract = workflow + wrapper
     _require_r10_workflow_contract(contract)
     assert re.search(r"native-proof:\s+needs: r10-admission\s+if: always\(\).*?steps:\s+- name: Enforce R10 admission delivery gate\s+if: always\(\).*?needs\.r10-admission\.result.*?-ne \"success\".*?throw", workflow, re.S)
-    assert re.search(r'csc\.log".*?R10 fixture compiler:.*?Math\]::Min\(240', workflow, re.S) and not re.search(r"(?s)- name: Validate artifacts before publication\s+if: always\(\)", workflow)
+    assert re.search(r'\$fixtureSource = \[IO\.Path\]::GetFullPath\(\(Join-Path \$env:GITHUB_WORKSPACE "tests\\fixtures\\r10_yasb_fixture\.cs"\)\).*?& \$csc /nologo /target:exe "/out:\$fixture" "\$fixtureSource" \*> \(Join-Path \$root "csc\.log"\).*?R10 fixture compiler:.*?Math\]::Min\(240.*?throw "R10 fixture compilation failed"', workflow, re.S) and not re.search(r"(?s)- name: Validate artifacts before publication\s+if: always\(\)", workflow)
     for original, replacement in (
         (_R10_YASB_COMMIT, "0" * 40),
         (_R10_YASB_ARCHIVE_SHA256, "0" * 64),

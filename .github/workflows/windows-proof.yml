@@ -88,7 +88,8 @@ jobs:
             $fixture = Join-Path $root "r10-provider.exe"
             $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
             if (-not (Test-Path -LiteralPath $csc)) { throw "C# compiler unavailable" }
-            & $csc /nologo /target:exe /out:$fixture tests/fixtures/r10_yasb_fixture.cs *> (Join-Path $root "csc.log")
+            $fixtureSource = [IO.Path]::GetFullPath((Join-Path $env:GITHUB_WORKSPACE "tests\fixtures\r10_yasb_fixture.cs"))
+            & $csc /nologo /target:exe "/out:$fixture" "$fixtureSource" *> (Join-Path $root "csc.log")
             if ($LASTEXITCODE -ne 0) { $diagnostic = (([string](Get-Content -LiteralPath (Join-Path $root "csc.log") -Raw -ErrorAction SilentlyContinue)).Trim() -replace "[^\x20-\x7E]", " " -replace "\s+", " "); Write-Host ("R10 fixture compiler: " + $diagnostic.Substring(0, [Math]::Min(240, $diagnostic.Length))); throw "R10 fixture compilation failed" }
             Assert-R10Pe $fixture
             $launcher = Resolve-R10Launcher
