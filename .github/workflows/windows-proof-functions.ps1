@@ -1,3 +1,86 @@
+$script:R10Python = Join-Path $env:pythonLocation "python.exe"
+
+function Assert-R10Artifact($path, $expectedName, $expectedSha256) {
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "R10 artifact unavailable" }
+  if ([IO.Path]::GetFileName($path) -cne $expectedName) { throw "R10 artifact filename mismatch" }
+  $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($actual -cne $expectedSha256) { throw "R10 artifact hash mismatch" }
+}
+
+function Assert-R10Pe($path) {
+  $bytes = [IO.File]::ReadAllBytes($path)
+  if ($bytes.Length -lt 64 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) { throw "R10 fixture is not a PE" }
+  $offset = [BitConverter]::ToInt32($bytes, 60)
+  if ($offset -lt 64 -or $offset + 4 -gt $bytes.Length -or [Text.Encoding]::ASCII.GetString($bytes, $offset, 4) -cne "PE`0`0") { throw "R10 fixture is not a PE" }
+}
+
+function Resolve-R10Launcher {
+  $scripts = Join-Path $env:pythonLocation "Scripts"
+  $candidates = @(Get-ChildItem -LiteralPath $scripts -Filter "yasb-limitora*.exe" -File -ErrorAction SilentlyContinue)
+  if ($candidates.Count -ne 1 -or $candidates[0].Name -cne "yasb-limitora.exe" -or $candidates[0].FullName.Contains(" ")) { throw "R10 launcher is ambiguous or contains spaces" }
+  return $candidates[0]
+}
+
+function ConvertTo-R10ProcessArgument([string]$argument) {
+  if ($argument -notmatch '[\s"]') { return $argument }
+  return '"' + (($argument -replace '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"'
+}
+
+function Invoke-R10CheckedPython {
+  param([string]$Label, [string[]]$Arguments, [int]$TimeoutSeconds = 180)
+  $root = Join-Path $env:RUNNER_TEMP "r10-checked-python"
+  New-Item -ItemType Directory -Force $root | Out-Null
+  $id = [guid]::NewGuid().ToString("N")
+  $stdout = Join-Path $root "$id.out"
+  $stderr = Join-Path $root "$id.err"
+  $process = $null
+  try {
+    $process = Start-Process -FilePath $script:R10Python -ArgumentList (($Arguments | ForEach-Object { ConvertTo-R10ProcessArgument $_ }) -join " ") -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -WindowStyle Hidden
+    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+      $tree = @(Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId -ErrorAction Stop)
+      if ($tree.Count -gt 4096 -or @($tree | Select-Object -ExpandProperty ProcessId -Unique).Count -ne $tree.Count -or @($tree | Where-Object { $null -eq $_.ProcessId -or $null -eq $_.ParentProcessId }).Count -gt 0 -or @($tree | Where-Object ProcessId -eq $process.Id).Count -ne 1) { throw "$Label timed out; process-tree metadata unavailable; diagnostics withheld" }
+      $pids = [System.Collections.Generic.HashSet[int]]::new(); $pending = [System.Collections.Generic.Queue[int]]::new(); $pending.Enqueue([int]$process.Id)
+      while ($pending.Count) { $parent = $pending.Dequeue(); foreach ($node in @($tree | Where-Object ParentProcessId -eq $parent)) { if ([int]$node.ProcessId -eq $process.Id -or -not $pids.Add([int]$node.ProcessId)) { throw "$Label timed out; process-tree metadata ambiguous; diagnostics withheld" }; $pending.Enqueue([int]$node.ProcessId) } }
+      & (Join-Path $env:SystemRoot "System32\taskkill.exe") /PID $process.Id /T /F *> $null
+      if ($LASTEXITCODE -ne 0 -or -not $process.WaitForExit(5000)) { throw "$Label timed out; process-tree termination unconfirmed; diagnostics withheld" }
+      $remaining = @(foreach ($candidatePid in @($process.Id) + @($pids)) { $matches = @(Get-CimInstance Win32_Process -Filter "ProcessId = $candidatePid" -ErrorAction Stop); if ($matches.Count -gt 1) { throw "$Label timed out; process verification ambiguous; diagnostics withheld" }; if ($matches.Count -eq 1) { $candidatePid } })
+      if ($remaining.Count) { throw "$Label timed out; process-tree termination unconfirmed; diagnostics withheld" }
+      throw "$Label timed out; diagnostics withheld"
+    }
+    if ($process.ExitCode -ne 0) { throw "$Label failed; exit=$($process.ExitCode); diagnostics withheld" }
+    return $process.ExitCode
+  } catch {
+    if ($_.Exception.Message -like "$Label failed*" -or $_.Exception.Message -like "$Label timed out*") { throw }
+    throw "$Label unavailable; diagnostics withheld"
+  } finally {
+    Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Assert-R10WinRtImports {
+  $script = 'import importlib,importlib.metadata as m,os,sys; root=os.path.realpath(sys.prefix).lower(); expected={"PyQt6.QtCore":("PyQt6","6.10.2"),"pydantic":("pydantic","2.13.4"),"pydantic_core":("pydantic-core","2.46.4"),"yaml":("PyYAML","6.0.3"),"_yaml":("PyYAML","6.0.3"),"win32api":("pywin32","312"),"pywintypes":("pywin32","312"),"winrt.system":("winrt-runtime","3.2.1"),"winrt.windows.data.xml.dom":("winrt-windows-data-xml-dom","3.2.1"),"winrt.windows.ui.notifications":("winrt-windows-ui-notifications","3.2.1"),"winrt.windows.management.deployment":("winrt-windows-management-deployment","3.2.1")}; [(lambda x: x.__file__ and os.path.realpath(x.__file__).lower().startswith(root+os.sep) and m.version(expected[n][0])==expected[n][1] or (_ for _ in ()).throw(ImportError(n)))(importlib.import_module(n)) for n in expected]'
+  Invoke-R10CheckedPython "R10 WinRT import smoke" @("-c", $script)
+}
+
+function Assert-R10PytestResult($junitPath, $exitCode) {
+  if ($exitCode -ne 0 -or -not (Test-Path -LiteralPath $junitPath)) { throw "R10 admission failed; diagnostics withheld" }
+  try { $report = [xml](Get-Content -LiteralPath $junitPath -Raw) } catch { throw "R10 admission report unavailable" }
+  $suites = @($report.testsuites.testsuite)
+  if ($suites.Count -eq 0 -and $report.testsuite) { $suites = @($report.testsuite) }
+  $tests = 0; $skipped = 0; $failures = 0; $errors = 0
+  try { foreach ($suite in $suites) { $tests += [int]$suite.tests; $skipped += [int]$suite.skipped; $failures += [int]$suite.failures; $errors += [int]$suite.errors } } catch { throw "R10 admission report counts invalid" }
+  if ($suites.Count -eq 0 -or $tests -lt 1 -or $skipped -ne 0 -or $failures -ne 0 -or $errors -ne 0) { throw "R10 admission was skipped or failed" }
+}
+
+function Invoke-R10WithPath($action) {
+  $savedPath = $env:Path
+  try { & $action }
+  finally {
+    $env:Path = $savedPath
+    if ($env:Path -ne $savedPath) { throw "PATH restoration failed" }
+  }
+}
+
 $script:NativeKnownTests = @{
   "test_native_helper_adapter_ipc_and_complete_job_tree_cleanup" = "helper-tree-cleanup"
   "test_sentinel_scan_failure_diagnostics_are_redacted" = "sentinel-scan-redaction"

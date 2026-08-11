@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import ctypes
 from ctypes import wintypes
+import hashlib
+import importlib
+from importlib import metadata
 import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -35,6 +39,174 @@ from yasb_limitora.v2_worker import cleanup_complete
 pytestmark = [
     pytest.mark.windows_native,
 ]
+
+_R10_YASB_COMMIT = "7e84e011156844bec5b3565cf73f543bc23160e9"
+_R10_YASB_ARCHIVE_SHA256 = "6aa3d74689f7cd7d7a9e3493d2a709c56db4451749413b4e561a199928096f79"
+_R10_YASB_MODULE_SHA256 = "5e9f5060cd16901bcf21aa7b070c2f4949d19752dcda18634a7c8c9fc5f70ba1"
+_R10_WHEELS = (
+    ("pyqt6-6.10.2-cp39-abi3-win_amd64.whl", "bd328cb70bc382c48861cd5f0a11b2b8ae6f5692d5a2d6679ba52785dced327b"),
+    ("pyqt6_qt6-6.10.2-py3-none-win_amd64.whl", "c4b7f7d66cc58bddf1bc1ca28dfcf7a45f58cfcb11d81d13a0510409dd4957ac"),
+    ("pyqt6_sip-13.10.2-cp314-cp314-win_amd64.whl", "3213bb6e102d3842a3bb7e59d5f6e55f176c80880ff0b39d0dac0cfe58313fb3"),
+    ("pydantic-2.13.4-py3-none-any.whl", "45a282cde31d808236fd7ea9d919b128653c8b38b393d1c4ab335c62924d9aba"),
+    ("pydantic_core-2.46.4-cp314-cp314-win_amd64.whl", "811ff8e9c313ab425368bcbb36e5c4ebd7108c2bbf4e4089cfbb0b01eff63fac"),
+    ("annotated_types-0.7.0-py3-none-any.whl", "1f02e8b43a8fbbc3f3e0d4f0f4bfc8131bcb4eebe8849b8e5c773f3a1c582a53"),
+    ("typing_extensions-4.15.0-py3-none-any.whl", "f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548"),
+    ("typing_inspection-0.4.2-py3-none-any.whl", "4ed1cacbdc298c220f1bd249ed5287caa16f34d44ef4e9c3d0cbad5b521545e7"),
+    ("pywin32-312-cp314-cp314-win_amd64.whl", "a4dd3a848290ef724347b19f301045831d8e802fa4464f491b98b1e0a081432e"),
+    ("pyyaml-6.0.3-cp314-cp314-win_amd64.whl", "4a2e8cebe2ff6ab7d1050ecd59c25d4c8bd7e6f400f5f82b96557ac0abafd0ac"),
+    ("winrt_runtime-3.2.1-cp314-cp314-win_amd64.whl", "e36e587ab5fd681ee472cd9a5995743f75107a1a84d749c64f7e490bc86bc814"),
+    ("winrt_windows_data_xml_dom-3.2.1-cp314-cp314-win_amd64.whl", "1cf1b6f31fff4e4c0ae30f1643b169da72b3b053a2996010f2c3a1e26b5d4970"),
+    ("winrt_windows_ui_notifications-3.2.1-cp314-cp314-win_amd64.whl", "943599c727abf710ae94644b1d521e11857bd568e080e894a8be11aa717e383a"),
+    ("winrt_windows_management_deployment-3.2.1-cp314-cp314-win_amd64.whl", "fbf20fa4becf20edb9980bfb9e4f45dfd323d57e4819c49c40a65fde82a1bb24"),
+    ("pytest-8.4.1-py3-none-any.whl", "539c70ba6fcead8e78eebbf1115e8b589e7565830d7d006a8723f19ac8a0afb7"),
+    ("iniconfig-2.1.0-py3-none-any.whl", "9deba5723312380e77435581c6bf4935c94cbfab9b1ed33ef8d238ea168eb760"),
+    ("packaging-25.0-py3-none-any.whl", "29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484"),
+    ("pluggy-1.6.0-py3-none-any.whl", "e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746"),
+    ("pygments-2.19.2-py3-none-any.whl", "86540386c03d588bb81d44bc3928634ff26449851e99741617ecb9037ee5ec0b"),
+    ("colorama-0.4.6-py2.py3-none-any.whl", "4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6"),
+    ("limitora-0.1.0-py3-none-any.whl", "84440f0b4c32c52559e91526c7c70d41532248fff817106e1775b4281d7b5c09"),
+    ("setuptools-80.9.0-py3-none-any.whl", "062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922"),
+)
+_R10_WINRT_IMPORTS = (
+    "winrt.system",
+    "winrt.windows.data.xml.dom",
+    "winrt.windows.ui.notifications",
+    "winrt.windows.management.deployment",
+)
+_R10_RUNTIME_IMPORTS = ("PyQt6.QtCore", "pydantic", "pydantic_core", "yaml", "_yaml", "win32api", "pywintypes", *_R10_WINRT_IMPORTS)
+
+
+def _require_r10_workflow_contract(text: str) -> None:
+    required = (_R10_YASB_COMMIT, _R10_YASB_ARCHIVE_SHA256, _R10_YASB_MODULE_SHA256, "v2.0.6", "3.14", "x64", "--no-build-isolation", "wheelPaths.Count -ne 22")
+    if any(value not in text for value in required):
+        raise AssertionError("R10 frozen source identity drifted")
+    if text.count(_R10_YASB_COMMIT) < 2 or f"tar.gz/{_R10_YASB_COMMIT}" not in text:
+        raise AssertionError("R10 source commit/archive identity drifted")
+    for filename, digest in _R10_WHEELS:
+        if text.count(filename) < 2 or digest not in text or "--no-index" not in text or "--no-deps" not in text:
+            raise AssertionError("R10 fixed wheel closure drifted")
+    binary_wheels = (filename for filename, _ in _R10_WHEELS if filename.startswith(("pyqt6_sip", "pydantic_core", "pywin32", "pyyaml", "winrt_")))
+    if len(_R10_WHEELS) != 22 or any("cp314" not in filename or "win_amd64" not in filename for filename in binary_wheels):
+        raise AssertionError("R10 closure is not CPython 3.14 x64")
+    if any(module not in text for module in _R10_RUNTIME_IMPORTS):
+        raise AssertionError("R10 WinRT import smoke is incomplete")
+
+
+def _assert_pe(path: Path) -> None:
+    data = path.read_bytes()
+    if data[:2] != b"MZ" or len(data) < 0x40:
+        raise AssertionError("fixture is not a Windows PE")
+    pe_offset = int.from_bytes(data[0x3C:0x40], "little")
+    if data[pe_offset : pe_offset + 4] != b"PE\0\0":
+        raise AssertionError("fixture is not a Windows PE")
+
+
+def _resolve_no_space_launcher(candidates: list[Path]) -> Path:
+    if len(candidates) != 1 or " " in str(candidates[0]) or candidates[0].suffix.lower() != ".exe":
+        raise AssertionError("launcher identity is ambiguous or unsafe")
+    return candidates[0]
+
+
+def test_r10_admission_contract_rejects_identity_and_closure_drift() -> None:
+    workflow = (Path(__file__).parents[1] / ".github/workflows/windows-proof.yml").read_text(encoding="utf-8")
+    wrapper = (Path(__file__).parents[1] / ".github/workflows/windows-proof-functions.ps1").read_text(encoding="utf-8")
+    contract = workflow + wrapper
+    _require_r10_workflow_contract(contract)
+    assert re.search(r"native-proof:\s+needs: r10-admission\s+if: always\(\).*?steps:\s+- name: Enforce R10 admission delivery gate\s+if: always\(\).*?needs\.r10-admission\.result.*?-ne \"success\".*?throw", workflow, re.S) and re.search(r"r10-admission:.*?R10_YASB_SOURCE_ROOT=.*?Out-File \$env:GITHUB_ENV.*?R10_LAUNCHER_PATH=.*?Out-File \$env:GITHUB_ENV.*?R10_LAUNCHER_SHA256=.*?Out-File \$env:GITHUB_ENV.*?R10_FIXTURE_EXE=.*?Out-File \$env:GITHUB_ENV.*?- name: Run mandatory R10 admission before widget construction", workflow, re.S) and not re.search(r"- name: Run mandatory R10 admission before widget construction.*?R10_(?:YASB_SOURCE_ROOT|LAUNCHER_PATH|LAUNCHER_SHA256|FIXTURE_EXE)", workflow, re.S)
+    assert re.search(r'\$fixtureSource = \[IO\.Path\]::GetFullPath\(\(Join-Path \$env:GITHUB_WORKSPACE "tests\\fixtures\\r10_yasb_fixture\.cs"\)\).*?& \$csc /nologo /target:exe "/out:\$fixture" "\$fixtureSource" \*> \(Join-Path \$root "csc\.log"\).*?R10 fixture compiler:.*?Math\]::Min\(240.*?throw "R10 fixture compilation failed"', workflow, re.S) and not re.search(r"(?s)- name: Validate artifacts before publication\s+if: always\(\)", workflow)
+    for original, replacement in (
+        (_R10_YASB_COMMIT, "0" * 40),
+        (_R10_YASB_ARCHIVE_SHA256, "0" * 64),
+        (_R10_YASB_MODULE_SHA256, "0" * 64),
+        ("v2.0.6", "v2.0.5"),
+        ("cp314", "cp313"),
+        ("win_amd64", "win32"),
+        (_R10_WHEELS[-1][0], "wrong.whl"),
+    ):
+        with pytest.raises(AssertionError):
+            _require_r10_workflow_contract(contract.replace(original, replacement, 1))
+
+
+def test_r10_admission_contract_rejects_failed_imports_and_unsafe_fixture(tmp_path: Path) -> None:
+    workflow = (Path(__file__).parents[1] / ".github/workflows/windows-proof.yml").read_text(encoding="utf-8")
+    wrapper = (Path(__file__).parents[1] / ".github/workflows/windows-proof-functions.ps1").read_text(encoding="utf-8")
+    contract = workflow + wrapper
+    for module in _R10_RUNTIME_IMPORTS:
+        with pytest.raises(AssertionError):
+            _require_r10_workflow_contract(contract.replace(module, "missing.module", 1))
+    for payload in (b"malformed", b"print('not a PE')"):
+        path = tmp_path / "r10-provider.exe"
+        path.write_bytes(payload)
+        with pytest.raises(AssertionError):
+            _assert_pe(path)
+
+
+def test_r10_admission_contract_rejects_launcher_ambiguity_spaces_path_drift_and_timeout_tree_cleanup(tmp_path: Path) -> None:
+    launcher = tmp_path / "yasb-limitora.exe"
+    launcher.write_bytes(b"MZ")
+    assert _resolve_no_space_launcher([launcher]) == launcher
+    with pytest.raises(AssertionError):
+        _resolve_no_space_launcher([launcher, launcher])
+    with pytest.raises(AssertionError):
+        _resolve_no_space_launcher([tmp_path / "space dir" / "yasb-limitora.exe"])
+    wrapper = (Path(__file__).parents[1] / ".github/workflows/windows-proof-functions.ps1").read_text(encoding="utf-8")
+    timeout = wrapper[wrapper.index("if (-not $process.WaitForExit"):wrapper.index("if ($process.ExitCode")]
+    assert all(token in timeout for token in ("taskkill.exe", "/PID", "/T", "/F", "$process.Id", "$LASTEXITCODE", "WaitForExit(5000)", "Get-CimInstance", "Win32_Process", "ParentProcessId", "ProcessId", "$pids", "4096", "metadata unavailable", "metadata ambiguous", "verification ambiguous"))
+    assert timeout.count("Get-CimInstance") >= 2 and "foreach ($candidatePid in @($process.Id) + @($pids))" in timeout
+    assert "$process.Kill()" not in timeout and "Get-Process -Id $process.Id" not in timeout
+    assert 'ConvertTo-R10ProcessArgument $_ }) -join " "' in wrapper
+    assert re.search(r"(?i)timeout", wrapper)
+    assert re.search(r"(?i)nonzero|exit", wrapper)
+    assert re.search(r"(?i)skipped", wrapper)
+    assert "$env:Path" in wrapper and "finally" in wrapper.lower()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="R10 native admission requires Windows")
+def test_r10_native_admission_identity_imports_and_fixture() -> None:
+    source_root_value = os.environ.get("R10_YASB_SOURCE_ROOT")
+    if source_root_value is None:
+        assert all(name not in os.environ for name in ("R10_LAUNCHER_PATH", "R10_LAUNCHER_SHA256", "R10_FIXTURE_EXE"))
+        return
+    if sys.version_info[:2] != (3, 14) or os.environ.get("PROCESSOR_ARCHITECTURE") != "AMD64":
+        pytest.fail("R10 admission requires Python 3.14 AMD64")
+    source_root = Path(source_root_value)
+    settings = source_root / "settings.py"
+    module = source_root / "core/widgets/yasb/custom.py"
+    assert 'BUILD_VERSION = "2.0.6"' in settings.read_text(encoding="utf-8")
+    assert hashlib.sha256(module.read_bytes()).hexdigest() == _R10_YASB_MODULE_SHA256
+    expected_versions = {
+        "PyQt6": "6.10.2",
+        "PyQt6-Qt6": "6.10.2",
+        "PyQt6-sip": "13.10.2",
+        "pydantic": "2.13.4",
+        "pydantic-core": "2.46.4",
+        "annotated-types": "0.7.0",
+        "typing-extensions": "4.15.0",
+        "typing-inspection": "0.4.2",
+        "pywin32": "312",
+        "PyYAML": "6.0.3",
+        "winrt-runtime": "3.2.1",
+        "winrt-windows-data-xml-dom": "3.2.1",
+        "winrt-windows-ui-notifications": "3.2.1",
+        "winrt-windows-management-deployment": "3.2.1",
+        "pytest": "8.4.1",
+        "iniconfig": "2.1.0",
+        "packaging": "25.0",
+        "pluggy": "1.6.0",
+        "Pygments": "2.19.2",
+        "colorama": "0.4.6",
+        "limitora": "0.1.0",
+        "setuptools": "80.9.0",
+    }
+    for distribution, version in expected_versions.items():
+        assert metadata.version(distribution) == version
+    for name in _R10_RUNTIME_IMPORTS:
+        imported = importlib.import_module(name)
+        assert imported.__file__ and Path(imported.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+    fixture = Path(os.environ["R10_FIXTURE_EXE"])
+    _assert_pe(fixture)
+    launcher = _resolve_no_space_launcher([Path(os.environ["R10_LAUNCHER_PATH"])])
+    assert hashlib.sha256(launcher.read_bytes()).hexdigest() == os.environ["R10_LAUNCHER_SHA256"]
 
 _FIXTURE = Path(__file__).with_name("fixtures") / "windows_descendant.py"
 _STILL_ACTIVE = 259
