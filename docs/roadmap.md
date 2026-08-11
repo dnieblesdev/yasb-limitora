@@ -8,6 +8,12 @@ verification are complete at the exact pre-closeout integration candidate
 `main` at `30c94d00f780b597644c1494833d4dd50738556b`.
 Later units remain out of scope until their ordered turn.
 
+The complete `yasb-limitora` runtime is Windows-only. Both public CLI routes
+share one early boundary: on non-Windows they return `2`, emit exactly
+`yasb-limitora: unsupported_platform\n` on stderr, and emit no stdout bytes
+before any product execution. Hermetic predicate injection in tests is not
+runtime portability or Windows integration proof.
+
 ## Delivery order
 
 | Order | Unit | Outcome | Status |
@@ -21,8 +27,8 @@ Later units remain out of scope until their ordered turn.
 | R7 | Resolve default Windows configuration | Add the accepted default Windows configuration resolution | Complete — merged to `main` at `2850169` |
 | R8 | Add the cross-process execution guard | Add bounded guard acquisition, deadlines, and cleanup behavior | Complete — merged to `main` at `5bee184` |
 | R9 | Package CustomWidget examples and static CSS | Package the CustomWidget examples and static presentation assets | Complete — merged to `main` at `2d529ae` |
-| R10 | Prove pinned YASB integration on Windows | Validate the pinned YASB CustomWidget integration on Windows | Planned after R9 |
-| R11 | Release and smoke-test 0.2.0 | Complete release readiness and the final smoke test | Planned after R10 |
+| R10 | Prove pinned YASB integration on Windows | Validate the pinned YASB CustomWidget integration on Windows | Not complete — historical/reverted and non-authoritative; requires a new approved unit |
+| R11 | Release and smoke-test 0.2.0 | Complete release readiness and the final smoke test | Deferred until a separately authorized R10 proof |
 
 ## Official architecture
 
@@ -256,8 +262,9 @@ provider, guard, JSON-v2 contract, packaging, R10, or R11 behavior changed.
 - Planning, Slice A, Slice B, and final fixture Judgment Day gates are
   approved after bounded corrections, with no open BLOCKER or CRITICAL.
 
-R10 is the next authorized unit and remains not started. R11 remains deferred
-until R10 evidence exists.
+R10 remains a separate historical/reverted effort with no authoritative
+completion, Windows-integration, or boundary-proof claim. A new R10 attempt
+requires a new approved unit and fresh evidence; R11 remains deferred.
 
 ## Explicit exclusions for 0.2
 

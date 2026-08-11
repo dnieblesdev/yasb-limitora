@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "yasb-limitora"
 version = "0.1.0"
-description = "Native Windows JSON integration for the Limitora LLM provider library."
+description = "Windows-only command and JSON boundary for the YASB CustomWidget and Limitora providers."
 readme = "README.md"
 license = {text = "MIT"}
 authors = [

@@ -204,7 +204,7 @@ def test_unexpected_provider_exception_emits_schema_safe_internal_document(monke
     )
     stdout, stderr = io.BytesIO(), io.StringIO()
 
-    assert main(("--output-version", "2", "--config", str(config_path)), stdout=stdout, stderr=stderr) == 1
+    assert main(("--output-version", "2", "--config", str(config_path)), stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 1
     document = json.loads(stdout.getvalue())
     assert document["execution_error"] == {"code": "internal_error", "phase": "document"}
     assert all(provider["not_run_reason"] == "document_aborted" for provider in document["providers"])
@@ -215,7 +215,7 @@ def test_v2_default_path_fails_closed_without_a_process_local_lock(tmp_path):
     config = tmp_path / "config.json"
     config.write_text(json.dumps({"codex": {"enabled": True, "runner": r"C:\codex.exe"}, "opencode_go": {}}), encoding="utf-8")
     stdout, stderr = io.BytesIO(), io.StringIO()
-    code = main(("--output-version", "2", "--config", str(config)), stdout=stdout, stderr=stderr)
+    code = main(("--output-version", "2", "--config", str(config)), stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
     projected = json.loads(stdout.getvalue())
     assert code == 1
     assert projected["execution_error"]["code"] in {"guard_acquisition_failed", "cleanup_failed", "provider_failed"}

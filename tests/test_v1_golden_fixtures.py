@@ -106,6 +106,7 @@ def test_v1_no_argument_behavior_is_the_frozen_all_disabled_document():
         },
         stdout=stdout,
         stderr=stderr,
+        platform_is_windows=lambda: True,
     ) == 0
     assert stdout.getvalue() == (FIXTURES / "json_v1_unavailable.json").read_bytes()
     assert stderr.getvalue() == ""
@@ -115,7 +116,7 @@ def test_v1_no_argument_behavior_is_the_frozen_all_disabled_document():
 def test_explicit_v1_selector_preserves_frozen_no_config_bytes(argv):
     stdout, stderr = io.BytesIO(), io.StringIO()
 
-    assert main(argv, environment={"YASB_LIMITORA_CONFIG": "must-not-be-read"}, stdout=stdout, stderr=stderr) == 0
+    assert main(argv, environment={"YASB_LIMITORA_CONFIG": "must-not-be-read"}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 0
     assert stdout.getvalue() == (FIXTURES / "json_v1_unavailable.json").read_bytes()
     assert stderr.getvalue() == ""
 
@@ -145,6 +146,7 @@ def test_explicit_v1_config_forms_preserve_frozen_bytes_and_config(tmp_path, sel
         coordinator=coordinator,
         stdout=stdout,
         stderr=stderr,
+        platform_is_windows=lambda: True,
     ) == 0
     assert stdout.getvalue() == (FIXTURES / "json_v1_unavailable.json").read_bytes()
     assert stderr.getvalue() == ""
@@ -175,6 +177,7 @@ def test_v1_explicit_device_path_keeps_legacy_loader_behavior(monkeypatch):
         coordinator=_Coordinator(),
         stdout=stdout,
         stderr=stderr,
+        platform_is_windows=lambda: True,
     ) == 0
     assert reads == [explicit]
     assert stdout.getvalue() == (FIXTURES / "json_v1_unavailable.json").read_bytes()

@@ -11,7 +11,14 @@ from yasb_limitora.model import DocumentView, ProviderKey, ProviderState, Provid
 
 def _run(argv, *, coordinator=None, environment=None):
     stdout, stderr = io.BytesIO(), io.StringIO()
-    code = main(argv, coordinator=coordinator, environment=environment or {}, stdout=stdout, stderr=stderr)
+    code = main(
+        argv,
+        coordinator=coordinator,
+        environment=environment or {},
+        stdout=stdout,
+        stderr=stderr,
+        platform_is_windows=lambda: True,
+    )
     return code, json.loads(stdout.getvalue()), stderr.getvalue(), stdout.getvalue()
 
 

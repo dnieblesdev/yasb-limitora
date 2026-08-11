@@ -1,6 +1,6 @@
-# Native Windows JSON runtime
+# Windows-only JSON runtime
 
-`yasb-limitora` provides an executable native-Windows machine-JSON boundary for
+`yasb-limitora` provides an executable Windows-only machine-JSON boundary for
 Codex and OpenCode Go. The official 0.2 consumer is YASB's existing
 `CustomWidget`; this repository does not implement a native YASB widget or
 popover. This page documents the frozen v1 runtime and v2 configuration behavior. The normative v2 contract
@@ -29,6 +29,18 @@ is [`specifications/json-v2.md`](specifications/json-v2.md).
    is enabled.
 5. Run the module or installed console entry point and parse stdout as one JSON
    document.
+
+## Runtime support boundary
+
+The installed console route and `python -m yasb_limitora` use the same central
+gate. Outside Windows, either route returns exit code `2`, writes exactly
+`yasb-limitora: unsupported_platform\n` to stderr, and writes zero stdout
+bytes. This rejection happens before argv inspection, environment lookup,
+configuration, provider or native-process work, and clock reads.
+
+Linux, macOS, and WSL are not supported execution environments. Hermetic tests
+may inject the private platform predicate to exercise supported behavior, but
+that seam is not a compatibility mode or Windows integration proof.
 
 ## Configuration
 
@@ -111,7 +123,7 @@ Exit codes are:
 |---:|---|
 | `0` | The document contains no `safe_error`. |
 | `1` | A provider runtime, timeout, or internal failure was projected as `safe_error`. |
-| `2` | Local invocation or configuration was malformed. |
+| `2` | The runtime is unsupported, or local invocation/configuration was malformed. Unsupported-platform rejection uses the exact stderr contract above and no JSON stdout. |
 
 The only provider states are `loading`, `success`, `unavailable`, and
 `safe_error`. The one-shot CLI normally returns completed `success`,

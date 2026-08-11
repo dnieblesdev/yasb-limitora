@@ -1,12 +1,25 @@
 # yasb-limitora
 
-`yasb-limitora` is a Windows command and JSON boundary for the YASB
+`yasb-limitora` is a Windows-only command and JSON boundary for the YASB
 `CustomWidget`. It reads quota-focused data through the released public
 [Limitora](https://github.com/dnieblesdev/limitora) API and never makes provider
 calls from YASB.
 
-> **Current status:** R1 product source of truth and R2 JSON v2 specification
-> work are the only approved 0.2 units. R3 runtime implementation is blocked.
+> **Current status:** R1-R9 are evidenced complete. R10-related integration work is
+> historical, reverted, and non-authoritative; it is not proof of this boundary or
+> of Windows integration. The current CLI enforces the Windows-only product boundary.
+
+## Runtime support boundary
+
+Every public route (`yasb-limitora` and `python -m yasb_limitora`) converges on
+the same CLI gate. On a non-Windows runtime, both routes return exit code `2`,
+write exactly `yasb-limitora: unsupported_platform\n` to stderr, and write no
+stdout bytes. The gate runs before argument parsing, configuration, provider,
+native-process, or clock activity.
+
+Linux, macOS, and WSL are not supported product runtimes. Tests may inject the
+private platform predicate to exercise Windows behavior hermetically; that test
+seam does not expand product support or provide Windows integration proof.
 
 ## Official architecture
 
@@ -20,8 +33,8 @@ configuration resolution, execution safety, sanitized projection, and the
 versioned machine boundary. YASB owns only CustomWidget lifecycle and display.
 
 The v1 document remains frozen for existing consumers. JSON v2 is specified in
-[`docs/specifications/json-v2.md`](docs/specifications/json-v2.md), but is not
-implemented by this review unit.
+[`docs/specifications/json-v2.md`](docs/specifications/json-v2.md) and its
+reviewed runtime contract is implemented behind the same Windows-only boundary.
 
 ## CustomWidget boundary
 
@@ -77,7 +90,7 @@ artifacts.
 - [`docs/research/README.md`](docs/research/README.md): verified CustomWidget
   and Limitora evidence.
 - [`docs/specifications/json-v2.md`](docs/specifications/json-v2.md): normative
-  R2 contract, acceptance criteria, and R3 block.
+  R2 contract, acceptance criteria, and historical R2/R10 scope notes.
 - [`docs/specifications/json-v2.schema.json`](docs/specifications/json-v2.schema.json):
   structural machine-checkable support for the normative specification.
 
@@ -96,9 +109,9 @@ not authorize native YASB implementation work.
 
 ## Roadmap gate
 
-R3 is explicitly blocked until R2 has an accepted normative specification,
-passing v1 golden fixtures, traceable acceptance criteria, and a final
-technical review pass. See [`docs/roadmap.md`](docs/roadmap.md).
+R1-R9 are the evidenced product units recorded in
+[`docs/roadmap.md`](docs/roadmap.md). R10 remains a separate, non-authoritative
+historical/reverted integration effort and has no completion or proof claim.
 
 ## License
 

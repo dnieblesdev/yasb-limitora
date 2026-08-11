@@ -10,6 +10,20 @@ YASB CustomWidget -> yasb-limitora CLI / JSON v2 -> Limitora public API
 or a provider client. The CLI is the process boundary between CustomWidget and
 Limitora. Provider internals and credentials do not cross it.
 
+## Runtime platform boundary
+
+`yasb-limitora` is Windows-only across its complete public runtime surface. The
+installed `yasb-limitora` route and `python -m yasb_limitora` converge on one
+early gate. On non-Windows runtimes the gate returns `2`, writes exactly
+`yasb-limitora: unsupported_platform\n` to stderr, writes no stdout, and runs
+before argument, configuration, provider, native-process, or clock activity.
+Linux, macOS, and WSL are not compatibility targets. Test-only predicate
+injection keeps supported-path tests hermetic without claiming Windows proof.
+
+R1-R9 are evidenced product work. Any R10 integration attempt is historical,
+reverted, and non-authoritative; this boundary does not claim R10 or Windows
+integration proof.
+
 ## Ownership
 
 | Component | Owns | Does not own |

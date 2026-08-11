@@ -8,7 +8,7 @@ import os
 import re
 import sys
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import TextIO
 
@@ -26,6 +26,10 @@ _SECRET = re.compile(r"auth.?cookie|cookie|token|password|secret|credential|api.
 
 class InvocationError(ValueError):
     """Raised for unsupported or unsafe command-line arguments."""
+
+
+def _is_windows_runtime() -> bool:
+    return os.name == "nt"
 
 
 def _failure(code: SafeErrorCode) -> DocumentView:
@@ -173,9 +177,14 @@ def main(
     coordinator: RuntimeCoordinator | None = None,
     stdout: object | None = None,
     stderr: TextIO | None = None,
+    platform_is_windows: Callable[[], bool] = _is_windows_runtime,
 ) -> int:
-    args = tuple(sys.argv[1:] if argv is None else argv)
     out, err = sys.stdout if stdout is None else stdout, sys.stderr if stderr is None else stderr
+    if not platform_is_windows():
+        err.write("yasb-limitora: unsupported_platform\n")
+        err.flush()
+        return 2
+    args = tuple(sys.argv[1:] if argv is None else argv)
     effective_environment = os.environ if environment is None else environment
     t0_ns = time.monotonic_ns()
     try:

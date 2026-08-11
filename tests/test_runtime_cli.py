@@ -151,7 +151,7 @@ def test_concurrent_timeouts_use_invocation_deadlines_not_collection_order():
 @pytest.mark.parametrize("bad", [("--token", "secret"), ("--bad", "value"), ("--config",)])
 def test_invalid_arguments_are_safe_and_exit_two(bad):
     stdout, stderr = io.BytesIO(), io.StringIO()
-    assert main(bad, stdout=stdout, stderr=stderr) == 2
+    assert main(bad, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 2
     assert json.loads(stdout.getvalue())["providers"][0]["error"]["code"] == "invocation_invalid"
     assert "secret" not in stdout.getvalue().decode() + stderr.getvalue()
 
@@ -162,6 +162,7 @@ def test_missing_cookie_is_unavailable_and_streams_are_isolated():
         (),
         coordinator=RuntimeCoordinator(Codex(view(ProviderKey.CODEX)), lambda *_: pytest.fail()),
         environment={}, stdout=stdout, stderr=stderr,
+        platform_is_windows=lambda: True,
     )
     document = json.loads(stdout.getvalue())
     assert code == 0 and stderr.getvalue() == ""
@@ -177,7 +178,7 @@ def test_runtime_safe_error_has_exit_one_and_sanitized_diagnostic():
                 view(ProviderKey.OPENCODE_GO),
             )
     coordinator = FailingCoordinator()
-    assert main((), coordinator=coordinator, environment={"LIMITORA_AUTH_COOKIE": "cookie"}, stdout=stdout, stderr=stderr) == 1
+    assert main((), coordinator=coordinator, environment={"LIMITORA_AUTH_COOKIE": "cookie"}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 1
     assert stderr.getvalue() == "yasb-limitora: runtime_error\n"
     assert "cookie" not in stdout.getvalue().decode() + stderr.getvalue()
 
@@ -186,7 +187,7 @@ def test_config_file_and_runtime_error_are_redacted(tmp_path):
     path = tmp_path / "config.json"
     path.write_text(json.dumps({"codex": {"enabled": True, "runner": "relative"}}), encoding="utf-8")
     stdout, stderr = io.BytesIO(), io.StringIO()
-    assert main(("--config", str(path)), stdout=stdout, stderr=stderr) == 2
+    assert main(("--config", str(path)), stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 2
     assert "relative" not in stdout.getvalue().decode() + stderr.getvalue()
     assert stderr.getvalue() == "yasb-limitora: configuration_invalid\n"
 
@@ -212,6 +213,7 @@ def test_v2_default_resolution_reads_injected_localappdata(monkeypatch):
         coordinator=coordinator,
         stdout=stdout,
         stderr=stderr,
+        platform_is_windows=lambda: True,
     ) == 0
     assert paths == [ntpath.join(localappdata, "yasb-limitora", "config.json")]
     assert json.loads(stdout.getvalue())["version"] == 2
@@ -254,6 +256,7 @@ def test_v2_cli_missing_opencode_credentials_is_clean_not_run(monkeypatch, tmp_p
         environment={},
         stdout=stdout,
         stderr=stderr,
+        platform_is_windows=lambda: True,
     )
 
     data = stdout.getvalue()
@@ -286,6 +289,7 @@ def test_v2_configuration_failure_starts_no_provider(monkeypatch):
         coordinator=UnexpectedCoordinator(),
         stdout=stdout,
         stderr=stderr,
+        platform_is_windows=lambda: True,
     ) == 2
     assert json.loads(stdout.getvalue())["execution_error"] == {
         "code": "configuration_invalid",
@@ -297,7 +301,7 @@ def test_v2_configuration_failure_starts_no_provider(monkeypatch):
 
 def test_success_bytes_have_one_newline_and_provider_order():
     stdout, stderr = io.BytesIO(), io.StringIO()
-    code = main((), stdout=stdout, stderr=stderr)
+    code = main((), stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
     data = stdout.getvalue()
     assert code == 0 and stderr.getvalue() == "" and data.endswith(b"\n") and not data.endswith(b"\n\n")
     assert [item["provider"] for item in json.loads(data)["providers"]] == ["codex", "opencode_go"]
@@ -373,7 +377,7 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
 
     monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
-    code = main(("--output-version", "2", "--config", str(path)), stdout=stdout, stderr=stderr)
+    code = main(("--output-version", "2", "--config", str(path)), stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
 
     assert code == 1
     assert stdout.getvalue() == expected

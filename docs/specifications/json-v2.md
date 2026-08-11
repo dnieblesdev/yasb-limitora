@@ -2,12 +2,20 @@
 
 **Product:** `yasb-limitora` 0.2
 **Review unit:** R2
-**Status:** SPEC/TEST only. This document does not authorize v2 runtime code.
+**Status:** Normative contract. The historical R2 SPEC/TEST review scope is
+closed; current runtime behavior is implemented by later reviewed units.
 
 This contract is the machine boundary for `YASB CustomWidget -> yasb-limitora
 CLI -> Limitora public API`. The companion structural support file is
 [`json-v2.schema.json`](json-v2.schema.json). The v1 fixture test is
 [`tests/test_v1_golden_fixtures.py`](../../tests/test_v1_golden_fixtures.py).
+
+The product runtime is Windows-only. The installed console route and
+`python -m yasb_limitora` converge on one CLI boundary that rejects every
+non-Windows invocation with exit `2`, exact stderr
+`yasb-limitora: unsupported_platform\n`, and zero stdout bytes before argv,
+environment, configuration, provider, native-process, or clock activity.
+Hermetic test injection does not offer non-Windows compatibility or prove R10.
 
 ## 1. Normative Language
 
@@ -24,8 +32,10 @@ implementation MAY use a streaming JSON parser or a different language, but it
 MUST produce the same validated values, ordering, limits, and bytes. It SHOULD
 NOT silently coerce unknown states, floats, duplicate keys, or trailing data.
 
-R2 is a specification and test unit. It MUST NOT modify `src/`, implement JSON
-v2 execution, add a native YASB widget, or change the v1 runtime.
+The R2 review was a specification and test unit: it did not authorize changes
+to `src/`, JSON v2 execution, a native YASB widget, or a v1 runtime change.
+That historical review boundary does not describe the later R3-R9 runtime
+closeouts. No R10 completion or Windows-integration proof is asserted here.
 
 ## 2. Scope and Invariants
 
@@ -808,9 +818,15 @@ current CustomWidget `stop()` behavior is not a process-termination primitive.
 
 ## 14. YASB Validation
 
-R9 has two separate proofs; passing one does not substitute for the other.
+R9 repository-artifact proof is separate from the future R10 pinned-YASB
+integration proof; passing one does not substitute for the other. No R10 proof
+is claimed by this document.
 
 ### 14.1 Deterministic integration
+
+This section defines the future R10 acceptance shape. It is not evidence that
+R10 integration has been completed; R10-related work remains historical,
+reverted, and non-authoritative.
 
 Run the real pinned YASB v2.0.5, its real `CustomWidget`, and a deterministic
 fixture executable. The fixture MUST cover:
@@ -891,7 +907,7 @@ R2 excludes:
 - Claude and Gemini;
 - costs, tokens, history, predictions, `usage`, and
   `rate_limit_reset_credits`; and
-- any R3 runtime implementation.
+- the R2 review's then-unstarted R3 runtime implementation.
 
 ## 16. Acceptance Criteria
 
@@ -910,17 +926,17 @@ Each user rule is mapped to a reviewable acceptance criterion.
 | 9 | Quantity invariants, fixed-point rendering, separate 128-digit original quantities, 34-digit derived percentages, exact formula, zero-limit eligibility, and fail-closed overflow behavior are explicit. |
 | 10 | All four required timestamp fields use six-digit UTC precision and `Z`. |
 | 11 | Cardinalities, string lengths, separate decimal bounds, byte/frame limits, duplicate-key/trailing-data/UTF-8 rules, and deterministic ordering are explicit. |
-| 12 | v1 rules and four exact-byte golden fixtures/tests exist; no runtime source file changes are present. |
+| 12 | The historical R2 unit kept v1 rules and four exact-byte golden fixtures/tests without runtime source changes. |
 | 13 | Exact top-level/provider config grammar, v1 compatibility, explicit selectors, v2-only config precedence, environment variable, canonical path, legal flag combinations, parsing order, missing-file behavior, and stream/exit table are present. |
 | 14 | One absolute deadline starts at CLI entry, bounds path/config I/O, reserves cleanup, and defines guard timeout, provider timeout, all-deadline, mixed deadline/provider failure, document, and cleanup failures. |
 | 15 | The guard is named correctly and its user/path scope, bounded wait, abandonment, failures, release, and no-coalescing rules are explicit. |
 | 16 | Presentation fields, control-character rules, fallback strings, cleanup preservation, depleted-window formula/eligibility/ties, empty-window behavior, and excluded UI features are explicit. |
 | 17 | Deterministic pinned-YASB and separate live-provider proofs, malformed-JSON `None` behavior/assertions, fixture scenarios, evidence, and bounded termination are explicit. |
-| 18 | The exclusion section names every requested native, provider, metric, and R3 exclusion. |
+| 18 | The exclusion section names every requested native, provider, metric, and historical R3 exclusion. |
 
-## 17. R2 Review Gate
+## 17. R2 Review Gate (Historical)
 
-R2 is ready for final technical review only when:
+The R2 review gate required:
 
 - this specification and its schema are internally consistent;
 - the schema and fixture files parse as UTF-8 JSON;
@@ -930,8 +946,9 @@ R2 is ready for final technical review only when:
 - the reviewer can trace every rule in section 16 to a document, schema, test,
   or explicit manual proof.
 
-**R3 BLOCKED:** no v2 runtime implementation may begin until this gate passes,
-including acceptance of the v1 fixtures and a final technical review pass.
+That gate was subsequently passed. The old R3-blocked state is historical and
+does not override the current R1-R9 implementation status. R10 remains
+separate and unproven.
 
 ## 18. Complete Examples
 
