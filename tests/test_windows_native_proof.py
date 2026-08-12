@@ -264,7 +264,7 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
     def wait_for(predicate, description: str) -> None:
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
-            app.processEvents()
+            app.processEvents(); app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
             if predicate():
                 return
             time.sleep(0.02)
@@ -274,11 +274,11 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
         combined = result.stdout + result.stderr
         assert not re.search(rb"password|api[_-]?key|authorization|cookie|native-redaction-sentinel", combined, re.I)
         return {"role": role, "launcher_name": path.name, "launcher_path": "<sys.prefix>/Scripts/yasb-limitora.exe" if path.resolve() == real_launcher.resolve() else "<temp>/r10-yasb-shadow/yasb-limitora.exe", "exit_code": result.returncode, "stdout_bytes": len(result.stdout), "stderr_bytes": len(result.stderr), "stderr_empty": result.stderr == b"", "stdout_sha256": hashlib.sha256(result.stdout).hexdigest()}
-    custom_module = importlib.import_module("core.widgets.yasb.custom"); original_worker_run, original_popen = custom_module.CustomWorker.run, custom_module.subprocess.Popen; worker_threads: list[threading.Thread] = []; widget_processes: list[subprocess.Popen[bytes]] = []
-    def tracking_worker_run(worker: object) -> None: worker_threads.append(threading.current_thread()); original_worker_run(worker)
+    custom_module = importlib.import_module("core.widgets.yasb.custom"); original_worker_run, original_popen = custom_module.CustomWorker.run, custom_module.subprocess.Popen; worker_threads: list[threading.Thread] = []; worker_runs: list[tuple[object, threading.Thread]] = []; worker_processes: list[tuple[threading.Thread, subprocess.Popen[bytes]]] = []; widget_processes: list[subprocess.Popen[bytes]] = []
+    def tracking_worker_run(worker: object) -> None: worker_threads.append(threading.current_thread()); worker_runs.append((worker, threading.current_thread())); original_worker_run(worker)
     def tracking_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
         process = original_popen(*args, **kwargs)
-        if "creationflags" in kwargs: widget_processes.append(process)
+        if "creationflags" in kwargs: widget_processes.append(process); worker_processes.append((threading.current_thread(), process))
         return process
     def cleanup_widget() -> dict[str, object]:
         widget.timer.stop(); worker = widget._worker; worker_deleted_before_cleanup = worker is None or sip.isdeleted(worker)
@@ -334,11 +334,11 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
         widget.timer.setInterval(50)
         widget.timer.timeout.connect(lambda: refreshes.append(time.monotonic()))
         widget.timer.start()
-        state_path.write_text("malformed", encoding="ascii")
+        malformed_worker_start = len(worker_runs); state_path.write_text("malformed", encoding="ascii")
         malformed_probe = run_launcher(shadow_launcher, os.environ.copy())
         assert malformed_probe.returncode == 0 and malformed_probe.stdout == b"{" and malformed_probe.stderr == b""
         refresh_count = len(refreshes)
-        wait_for(lambda: len(refreshes) > refresh_count and widget._widgets[0].text() == expected_malformed_primary and widget._widgets_alt[0].text() == expected_malformed_alternate and current_tooltip(widget) == "None" and widget.isVisible() and widget._widgets[0].isVisible() and not widget._widgets_alt[0].isVisible(), "malformed fallback")
+        wait_for(lambda: len(refreshes) > refresh_count and widget._widgets[0].text() == expected_malformed_primary and widget._widgets_alt[0].text() == expected_malformed_alternate and current_tooltip(widget) == "None" and widget.isVisible() and widget._widgets[0].isVisible() and not widget._widgets_alt[0].isVisible(), "malformed fallback"); widget.timer.stop(); stale_worker = widget._worker; malformed_workers = worker_runs[malformed_worker_start:]; malformed_threads = {thread for worker, thread in malformed_workers}; malformed_processes = [process for thread, process in worker_processes if thread in malformed_threads]; wait_for(lambda: stale_worker is not None and any(worker is stale_worker for worker, _ in malformed_workers) and all(not thread.is_alive() and sip.isdeleted(worker) for worker, thread in malformed_workers) and all(process.poll() is not None for process in malformed_processes), "malformed refresh worker synchronization"); widget._worker = None
         malformed_observed = {"primary_label": widget._widgets[0].text(), "alternate_label": widget._widgets_alt[0].text(), "tooltip": current_tooltip(widget), "visible": widget.isVisible(), "fallback": "raw_primary_template_previous_valid_alternate_literal_None", "toggle": {"primary_visible": widget._widgets[0].isVisible(), "alternate_visible": widget._widgets_alt[0].isVisible()}}
         state_path.write_text("valid", encoding="ascii")
         widget.timer.stop()
