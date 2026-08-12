@@ -174,10 +174,10 @@ def test_r10_native_experience_contract_is_declared() -> None:
 
 
 def test_r10_junit_secret_redaction_contract_handles_adversarial_values() -> None:
-    wrapper = (Path(__file__).parents[1] / ".github/workflows/windows-proof-functions.ps1").read_text(encoding="utf-8"); pattern = r"(?i)\b(?:password|passwd|credential|api[_-]?key|authorization|cookie|token|secret)\b[ \t]*[:=][ \t]*(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|[^,;\r\n]*)"; assert pattern.replace('\\"', '"') in wrapper.replace("''", "'")
-    redact = lambda value: re.sub(pattern, "[REDACTED]", value); cases = ("authorization=Bearer SECRET multi token", 'password = "quoted SECRET value"', "api_key='quoted SECRET value'; context=kept", "api-key=SECRET, context=kept", "cookie=SECRET; context=kept\nline=kept", "token=SECRET secret=SECOND", "passwd=SECRET, credential=\"SECOND\"")
-    assert all("SECRET" not in redact(value) and "SECOND" not in redact(value) and "[REDACTED]" in redact(value) for value in cases) and re.sub(r"\s+", " ", redact(cases[2])).endswith("; context=kept") and re.sub(r"\s+", " ", redact(cases[4])).endswith("; context=kept line=kept")
-
+    wrapper = (Path(__file__).parents[1] / ".github/workflows/windows-proof-functions.ps1").read_text(encoding="utf-8"); pattern = r"(?i)\b(?:password|passwd|credential|api[ _-]?key|authorization|cookie|token|secret)\b[ \t]*[:=][ \t]*(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|[^,;\r\n]*)"; assert pattern.replace('\\"', '"') in wrapper.replace("''", "'")
+    redact = lambda value: re.sub(pattern, "[REDACTED]", value); cases = ("authorization=Bearer SECRET multi token", 'password = "quoted SECRET value"', "api_key='quoted SECRET value'; context=kept", "api-key=SECRET, context=kept", "api key = SECRET; context=kept", 'api key = "quoted SECRET value"\ncontext=kept', "cookie=SECRET; context=kept\nline=kept", "token=SECRET secret=SECOND", "passwd=SECRET, credential=\"SECOND\""); path_pattern = r"(?i)[A-Za-z]:[\\/][^\r\n\"'<>;,]*(?=[\"']?(?::[0-9]{1,6}(?::[0-9]+)?(?:\b|$)|[;,]))|(?<![\w])/(?:[^/\r\n\"'<>;,]+/)+[^\r\n\"'<>;,]*(?=[\"']?(?::[0-9]{1,6}(?::[0-9]+)?(?:\b|$)|[;,]))"
+    path_cases = ((r"C:\Users\Jane Doe\repo\test.py:12: failure", "[PATH]:12: failure"), ("/home/Jane Doe/repo/test.py:12: failure", "[PATH]:12: failure"), (r"C:\Users\Jane Doe\repo\test.py; context=kept", "[PATH]; context=kept"), (r"tests\test.py:12: failure", r"tests\test.py:12: failure"), ("tests/test.py:12: failure", "tests/test.py:12: failure")) + tuple((f"{quote}{path}{quote}, line 12: failure", f"{quote}[PATH]{quote}, line 12: failure") for path in (r"C:\Users\Jane Doe\repo\test.py", "/home/Jane Doe/repo/test.py") for quote in ('"', "'"))
+    assert all("SECRET" not in redact(value) and "SECOND" not in redact(value) and "[REDACTED]" in redact(value) for value in cases) and re.sub(r"\s+", " ", redact(cases[2])).endswith("; context=kept") and re.sub(r"\s+", " ", redact(cases[6])).endswith("; context=kept line=kept") and all(re.sub(path_pattern, "[PATH]", value) == expected for value, expected in path_cases)
 
 @pytest.mark.skipif(os.name != "nt", reason="R10 native admission requires Windows")
 def test_r10_native_admission_identity_imports_and_fixture() -> None:
@@ -226,7 +226,6 @@ def test_r10_native_admission_identity_imports_and_fixture() -> None:
     launcher = _resolve_no_space_launcher([Path(os.environ["R10_LAUNCHER_PATH"])])
     assert hashlib.sha256(launcher.read_bytes()).hexdigest() == os.environ["R10_LAUNCHER_SHA256"]
 
-
 @pytest.mark.skipif(os.name != "nt", reason="R10 native YASB experience requires Windows")
 def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None:
     """Exercise the pinned YASB CustomWidget without replacing native Qt."""
@@ -245,7 +244,6 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
 
     from core.validation.widgets.yasb.custom import CustomConfig
     from core.widgets.yasb.custom import CustomWidget
-
     app = QApplication.instance() or QApplication([])
     assert QGuiApplication.platformName().lower() == "windows"
     root = Path(__file__).parents[1]
@@ -304,7 +302,6 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
 
     base_env = os.environ.copy()
     base_env.update({"YASB_LIMITORA_CONFIG": str(config_path), "YASB_R10_FIXTURE_STATE": str(state_path)})
-
     def run_launcher(path: Path, environment: dict[str, str]) -> subprocess.CompletedProcess[bytes]:
         return subprocess.run(
             [str(path), "--output-version", "2"],
