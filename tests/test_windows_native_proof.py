@@ -169,17 +169,23 @@ def test_r10_native_experience_contract_is_declared() -> None:
     assert "app." + "setStyleSheet(css_text)" not in source and "QT_QPA_PLATFORM: offscreen" not in workflow and "r10-yasb-experience.xml" in workflow
     assert "Assert-R10ExperienceEvidence" in wrapper and wrapper.count("not native_yasb_customwidget_lifecycle_and_recovery") >= 2
     assert re.search(r'\$Mode -eq "selected".*?else.*?"-k", "not native_yasb_customwidget_lifecycle_and_recovery"', wrapper, re.S)
-    assert all(marker in wrapper for marker in ("primary_label", "alternate_label", "malformed_tooltip", "launcher_paths", "final_real_qtimer_refresh", "worker_threads_terminated", "subprocesses_terminated", "timer_inactive", "worker_deleted", "Get-R10JUnitDiagnostic", "--junitxml=", "diagnostics withheld", "R10_JUNIT_DIAGNOSTIC_STAGE", 'stage = "args"', 'stage = "xml"', 'stage = "candidate"', 'stage = "node"', 'stage = "match"', 'stage = "sanitize"', 'stage = "assemble"', "password", "240"))
+    assert all(marker in wrapper for marker in ("primary_label", "alternate_label", "malformed_tooltip", "launcher_paths", "final_real_qtimer_refresh", "worker_threads_terminated", "subprocesses_terminated", "timer_inactive", "worker_deleted", "Get-R10JUnitDiagnostic", "--junitxml=", "diagnostics withheld", "R10_JUNIT_DIAGNOSTIC_STAGE", 'stage = "args-count"', 'stage = "args-match"', 'stage = "args-known"', 'stage = "args-file"', 'stage = "xml"', 'stage = "candidate"', 'stage = "node"', 'stage = "match"', 'stage = "sanitize"', 'stage = "assemble"', "password", "240"))
     start = source.rfind("    def cleanup_widget"); cleanup = source[start:source.index("    real_before =", start)]; assert all(token in cleanup for token in ("process.terminate()", "process.kill()", "subprocess.TimeoutExpired")) and cleanup.index("process.terminate()") < cleanup.index("thread.join(timeout=5)") ; assert source.index("cleanup_observed = cleanup_widget()") < source.index('"lifecycle": [')
 
 @pytest.mark.skipif(not any(shutil.which(name) for name in ("pwsh", "powershell")), reason="PowerShell unavailable")
 def test_r10_junit_diagnostic_integration_contract(tmp_path: Path) -> None:
-    shell = next(shutil.which(name) for name in ("pwsh", "powershell") if shutil.which(name)); wrapper = Path(__file__).parents[1] / ".github/workflows/windows-proof-functions.ps1"; cases = (("r10-admission.xml", "windows", r'File "C:\Users\Jane Doe\repo\test.py", line 12, in test_name password=SECRET; token=SECOND', 'R10 diagnostic: test=windows; line=12; message=File "[PATH]", line 12, in test_name [REDACTED]; [REDACTED]', None), ("r10-admission.xml", "posix", r"File '/home/Jane Doe/repo/test.py', line 7, in test_name api_key='VALUE'", "R10 diagnostic: test=posix; line=7; message=File '[PATH]', line 7, in test_name [REDACTED]", None), ("r10-admission.xml", "relative", r"tests/test_parser.py:23: message credential=VALUE", "R10 diagnostic: test=relative; line=23; message=tests/test_parser.py:23: message [REDACTED]", None), ("r10-admission.xml", "cap", "tests/test_parser.py:99: " + "x" * 300, ("R10 diagnostic: test=cap; line=99; message=tests/test_parser.py:99: " + "x" * 300)[:240], None), ("r10-admission.xml", "malformed", "MALFORMED", "diagnostics withheld", "xml"), ("r10-yasb-experience.xml", "missing", None, "diagnostics withheld", "args"))
-    for name, testcase, message, normal, stage in cases:
+    shell = next(shutil.which(name) for name in ("pwsh", "powershell") if shutil.which(name)); wrapper = Path(__file__).parents[1] / ".github/workflows/windows-proof-functions.ps1"
+    cases = ((("--junitxml=r10-admission.xml",), "r10-admission.xml", "windows", r'File "C:\Users\Jane Doe\repo\test.py", line 12, in test_name password=SECRET; token=SECOND', 'R10 diagnostic: test=windows; line=12; message=File "[PATH]", line 12, in test_name [REDACTED]; [REDACTED]', None), (("--junitxml=r10-admission.xml",), "r10-admission.xml", "posix", r"File '/home/Jane Doe/repo/test.py', line 7, in test_name api_key='VALUE'", "R10 diagnostic: test=posix; line=7; message=File '[PATH]', line 7, in test_name [REDACTED]", None), (("--junitxml=r10-admission.xml",), "r10-admission.xml", "relative", r"tests/test_parser.py:23: message credential=VALUE", "R10 diagnostic: test=relative; line=23; message=tests/test_parser.py:23: message [REDACTED]", None), (("--junitxml=r10-admission.xml",), "r10-admission.xml", "cap", "tests/test_parser.py:99: " + "x" * 300, ("R10 diagnostic: test=cap; line=99; message=tests/test_parser.py:99: " + "x" * 300)[:240], None), (("--junitxml=r10-admission.xml",), "r10-admission.xml", "malformed", "MALFORMED", "diagnostics withheld", "xml"), (("--junitxml=r10-yasb-experience.xml",), "r10-yasb-experience.xml", "missing", None, "diagnostics withheld", "args-file"), (("--junitxml=not-junitxml",), "r10-admission.xml", "regex", "ignored", "diagnostics withheld", "args-match"), (("--junitxml=r10-admission.xml", "--junitxml=r10-admission.xml"), "r10-admission.xml", "count", "ignored", "diagnostics withheld", "args-count"), (("--junitxml=other.xml",), "r10-admission.xml", "known", "ignored", "diagnostics withheld", "args-known"))
+    for arguments, name, testcase, message, normal, stage in cases:
         (tmp_path / name).unlink(missing_ok=True) if message is None else (tmp_path / name).write_text("<testsuite><testcase name=\"" + testcase + "\"><failure message=\"" + ("<testsuite>" if message == "MALFORMED" else message.replace("&", "&amp;").replace('"', "&quot;").replace("'", "&apos;")) + "\"/></testcase></testsuite>", encoding="utf-8")
         for trace in ((False, None), (True, stage)):
-            environment = os.environ.copy(); environment.pop("R10_JUNIT_DIAGNOSTIC_STAGE", None); environment.update({"R10_JUNIT_DIAGNOSTIC_STAGE": "1"} if trace else {}); expected = normal if stage is None or not trace else f"{normal}; stage={stage}"
-            result = subprocess.run([shell, "-NoProfile", "-NonInteractive", "-Command", f". '{wrapper}'; Get-R10JUnitDiagnostic @('--junitxml={name}')"], cwd=tmp_path, env=environment, capture_output=True, text=True); assert result.returncode == 0 and result.stdout.strip() == expected
+            environment = os.environ.copy(); environment.pop("R10_JUNIT_DIAGNOSTIC_STAGE", None); environment.update({"R10_JUNIT_DIAGNOSTIC_STAGE": "1"} if trace else {}); expected = normal if stage is None or not trace else f"{normal}; stage={stage}"; powershell_arguments = ", ".join(f"'{argument}'" for argument in arguments)
+            result = subprocess.run([shell, "-NoProfile", "-NonInteractive", "-Command", f". '{wrapper}'; Get-R10JUnitDiagnostic @({powershell_arguments})"], cwd=tmp_path, env=environment, capture_output=True, text=True); assert result.returncode == 0 and result.stdout.strip() == expected
+            if trace and stage is not None:
+                output = result.stdout.strip()
+                assert output == f"diagnostics withheld; stage={stage}"
+                assert all(secret not in output for secret in (name, testcase, "ignored", "SECRET"))
+                assert not any(token in output for token in ("--junitxml=", "r10-", ".xml"))
 @pytest.mark.skipif(os.name != "nt", reason="R10 native admission requires Windows")
 def test_r10_native_admission_identity_imports_and_fixture() -> None:
     source_root_value = os.environ.get("R10_YASB_SOURCE_ROOT")
@@ -234,14 +240,12 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
     source_root = Path(os.environ["R10_YASB_SOURCE_ROOT"])
     assert 'BUILD_VERSION = "2.0.6"' in (source_root / "settings.py").read_text(encoding="utf-8")
     assert hashlib.sha256((source_root / "core/widgets/yasb/custom.py").read_bytes()).hexdigest() == _R10_YASB_MODULE_SHA256
-
     from PyQt6 import sip
     from PyQt6.QtCore import QEvent
     from PyQt6.QtGui import QGuiApplication
     from PyQt6.QtWidgets import QApplication
     from core.utils.css_processor import CSSProcessor
     from yaml import safe_load
-
     from core.validation.widgets.yasb.custom import CustomConfig
     from core.widgets.yasb.custom import CustomWidget
     app = QApplication.instance() or QApplication([])
@@ -276,7 +280,6 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
     expected_tooltip = "State: available\nFreshness: fresh\nQuota: 80% remaining"
     expected_malformed_primary = "{data[providers][0][compact_text]}"
     expected_malformed_alternate = "{data[providers][0][alternate_text]}"
-
     state_path = tmp_path / "r10-fixture.state"
     state_path.write_text("valid", encoding="ascii")
     config_path = tmp_path / "r10-config.json"
@@ -299,7 +302,6 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
     shadow_launcher = shadow_dir / "yasb-limitora.exe"
     shutil.copy2(fixture, shadow_launcher)
     shadow_hash = hashlib.sha256(shadow_launcher.read_bytes()).hexdigest()
-
     base_env = os.environ.copy()
     base_env.update({"YASB_LIMITORA_CONFIG": str(config_path), "YASB_R10_FIXTURE_STATE": str(state_path)})
     def run_launcher(path: Path, environment: dict[str, str]) -> subprocess.CompletedProcess[bytes]:
@@ -319,7 +321,6 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
                 return
             time.sleep(0.02)
         raise AssertionError(f"native YASB lifecycle timeout: {description}")
-
     def current_tooltip(widget: object) -> str:
         return widget._widget_container._tooltip_filter.tooltip_text
 
@@ -336,7 +337,6 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
             "stderr_empty": result.stderr == b"",
             "stdout_sha256": hashlib.sha256(result.stdout).hexdigest(),
         }
-
     custom_module = importlib.import_module("core.widgets.yasb.custom")
     original_worker_run, original_popen = custom_module.CustomWorker.run, custom_module.subprocess.Popen
     worker_threads: list[threading.Thread] = []; widget_processes: list[subprocess.Popen[bytes]] = []
