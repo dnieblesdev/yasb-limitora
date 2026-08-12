@@ -172,20 +172,14 @@ def test_r10_native_experience_contract_is_declared() -> None:
     assert all(marker in wrapper for marker in ("primary_label", "alternate_label", "malformed_tooltip", "launcher_paths", "final_real_qtimer_refresh", "worker_threads_terminated", "subprocesses_terminated", "timer_inactive", "worker_deleted", "Get-R10JUnitDiagnostic", "--junitxml=", "diagnostics withheld", "R10_JUNIT_DIAGNOSTIC_STAGE", 'stage = "args"', 'stage = "xml"', 'stage = "candidate"', 'stage = "node"', 'stage = "match"', 'stage = "sanitize"', 'stage = "assemble"', "password", "240"))
     start = source.rfind("    def cleanup_widget"); cleanup = source[start:source.index("    real_before =", start)]; assert all(token in cleanup for token in ("process.terminate()", "process.kill()", "subprocess.TimeoutExpired")) and cleanup.index("process.terminate()") < cleanup.index("thread.join(timeout=5)") ; assert source.index("cleanup_observed = cleanup_widget()") < source.index('"lifecycle": [')
 
-
 @pytest.mark.skipif(not any(shutil.which(name) for name in ("pwsh", "powershell")), reason="PowerShell unavailable")
 def test_r10_junit_diagnostic_integration_contract(tmp_path: Path) -> None:
-    shell = next(shutil.which(name) for name in ("pwsh", "powershell") if shutil.which(name)); wrapper = Path(__file__).parents[1] / ".github/workflows/windows-proof-functions.ps1"; cases = (("r10-admission.xml", r'File "C:\Users\Jane Doe\repo\test.py", line 12, in test_name password=SECRET; token=SECOND', 'R10 diagnostic: test=windows; line=12; message=File "[PATH]", line 12, in test_name [REDACTED]; [REDACTED]', None), ("r10-admission.xml", r"File '/home/Jane Doe/repo/test.py', line 7, in test_name api_key='VALUE'", "R10 diagnostic: test=posix; line=7; message=File '[PATH]', line 7, in test_name [REDACTED]", None), ("r10-admission.xml", r"tests/test_parser.py:23: message credential=VALUE", "R10 diagnostic: test=relative; line=23; message=tests/test_parser.py:23: message [REDACTED]", None), ("r10-admission.xml", "tests/test_parser.py:99: " + "x" * 300, ("R10 diagnostic: test=cap; line=99; message=tests/test_parser.py:99: " + "x" * 300)[:240], None), ("r10-admission.xml", "MALFORMED", "diagnostics withheld", "xml"), ("r10-yasb-experience.xml", None, "diagnostics withheld", "args")); names = ("windows", "posix", "relative", "cap", "malformed", "missing")
-    for index, (name, message, normal, stage) in enumerate(cases):
-        path = tmp_path / name
-        if message is None: path.unlink(missing_ok=True)
-        else: path.write_text("<testsuite><testcase name=\"" + names[index] + "\"><failure message=\"" + ("<testsuite>" if message == "MALFORMED" else message.replace("&", "&amp;").replace('"', "&quot;").replace("'", "&apos;")) + "\"/></testcase></testsuite>", encoding="utf-8")
+    shell = next(shutil.which(name) for name in ("pwsh", "powershell") if shutil.which(name)); wrapper = Path(__file__).parents[1] / ".github/workflows/windows-proof-functions.ps1"; cases = (("r10-admission.xml", "windows", r'File "C:\Users\Jane Doe\repo\test.py", line 12, in test_name password=SECRET; token=SECOND', 'R10 diagnostic: test=windows; line=12; message=File "[PATH]", line 12, in test_name [REDACTED]; [REDACTED]', None), ("r10-admission.xml", "posix", r"File '/home/Jane Doe/repo/test.py', line 7, in test_name api_key='VALUE'", "R10 diagnostic: test=posix; line=7; message=File '[PATH]', line 7, in test_name [REDACTED]", None), ("r10-admission.xml", "relative", r"tests/test_parser.py:23: message credential=VALUE", "R10 diagnostic: test=relative; line=23; message=tests/test_parser.py:23: message [REDACTED]", None), ("r10-admission.xml", "cap", "tests/test_parser.py:99: " + "x" * 300, ("R10 diagnostic: test=cap; line=99; message=tests/test_parser.py:99: " + "x" * 300)[:240], None), ("r10-admission.xml", "malformed", "MALFORMED", "diagnostics withheld", "xml"), ("r10-yasb-experience.xml", "missing", None, "diagnostics withheld", "args"))
+    for name, testcase, message, normal, stage in cases:
+        (tmp_path / name).unlink(missing_ok=True) if message is None else (tmp_path / name).write_text("<testsuite><testcase name=\"" + testcase + "\"><failure message=\"" + ("<testsuite>" if message == "MALFORMED" else message.replace("&", "&amp;").replace('"', "&quot;").replace("'", "&apos;")) + "\"/></testcase></testsuite>", encoding="utf-8")
         for trace in ((False, None), (True, stage)):
-            environment = os.environ.copy(); environment.pop("R10_JUNIT_DIAGNOSTIC_STAGE", None); environment.update({"R10_JUNIT_DIAGNOSTIC_STAGE": "1"} if trace else {})
-            expected = normal if stage is None or not trace else f"{normal}; stage={stage}"
-            result = subprocess.run([shell, "-NoProfile", "-NonInteractive", "-Command", f". '{wrapper}'; Get-R10JUnitDiagnostic @('--junitxml={name}')"], cwd=tmp_path, env=environment, capture_output=True, text=True)
-            assert result.returncode == 0 and result.stdout.strip() == expected
-
+            environment = os.environ.copy(); environment.pop("R10_JUNIT_DIAGNOSTIC_STAGE", None); environment.update({"R10_JUNIT_DIAGNOSTIC_STAGE": "1"} if trace else {}); expected = normal if stage is None or not trace else f"{normal}; stage={stage}"
+            result = subprocess.run([shell, "-NoProfile", "-NonInteractive", "-Command", f". '{wrapper}'; Get-R10JUnitDiagnostic @('--junitxml={name}')"], cwd=tmp_path, env=environment, capture_output=True, text=True); assert result.returncode == 0 and result.stdout.strip() == expected
 @pytest.mark.skipif(os.name != "nt", reason="R10 native admission requires Windows")
 def test_r10_native_admission_identity_imports_and_fixture() -> None:
     source_root_value = os.environ.get("R10_YASB_SOURCE_ROOT")
@@ -232,7 +226,6 @@ def test_r10_native_admission_identity_imports_and_fixture() -> None:
     _assert_pe(fixture)
     launcher = _resolve_no_space_launcher([Path(os.environ["R10_LAUNCHER_PATH"])])
     assert hashlib.sha256(launcher.read_bytes()).hexdigest() == os.environ["R10_LAUNCHER_SHA256"]
-
 @pytest.mark.skipif(os.name != "nt", reason="R10 native YASB experience requires Windows")
 def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None:
     """Exercise the pinned YASB CustomWidget without replacing native Qt."""
@@ -536,7 +529,6 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
             cleanup_widget()
         os.environ["PATH"] = saved_path
         state_path.unlink(missing_ok=True)
-
 
 _FIXTURE = Path(__file__).with_name("fixtures") / "windows_descendant.py"
 _STILL_ACTIVE = 259

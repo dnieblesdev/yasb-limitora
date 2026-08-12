@@ -34,7 +34,6 @@ function Get-R10JUnitDiagnostic([string[]]$Arguments) {
     $stage = "sanitize"; $s = { param($v) $v = [regex]::Replace([string]$v, '(?i)\b(?:password|passwd|credential|api[ _-]?key|authorization|cookie|token|secret)\b[ \t]*[:=][ \t]*(?:"[^"\r\n]*"|''[^''\r\n]*''|[^,;\r\n]*)', '[REDACTED]'); [regex]::Replace([regex]::Replace($v, '(?i)[A-Za-z]:[\\/][^\r\n"''<>;,]*(?=["'']?(?::[0-9]{1,6}(?::[0-9]+)?(?:\b|$)|[;,])|["''],\s+line\s+[0-9]{1,6})|(?<![\w])/(?:[^/\r\n"''<>;,]+/)+[^\r\n"''<>;,]*(?=["'']?(?::[0-9]{1,6}(?::[0-9]+)?(?:\b|$)|[;,])|["''],\s+line\s+[0-9]{1,6})', '[PATH]'), '\s+', ' ').Trim() }; $stage = "assemble"; $d = "R10 diagnostic: test=$(&$s $c.name); line=$($lm.Groups.line.Value); message=$(&$s $raw)"; if ($d.Length -gt 240) { $d = $d.Substring(0, 240) }; return $d
   } catch { return & $withheld $stage }
 }
-
 function Invoke-R10CheckedPython {
   param([string]$Label, [string[]]$Arguments, [int]$TimeoutSeconds = 180)
   $root = Join-Path $env:RUNNER_TEMP "r10-checked-python"
