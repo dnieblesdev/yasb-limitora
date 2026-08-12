@@ -52,12 +52,7 @@ jobs:
           $suites = @($report.testsuites.testsuite)
           if ($suites.Count -eq 0 -and $report.testsuite) { $suites = @($report.testsuite) }
           $tests = 0; $skipped = 0; $failures = 0; $errors = 0
-          try {
-            foreach ($suite in $suites) {
-              $tests += [int]$suite.tests; $skipped += [int]$suite.skipped
-              $failures += [int]$suite.failures; $errors += [int]$suite.errors
-            }
-          } catch { throw "Native proof JUnit counts were invalid" }
+          try { foreach ($suite in $suites) { $tests += [int]$suite.tests; $skipped += [int]$suite.skipped; $failures += [int]$suite.failures; $errors += [int]$suite.errors } } catch { throw "Native proof JUnit counts were invalid" }
           if ($suites.Count -eq 0 -or $tests -lt 1 -or $skipped -ne 0 -or $failures -ne 0 -or $errors -ne 0) { throw "Native proof was skipped, deselected, or failed" }
           try { $evidence = Get-Content native-proof.json -Raw | ConvertFrom-Json } catch { throw "Native proof evidence was invalid" }
           if ($evidence.native -ne $true -or $evidence.ready_authorized -ne $true -or $evidence.tree_terminated -ne $true -or $evidence.streams_clean -ne $true) { throw "Native proof did not publish complete product evidence" }
@@ -76,7 +71,6 @@ jobs:
           Emit-SafeLog $rawLog $exitClass "Full-suite"
           if ($suiteExit -ne 0) { throw "Full test suite failed; checkpoint=$suiteCheckpoint" }
       - name: Validate artifacts before publication
-        if: always()
         shell: pwsh
         run: |
           . .github/workflows/windows-proof-functions.ps1
@@ -84,10 +78,7 @@ jobs:
           if ($exitClass -notin @("zero", "nonzero")) { $exitClass = "unknown" }
           $checkpoint = $env:YASB_NATIVE_CHECKPOINT
           if ($checkpoint -notin @("1", "2", "3", "4", "5", "6", "7", "8", "9", "unknown")) { $checkpoint = "unknown" }
-          $scan = Scan-Candidates @(
-            [PSCustomObject]@{ Label = "junit"; Path = "native-proof.xml" },
-            [PSCustomObject]@{ Label = "evidence"; Path = "native-proof.json" }
-          )
+          $scan = Scan-Candidates @([PSCustomObject]@{ Label = "junit"; Path = "native-proof.xml" }, [PSCustomObject]@{ Label = "evidence"; Path = "native-proof.json" })
           Assert-SafeScan $scan $exitClass "Final artifact" $checkpoint
       - name: Publish safe native evidence
         if: success()
