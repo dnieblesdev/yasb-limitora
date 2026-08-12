@@ -12,7 +12,6 @@ jobs:
     timeout-minutes: 15
     env:
       PYTHONUTF8: "1"
-      QT_QPA_PLATFORM: offscreen
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -96,6 +95,7 @@ jobs:
             $env:R10_LAUNCHER_PATH = $launcher.FullName
             $env:R10_LAUNCHER_SHA256 = (Get-FileHash $launcher.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             "R10_YASB_SOURCE_ROOT=$env:R10_YASB_SOURCE_ROOT" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+            "PYTHONPATH=$env:R10_YASB_SOURCE_ROOT;$env:PYTHONPATH" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
             "R10_LAUNCHER_PATH=$env:R10_LAUNCHER_PATH" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
             "R10_LAUNCHER_SHA256=$env:R10_LAUNCHER_SHA256" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
             "R10_FIXTURE_EXE=$fixture" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
@@ -108,12 +108,25 @@ jobs:
           . .github/workflows/windows-proof-functions.ps1
           $exitCode = Invoke-R10CheckedPython "R10 admission" @("-m", "pytest", "-q", "--strict-markers", "tests/test_windows_native_proof.py", "-k", "identity or closure or admission", "--junitxml=r10-admission.xml")
           Assert-R10PytestResult "r10-admission.xml" $exitCode
+      - name: Run mandatory native YASB experience
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          . .github/workflows/windows-proof-functions.ps1
+          if (-not $env:PYTHONPATH) { throw "R10 YASB Python path unavailable" }
+          $env:YASB_NATIVE_EXPERIENCE_EVIDENCE_PATH = "r10-yasb-experience.json"
+          $exitCode = Invoke-R10CheckedPython "R10 native YASB experience" @("-m", "pytest", "-q", "--strict-markers", "tests/test_windows_native_proof.py", "-k", "native_yasb_customwidget_lifecycle_and_recovery", "--junitxml=r10-yasb-experience.xml")
+          Assert-R10PytestResult "r10-yasb-experience.xml" $exitCode
+          Assert-R10ExperienceEvidence "r10-yasb-experience.json"
       - name: Publish safe admission evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: r10-native-admission
-          path: r10-admission.xml
+          path: |
+            r10-admission.xml
+            r10-yasb-experience.xml
+            r10-yasb-experience.json
 
   native-proof:
     needs: r10-admission

@@ -161,6 +161,33 @@ def test_r10_admission_contract_rejects_launcher_ambiguity_spaces_path_drift_and
     assert "$env:Path" in wrapper and "finally" in wrapper.lower()
 
 
+def test_r10_native_experience_contract_is_declared() -> None:
+    root = Path(__file__).parents[1]
+    source = Path(__file__).read_text(encoding="utf-8")
+    workflow = (root / ".github/workflows/windows-proof.yml").read_text(encoding="utf-8")
+    wrapper = (root / ".github/workflows/windows-proof-functions.ps1").read_text(encoding="utf-8")
+    required_source = (
+        "test_native_yasb_customwidget_lifecycle_and_recovery",
+        "QApplication",
+        "CustomWidget",
+        "QTimer",
+        "CSSProcessor",
+        "valid_to_malformed_to_valid",
+        "tooltip_text",
+        "r10-yasb-experience.json",
+    )
+    assert all(marker in source for marker in required_source)
+    assert "from core.utils.css_processor import CSSProcessor" in source
+    assert "app." + "setStyleSheet(css_text)" not in source
+    assert "QT_QPA_PLATFORM: offscreen" not in workflow
+    assert "r10-yasb-experience.xml" in workflow
+    assert "Assert-R10ExperienceEvidence" in wrapper
+    assert wrapper.count("not native_yasb_customwidget_lifecycle_and_recovery") >= 2
+    assert re.search(r'\$Mode -eq "selected".*?else.*?"-k", "not native_yasb_customwidget_lifecycle_and_recovery"', wrapper, re.S)
+    assert all(marker in wrapper for marker in ("primary_label", "alternate_label", "malformed_tooltip", "launcher_paths", "final_real_qtimer_refresh", "worker_threads_terminated", "subprocesses_terminated", "timer_inactive", "worker_deleted"))
+    start = source.rfind("    def cleanup_widget"); cleanup = source[start:source.index("    real_before =", start)]; assert all(token in cleanup for token in ("process.terminate()", "process.kill()", "subprocess.TimeoutExpired")) and cleanup.index("process.terminate()") < cleanup.index("thread.join(timeout=5)") ; assert source.index("cleanup_observed = cleanup_widget()") < source.index('"lifecycle": [')
+
+
 @pytest.mark.skipif(os.name != "nt", reason="R10 native admission requires Windows")
 def test_r10_native_admission_identity_imports_and_fixture() -> None:
     source_root_value = os.environ.get("R10_YASB_SOURCE_ROOT")
@@ -207,6 +234,313 @@ def test_r10_native_admission_identity_imports_and_fixture() -> None:
     _assert_pe(fixture)
     launcher = _resolve_no_space_launcher([Path(os.environ["R10_LAUNCHER_PATH"])])
     assert hashlib.sha256(launcher.read_bytes()).hexdigest() == os.environ["R10_LAUNCHER_SHA256"]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="R10 native YASB experience requires Windows")
+def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None:
+    """Exercise the pinned YASB CustomWidget without replacing native Qt."""
+    if os.environ.get("QT_QPA_PLATFORM"):
+        pytest.fail("R10 native YASB proof must not use a substituted Qt platform")
+    source_root = Path(os.environ["R10_YASB_SOURCE_ROOT"])
+    assert 'BUILD_VERSION = "2.0.6"' in (source_root / "settings.py").read_text(encoding="utf-8")
+    assert hashlib.sha256((source_root / "core/widgets/yasb/custom.py").read_bytes()).hexdigest() == _R10_YASB_MODULE_SHA256
+
+    from PyQt6 import sip
+    from PyQt6.QtCore import QEvent, QGuiApplication
+    from PyQt6.QtWidgets import QApplication
+    from core.utils.css_processor import CSSProcessor
+    from yaml import safe_load
+
+    from core.validation.widgets.yasb.custom import CustomConfig
+    from core.widgets.yasb.custom import CustomWidget
+
+    app = QApplication.instance() or QApplication([])
+    assert QGuiApplication.platformName().lower() == "windows"
+    root = Path(__file__).parents[1]
+    yaml_text = (root / "examples/customwidget/customwidget.yaml").read_text(encoding="utf-8")
+    css_text = (root / "examples/customwidget/styles.css").read_text(encoding="utf-8")
+    document = safe_load(yaml_text)
+    options = document["widgets"]["limitora_r9"]["options"]
+    assert options == {
+        "class_name": "limitora-r9",
+        "label": "{data[providers][0][compact_text]}",
+        "label_alt": "{data[providers][0][alternate_text]}",
+        "tooltip": True,
+        "tooltip_label": "{data[providers][0][tooltip_text]}",
+        "exec_options": {
+            "run_cmd": "yasb-limitora --output-version 2",
+            "run_once": False,
+            "run_interval": 120000,
+            "return_format": "json",
+            "hide_empty": True,
+            "use_shell": False,
+        },
+    }
+    assert all(selector in css_text for selector in (".custom-widget.limitora-r9", ".label", ".label.alt", ".icon"))
+    processed_css = CSSProcessor(str(root / "examples/customwidget/styles.css")).process()
+    assert processed_css
+    app.setStyleSheet(processed_css)
+    assert app.styleSheet() == processed_css
+    expected_primary = "Quota 80% remaining; state=available; freshness=fresh"
+    expected_alternate = "Quota account / day: 80% remaining; state=available; freshness=fresh"
+    expected_tooltip = "State: available\nFreshness: fresh\nQuota: 80% remaining"
+    expected_malformed_primary = "{data[providers][0][compact_text]}"
+    expected_malformed_alternate = "{data[providers][0][alternate_text]}"
+
+    state_path = tmp_path / "r10-fixture.state"
+    state_path.write_text("valid", encoding="ascii")
+    config_path = tmp_path / "r10-config.json"
+    config_path.write_text(
+        json.dumps({"codex": {"enabled": False}, "opencode_go": {"enabled": False}}),
+        encoding="utf-8",
+    )
+    fixture = Path(os.environ["R10_FIXTURE_EXE"])
+    _assert_pe(fixture)
+    scripts = Path(sys.prefix) / "Scripts"
+    saved_path = os.environ["PATH"]
+    real_launcher = _resolve_no_space_launcher(list(scripts.glob("yasb-limitora*.exe")))
+    assert real_launcher.resolve() == Path(os.environ["R10_LAUNCHER_PATH"]).resolve()
+    real_hash_before = hashlib.sha256(real_launcher.read_bytes()).hexdigest()
+    assert real_hash_before == os.environ["R10_LAUNCHER_SHA256"]
+    shadow_dir = Path(tempfile.gettempdir()) / "r10-yasb-shadow"
+    if " " in str(shadow_dir):
+        pytest.fail("R10 shadow launcher path contains spaces")
+    shadow_dir.mkdir(parents=True, exist_ok=True)
+    shadow_launcher = shadow_dir / "yasb-limitora.exe"
+    shutil.copy2(fixture, shadow_launcher)
+    shadow_hash = hashlib.sha256(shadow_launcher.read_bytes()).hexdigest()
+
+    base_env = os.environ.copy()
+    base_env.update({"YASB_LIMITORA_CONFIG": str(config_path), "YASB_R10_FIXTURE_STATE": str(state_path)})
+
+    def run_launcher(path: Path, environment: dict[str, str]) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.run(
+            [str(path), "--output-version", "2"],
+            env=environment,
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+
+    def wait_for(predicate, description: str) -> None:
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            app.processEvents()
+            if predicate():
+                return
+            time.sleep(0.02)
+        raise AssertionError(f"native YASB lifecycle timeout: {description}")
+
+    def current_tooltip(widget: object) -> str:
+        return widget._widget_container._tooltip_filter.tooltip_text
+
+    def stream_record(role: str, path: Path, result: subprocess.CompletedProcess[bytes]) -> dict[str, object]:
+        combined = result.stdout + result.stderr
+        assert not re.search(rb"password|api[_-]?key|authorization|cookie|native-redaction-sentinel", combined, re.I)
+        return {
+            "role": role,
+            "launcher_name": path.name,
+            "launcher_path": "<sys.prefix>/Scripts/yasb-limitora.exe" if path.resolve() == real_launcher.resolve() else "<temp>/r10-yasb-shadow/yasb-limitora.exe",
+            "exit_code": result.returncode,
+            "stdout_bytes": len(result.stdout),
+            "stderr_bytes": len(result.stderr),
+            "stderr_empty": result.stderr == b"",
+            "stdout_sha256": hashlib.sha256(result.stdout).hexdigest(),
+        }
+
+    custom_module = importlib.import_module("core.widgets.yasb.custom")
+    original_worker_run, original_popen = custom_module.CustomWorker.run, custom_module.subprocess.Popen
+    worker_threads: list[threading.Thread] = []; widget_processes: list[subprocess.Popen[bytes]] = []
+
+    def tracking_worker_run(worker: object) -> None:
+        worker_threads.append(threading.current_thread()); original_worker_run(worker)
+
+    def tracking_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
+        process = original_popen(*args, **kwargs)
+        if "creationflags" in kwargs:
+            widget_processes.append(process)
+        return process
+
+    def cleanup_widget() -> dict[str, object]:
+        widget.timer.stop(); worker = widget._worker; worker_deleted_before_cleanup = worker is None or sip.isdeleted(worker)
+        if worker is not None and not worker_deleted_before_cleanup: worker.stop()
+        for process in widget_processes:
+            if process.poll() is None: process.terminate()
+            try: process.wait(timeout=5)
+            except subprocess.TimeoutExpired: process.kill(); process.wait(timeout=5)
+            if process.poll() is None: raise AssertionError("native widget subprocess survived cleanup")
+        for thread in worker_threads: thread.join(timeout=5)
+        observed = {"timer_inactive": not widget.timer.isActive(), "worker_stopped": worker_deleted_before_cleanup or not worker._is_running, "worker_threads_terminated": all(not thread.is_alive() for thread in worker_threads), "subprocesses_terminated": all(process.poll() is not None for process in widget_processes)}
+        widget.close(); observed["widget_closed"] = not widget.isVisible()
+        if worker is not None and not worker_deleted_before_cleanup: worker.deleteLater()
+        widget._worker = None; observed["worker_released"] = widget._worker is None; widget.deleteLater()
+        for _ in range(50):
+            app.processEvents(); app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+            if sip.isdeleted(widget):
+                break
+            time.sleep(0.02)
+        observed.update({"worker_deleted": worker is None or sip.isdeleted(worker), "widget_deleted": sip.isdeleted(widget)})
+        if not all(observed.values()): raise AssertionError(f"native YASB cleanup incomplete: {observed}")
+        return observed
+
+    real_before = run_launcher(real_launcher, {**os.environ, "YASB_LIMITORA_CONFIG": str(config_path)})
+    assert real_before.returncode == 0 and real_before.stderr == b""
+    assert json.loads(real_before.stdout)["version"] == 2
+
+    os.environ.update(base_env)
+    os.environ["PATH"] = str(shadow_dir) + os.pathsep + saved_path
+    widget = None
+    refreshes: list[float] = []
+    try:
+        custom_module.CustomWorker.run = tracking_worker_run
+        custom_module.subprocess.Popen = tracking_popen
+        valid_probe = run_launcher(shadow_launcher, os.environ.copy())
+        assert valid_probe.returncode == 0 and json.loads(valid_probe.stdout)["version"] == 2
+        widget = CustomWidget(CustomConfig.model_validate(options))
+        widget.show()
+        wait_for(
+            lambda: isinstance(widget._exec_data, dict) and widget._widgets[0].text().startswith("Quota 80%"),
+            "initial valid render",
+        )
+        assert widget.isVisible()
+        assert widget._widgets[0].text() == expected_primary
+        assert current_tooltip(widget) == expected_tooltip
+        assert widget._widgets[0].isVisible() and not widget._widgets_alt[0].isVisible()
+        assert widget._widget_frame.property("class") == "widget custom-widget limitora-r9"
+        assert widget._widgets[0].property("class") == "label"
+        assert widget._widgets_alt[0].property("class") == "label alt"
+        valid_observed = {"primary_label": widget._widgets[0].text(), "alternate_label": widget._widgets_alt[0].text(), "tooltip": current_tooltip(widget), "visible": widget.isVisible(), "toggle": {"primary_visible": widget._widgets[0].isVisible(), "alternate_visible": widget._widgets_alt[0].isVisible()}}
+
+        widget._toggle_label()
+        assert widget._widgets_alt[0].isVisible() and not widget._widgets[0].isVisible()
+        assert widget._widgets_alt[0].text() == expected_alternate
+        assert widget.isVisible() and current_tooltip(widget) == expected_tooltip
+        alternate_observed = {"primary_label": widget._widgets[0].text(), "alternate_label": widget._widgets_alt[0].text(), "tooltip": current_tooltip(widget), "visible": widget.isVisible(), "toggle": {"primary_visible": widget._widgets[0].isVisible(), "alternate_visible": widget._widgets_alt[0].isVisible()}}
+        widget._toggle_label()
+        widget.timer.stop()
+        widget.timer.setInterval(50)
+        widget.timer.timeout.connect(lambda: refreshes.append(time.monotonic()))
+        widget.timer.start()
+
+        state_path.write_text("malformed", encoding="ascii")
+        malformed_probe = run_launcher(shadow_launcher, os.environ.copy())
+        assert malformed_probe.returncode == 0 and malformed_probe.stdout == b"{" and malformed_probe.stderr == b""
+        refresh_count = len(refreshes)
+        wait_for(
+            lambda: len(refreshes) > refresh_count
+            and widget._widgets[0].text() == expected_malformed_primary
+            and widget._widgets_alt[0].text() == expected_malformed_alternate
+            and current_tooltip(widget) == "None"
+            and not widget.isVisible()
+            and not widget._widgets[0].isVisible()
+            and not widget._widgets_alt[0].isVisible(),
+            "malformed fallback",
+        )
+        malformed_observed = {"primary_label": widget._widgets[0].text(), "alternate_label": widget._widgets_alt[0].text(), "tooltip": current_tooltip(widget), "visible": widget.isVisible(), "fallback": "raw_template_labels_and_literal_None", "toggle": {"primary_visible": widget._widgets[0].isVisible(), "alternate_visible": widget._widgets_alt[0].isVisible()}}
+
+        state_path.write_text("valid", encoding="ascii")
+        widget.timer.stop()
+        os.environ["PATH"] = saved_path
+        assert os.environ["PATH"] == saved_path
+        restored_launcher = _resolve_no_space_launcher(list(scripts.glob("yasb-limitora*.exe")))
+        assert restored_launcher.resolve() == real_launcher.resolve()
+        real_hash_after = hashlib.sha256(restored_launcher.read_bytes()).hexdigest()
+        assert real_hash_after == real_hash_before
+        real_after = run_launcher(restored_launcher, {**base_env, "PATH": saved_path})
+        assert real_after.returncode == 0 and real_after.stderr == b""
+        assert json.loads(real_after.stdout)["version"] == 2
+        refresh_count = len(refreshes)
+        widget.timer.start()
+        wait_for(
+            lambda: len(refreshes) > refresh_count
+            and widget.isVisible()
+            and widget._widgets[0].text() == expected_primary
+            and widget._widgets_alt[0].text() == expected_alternate
+            and widget._widgets[0].isVisible()
+            and not widget._widgets_alt[0].isVisible()
+            and current_tooltip(widget) == expected_tooltip,
+            "final valid restoration under restored launcher",
+        )
+        final_observed = {"primary_label": widget._widgets[0].text(), "alternate_label": widget._widgets_alt[0].text(), "tooltip": current_tooltip(widget), "visible": widget.isVisible(), "toggle": {"primary_visible": widget._widgets[0].isVisible(), "alternate_visible": widget._widgets_alt[0].isVisible()}, "path_restored": os.environ["PATH"] == saved_path, "final_real_qtimer_refresh": True}
+        css_observed = {"processor": "core.utils.css_processor.CSSProcessor", "processed": True, "stylesheet_applied": app.styleSheet() == processed_css, "classes": {"widget": widget._widget_frame.property("class"), "primary": widget._widgets[0].property("class"), "alternate": widget._widgets_alt[0].property("class")}}
+        cleanup_observed = cleanup_widget()
+
+        evidence = {
+            "native": True,
+            "lifecycle": ["constructed", "valid", "alternate", "malformed", "restored_valid", "cleaned"],
+            "identity": {
+                "yasb_version": "2.0.6",
+                "yasb_commit": _R10_YASB_COMMIT,
+                "custom_module_sha256": _R10_YASB_MODULE_SHA256,
+                "python": f"{sys.version_info.major}.{sys.version_info.minor}",
+                "architecture": os.environ.get("PROCESSOR_ARCHITECTURE"),
+                "qt_platform": QGuiApplication.platformName(),
+                "launcher_name": real_launcher.name,
+                "launcher_sha256_before": real_hash_before,
+                "launcher_sha256_after": real_hash_after,
+                "shadow_launcher_sha256": shadow_hash,
+            },
+            "expected": {
+                "primary_label": expected_primary,
+                "alternate_label": expected_alternate,
+                "tooltip": expected_tooltip,
+                "alternate_tooltip": expected_tooltip,
+                "malformed_label": expected_malformed_primary,
+                "malformed_alternate_label": expected_malformed_alternate,
+                "malformed_tooltip": "None",
+                "malformed_visible": False,
+                "valid_toggle": {"primary_visible": True, "alternate_visible": False},
+                "alternate_toggle": {"primary_visible": False, "alternate_visible": True},
+                "malformed_toggle": {"primary_visible": False, "alternate_visible": False},
+                "final_toggle": {"primary_visible": True, "alternate_visible": False},
+                "css_class": "widget custom-widget limitora-r9",
+                "configured_refresh_ms": 120000,
+            },
+            "observed": {
+                "valid": valid_observed,
+                "alternate": alternate_observed,
+                "malformed": malformed_observed,
+                "final": final_observed,
+                "css": css_observed,
+                "cleanup": cleanup_observed,
+                "qt_platform": QGuiApplication.platformName(),
+                "timer_interval_test_ms": 50,
+                "timer_refresh_count": len(refreshes),
+                "valid_to_malformed_to_valid": True,
+            },
+            "launcher_streams": [
+                stream_record("installed_before", real_launcher, real_before),
+                stream_record("shadow_valid", shadow_launcher, valid_probe),
+                stream_record("shadow_malformed", shadow_launcher, malformed_probe),
+                stream_record("installed_after", restored_launcher, real_after),
+            ],
+            "launcher_paths": {"installed": "<sys.prefix>/Scripts/yasb-limitora.exe", "shadow": "<temp>/r10-yasb-shadow/yasb-limitora.exe", "path_restored": os.environ["PATH"] == saved_path},
+            "sanitization": {
+                "secret_like_output": False,
+                "raw_streams_persisted": False,
+                "paths_redacted": True,
+                "status": "pass",
+            },
+            "r11_handoff": {
+                "status": "excluded_from_r10",
+                "next": "R11",
+                "excluded": ["live providers", "credentials", "network smoke", "MSI/release coverage"],
+            },
+        }
+        serialized = json.dumps(evidence, sort_keys=True)
+        assert not re.search(r"password|api[_-]?key|authorization|cookie|native-redaction-sentinel", serialized, re.I)
+        evidence_path = os.environ.get("YASB_NATIVE_EXPERIENCE_EVIDENCE_PATH")
+        if not evidence_path:
+            pytest.fail("R10 native YASB evidence path is unavailable")
+        Path(evidence_path).write_text(serialized + "\n", encoding="utf-8")
+    finally:
+        custom_module.CustomWorker.run = original_worker_run
+        custom_module.subprocess.Popen = original_popen
+        if widget is not None and not sip.isdeleted(widget):
+            cleanup_widget()
+        os.environ["PATH"] = saved_path
+        state_path.unlink(missing_ok=True)
+
 
 _FIXTURE = Path(__file__).with_name("fixtures") / "windows_descendant.py"
 _STILL_ACTIVE = 259
