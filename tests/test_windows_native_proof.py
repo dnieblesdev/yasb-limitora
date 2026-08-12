@@ -332,7 +332,7 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
         widget._toggle_label()
         widget.timer.stop()
         widget.timer.setInterval(50)
-        widget.timer.timeout.connect(lambda: refreshes.append(time.monotonic()))
+        widget.timer.timeout.connect(lambda: (refreshes.append(time.monotonic()), widget.timer.stop()))
         widget.timer.start()
         malformed_worker_start = len(worker_runs); state_path.write_text("malformed", encoding="ascii")
         malformed_probe = run_launcher(shadow_launcher, os.environ.copy())
