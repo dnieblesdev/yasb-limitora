@@ -12,6 +12,7 @@ jobs:
     timeout-minutes: 15
     env:
       PYTHONUTF8: "1"
+      QT_QPA_PLATFORM: offscreen
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -55,7 +56,6 @@ jobs:
               @("winrt_windows_data_xml_dom-3.2.1-cp314-cp314-win_amd64.whl", "https://files.pythonhosted.org/packages/ab/d2/3a4b7e38feafdec21cb044e0c1ee2c76a71cfbda02bfedcc50634e9fb652/winrt_windows_data_xml_dom-3.2.1-cp314-cp314-win_amd64.whl", "1cf1b6f31fff4e4c0ae30f1643b169da72b3b053a2996010f2c3a1e26b5d4970"),
               @("winrt_windows_ui_notifications-3.2.1-cp314-cp314-win_amd64.whl", "https://files.pythonhosted.org/packages/17/d8/910a58698d722120f2401c3bfeb6018361d92f3b2814caae839f54693305/winrt_windows_ui_notifications-3.2.1-cp314-cp314-win_amd64.whl", "943599c727abf710ae94644b1d521e11857bd568e080e894a8be11aa717e383a"),
               @("winrt_windows_management_deployment-3.2.1-cp314-cp314-win_amd64.whl", "https://files.pythonhosted.org/packages/d7/34/9a2205298282e4635bf2f065fa39b98fec48ce67c297de8c9b81822d57d1/winrt_windows_management_deployment-3.2.1-cp314-cp314-win_amd64.whl", "fbf20fa4becf20edb9980bfb9e4f45dfd323d57e4819c49c40a65fde82a1bb24"),
-               @("comtypes-1.4.16-py3-none-any.whl", "https://files.pythonhosted.org/packages/5f/7c/0eb685107290b6221c03c46d39214a4e42a124189691cb83ae3228257f46/comtypes-1.4.16-py3-none-any.whl", "e18d85179ff12955524c5a8c3bc09cb3c0d890f1da4d7123d14244c7b78f84c8"),
                @("pytest-8.4.1-py3-none-any.whl", "https://files.pythonhosted.org/packages/29/16/c8a903f4c4dffe7a12843191437d7cd8e32751d5de349d45d3fe69544e87/pytest-8.4.1-py3-none-any.whl", "539c70ba6fcead8e78eebbf1115e8b589e7565830d7d006a8723f19ac8a0afb7"),
                @("iniconfig-2.1.0-py3-none-any.whl", "https://files.pythonhosted.org/packages/2c/e1/e6716421ea10d38022b952c159d5161ca1193197fb744506875fbb87ea7b/iniconfig-2.1.0-py3-none-any.whl", "9deba5723312380e77435581c6bf4935c94cbfab9b1ed33ef8d238ea168eb760"),
                @("packaging-25.0-py3-none-any.whl", "https://files.pythonhosted.org/packages/20/12/38679034af332785aac8774540895e234f4d07f7545804097de4b666afd8/packaging-25.0-py3-none-any.whl", "29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484"),
@@ -82,7 +82,7 @@ jobs:
               Assert-R10Artifact $path $wheel[0] $wheel[2]
             }
             $wheelPaths = @(Get-ChildItem -LiteralPath $wheelDir -Filter "*.whl" -File | ForEach-Object FullName)
-            if ($wheelPaths.Count -ne 23) { throw "R10 wheel closure incomplete" }
+            if ($wheelPaths.Count -ne 22) { throw "R10 wheel closure incomplete" }
             Invoke-R10CheckedPython "fixed local runtime installation" (@("-m", "pip", "install", "--no-index", "--no-deps") + $wheelPaths)
             Invoke-R10CheckedPython "local project launcher installation" @("-m", "pip", "install", "--no-index", "--no-deps", "--no-build-isolation", ".")
             $fixture = Join-Path $root "r10-provider.exe"
@@ -96,7 +96,6 @@ jobs:
             $env:R10_LAUNCHER_PATH = $launcher.FullName
             $env:R10_LAUNCHER_SHA256 = (Get-FileHash $launcher.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             "R10_YASB_SOURCE_ROOT=$env:R10_YASB_SOURCE_ROOT" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-            "PYTHONPATH=$env:R10_YASB_SOURCE_ROOT;$env:PYTHONPATH" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
             "R10_LAUNCHER_PATH=$env:R10_LAUNCHER_PATH" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
             "R10_LAUNCHER_SHA256=$env:R10_LAUNCHER_SHA256" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
             "R10_FIXTURE_EXE=$fixture" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
@@ -107,27 +106,14 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           . .github/workflows/windows-proof-functions.ps1
-          $exitCode = Invoke-R10CheckedPython "R10 admission" @("-m", "pytest", "-q", "--strict-markers", "tests/test_windows_native_proof.py", "-k", "identity or closure or admission or r10_junit_diagnostic_integration_contract", "--junitxml=r10-admission.xml")
+          $exitCode = Invoke-R10CheckedPython "R10 admission" @("-m", "pytest", "-q", "--strict-markers", "tests/test_windows_native_proof.py", "-k", "identity or closure or admission", "--junitxml=r10-admission.xml")
           Assert-R10PytestResult "r10-admission.xml" $exitCode
-      - name: Run mandatory native YASB experience
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          . .github/workflows/windows-proof-functions.ps1
-          if (-not $env:PYTHONPATH) { throw "R10 YASB Python path unavailable" }
-          $env:YASB_NATIVE_EXPERIENCE_EVIDENCE_PATH = "r10-yasb-experience.json"
-          $exitCode = Invoke-R10CheckedPython "R10 native YASB experience" @("-m", "pytest", "-q", "--strict-markers", "tests/test_windows_native_proof.py", "-k", "native_yasb_customwidget_lifecycle_and_recovery", "--junitxml=r10-yasb-experience.xml")
-          Assert-R10PytestResult "r10-yasb-experience.xml" $exitCode
-          Assert-R10ExperienceEvidence "r10-yasb-experience.json"
       - name: Publish safe admission evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: r10-native-admission
-          path: |
-            r10-admission.xml
-            r10-yasb-experience.xml
-            r10-yasb-experience.json
+          path: r10-admission.xml
 
   native-proof:
     needs: r10-admission

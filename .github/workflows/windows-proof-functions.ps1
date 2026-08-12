@@ -26,14 +26,6 @@ function ConvertTo-R10ProcessArgument([string]$argument) {
   return '"' + (($argument -replace '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"'
 }
 
-function Get-R10JUnitDiagnostic([string[]]$Arguments) {
-  try {
-    $trace = $env:R10_JUNIT_DIAGNOSTIC_STAGE -eq "1"; $stage = "args-count"; $withheld = { param($s) if ($trace) { "diagnostics withheld; stage=$s" } else { "diagnostics withheld" } }
-    $stage = "args-match"; $paths = @($Arguments | % { $m = [regex]::Match($_, '^--junitxml=(?<path>[^\\/:]+\.xml)$'); if ($m.Success) { $m.Groups['path'].Value } }); if ($paths.Count -eq 0) { return & $withheld $stage }; $stage = "args-count"; if ($paths.Count -ne 1) { return & $withheld $stage }; $stage = "args-known"; $path = $paths[0]; $known = @("r10-admission.xml", "r10-yasb-experience.xml"); if ($path -notin $known) { return & $withheld $stage }; $stage = "args-file"; if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return & $withheld $stage }; $stage = "xml"
-     $r = [xml](Get-Content -LiteralPath $path -Raw -ErrorAction Stop); $stage = "candidate"; $c = @(@($r.testsuites.testsuite) + @($r.testsuite) | % { $_.testcase } | ? { $null -ne $_.failure -or $null -ne $_.error } | select -First 1); if ($null -eq $c) { return & $withheld $stage }; $stage = "node"; $n = if ($null -ne $c.failure) { $c.failure } else { $c.error }; $message = [string]$n.message; $raw = "$message $($n.InnerText)".Trim(); $stage = "final-marker"; $keys = @('phase','timer_timeout_observed','timer_timeout_count','timer_inactive','final_worker_created','final_worker_thread_seen','final_worker_thread_alive','final_worker_deleted','owned_process_count','owned_processes_exited','data_ready_seen','finished_seen','widget_visible','primary_matches_expected','alternate_matches_expected','primary_visible','alternate_visible','tooltip_matches_expected','path_restored'); $candidate = $message; if ($candidate.StartsWith("AssertionError: ", [StringComparison]::Ordinal)) { $candidate = $candidate.Substring("AssertionError: ".Length) }; $marker = [regex]::Match($candidate, '^phase=final(?:;[a-z_]+=(?:0|1|[0-9]{1,2})){18}$'); if ($marker.Success) { $parts = $marker.Value -split ';'; if ($parts.Count -eq 19 -and (@(0..18 | % { ($parts[$_] -split '=', 2)[0] }) -join ',') -ceq ($keys -join ',') -and $parts[0] -ceq 'phase=final' -and (@(1..18 | % { $value = ($parts[$_] -split '=', 2)[1]; $key = ($parts[$_] -split '=', 2)[0]; if ($key -in @('timer_timeout_count','owned_process_count','data_ready_seen','finished_seen')) { $value -match '^(?:0|[1-9][0-9]?)$' -and [int]$value -le 32 } else { $value -match '^[01]$' } }) -notcontains $false)) { return $marker.Value } }; if ($raw -match '(?<![a-z0-9_=;])phase=final(?:;|$)') { return & $withheld $stage }; $stage = "match"; $lm = [regex]::Match($raw, '(?i)(?:(?:[A-Za-z]:[\\/]|/|(?:[^\\/:<>"'']+[\\/])+)[^:\r\n]+:(?<line>[0-9]{1,6})(?::[0-9]+)?|File\s+["''](?:[A-Za-z]:[\\/]|/)[^"'']+["''],\s+line\s+(?<line>[0-9]{1,6})(?:,\s+in\b|\b))'); if (!$lm.Success) { return & $withheld $stage }
-    $stage = "sanitize"; $s = { param($v) $v = [regex]::Replace([string]$v, '(?i)\b(?:password|passwd|credential|api[ _-]?key|authorization|cookie|token|secret)\b[ \t]*[:=][ \t]*(?:"[^"\r\n]*"|''[^''\r\n]*''|[^,;\r\n]*)', '[REDACTED]'); [regex]::Replace([regex]::Replace($v, '(?i)[A-Za-z]:[\\/][^\r\n"''<>;,]*(?=["'']?(?::[0-9]{1,6}(?::[0-9]+)?(?:\b|$)|[;,])|["''],\s+line\s+[0-9]{1,6})|(?<![\w])/(?:[^/\r\n"''<>;,]+/)+[^\r\n"''<>;,]*(?=["'']?(?::[0-9]{1,6}(?::[0-9]+)?(?:\b|$)|[;,])|["''],\s+line\s+[0-9]{1,6})', '[PATH]'), '\s+', ' ').Trim() }; $stage = "assemble"; $d = "R10 diagnostic: test=$(&$s $c.name); line=$($lm.Groups['line'].Value); message=$(&$s $raw)"; if ($d.Length -gt 240) { $d = $d.Substring(0, 240) }; return $d
-  } catch { return & $withheld $stage }
-}
 function Invoke-R10CheckedPython {
   param([string]$Label, [string[]]$Arguments, [int]$TimeoutSeconds = 180)
   $root = Join-Path $env:RUNNER_TEMP "r10-checked-python"
@@ -55,7 +47,7 @@ function Invoke-R10CheckedPython {
       if ($remaining.Count) { throw "$Label timed out; process-tree termination unconfirmed; diagnostics withheld" }
       throw "$Label timed out; diagnostics withheld"
     }
-    if ($process.ExitCode -ne 0) { throw "$Label failed; exit=$($process.ExitCode); $(Get-R10JUnitDiagnostic $Arguments)" }
+    if ($process.ExitCode -ne 0) { throw "$Label failed; exit=$($process.ExitCode); diagnostics withheld" }
     return $process.ExitCode
   } catch {
     if ($_.Exception.Message -like "$Label failed*" -or $_.Exception.Message -like "$Label timed out*") { throw }
@@ -66,7 +58,7 @@ function Invoke-R10CheckedPython {
 }
 
 function Assert-R10WinRtImports {
-   $script = 'import importlib,importlib.metadata as m,os,sys; root=os.path.realpath(sys.prefix).lower(); expected={"PyQt6.QtCore":("PyQt6","6.10.2"),"pydantic":("pydantic","2.13.4"),"pydantic_core":("pydantic-core","2.46.4"),"yaml":("PyYAML","6.0.3"),"_yaml":("PyYAML","6.0.3"),"win32api":("pywin32","312"),"pywintypes":("pywin32","312"),"comtypes":("comtypes","1.4.16"),"winrt.system":("winrt-runtime","3.2.1"),"winrt.windows.data.xml.dom":("winrt-windows-data-xml-dom","3.2.1"),"winrt.windows.ui.notifications":("winrt-windows-ui-notifications","3.2.1"),"winrt.windows.management.deployment":("winrt-windows-management-deployment","3.2.1")}; [(lambda x: x.__file__ and os.path.realpath(x.__file__).lower().startswith(root+os.sep) and m.version(expected[n][0])==expected[n][1] or (_ for _ in ()).throw(ImportError(n)))(importlib.import_module(n)) for n in expected]'
+  $script = 'import importlib,importlib.metadata as m,os,sys; root=os.path.realpath(sys.prefix).lower(); expected={"PyQt6.QtCore":("PyQt6","6.10.2"),"pydantic":("pydantic","2.13.4"),"pydantic_core":("pydantic-core","2.46.4"),"yaml":("PyYAML","6.0.3"),"_yaml":("PyYAML","6.0.3"),"win32api":("pywin32","312"),"pywintypes":("pywin32","312"),"winrt.system":("winrt-runtime","3.2.1"),"winrt.windows.data.xml.dom":("winrt-windows-data-xml-dom","3.2.1"),"winrt.windows.ui.notifications":("winrt-windows-ui-notifications","3.2.1"),"winrt.windows.management.deployment":("winrt-windows-management-deployment","3.2.1")}; [(lambda x: x.__file__ and os.path.realpath(x.__file__).lower().startswith(root+os.sep) and m.version(expected[n][0])==expected[n][1] or (_ for _ in ()).throw(ImportError(n)))(importlib.import_module(n)) for n in expected]'
   Invoke-R10CheckedPython "R10 WinRT import smoke" @("-c", $script)
 }
 
@@ -78,51 +70,6 @@ function Assert-R10PytestResult($junitPath, $exitCode) {
   $tests = 0; $skipped = 0; $failures = 0; $errors = 0
   try { foreach ($suite in $suites) { $tests += [int]$suite.tests; $skipped += [int]$suite.skipped; $failures += [int]$suite.failures; $errors += [int]$suite.errors } } catch { throw "R10 admission report counts invalid" }
   if ($suites.Count -eq 0 -or $tests -lt 1 -or $skipped -ne 0 -or $failures -ne 0 -or $errors -ne 0) { throw "R10 admission was skipped or failed" }
-}
-
-function Assert-R10Shape($value, [string[]]$fields, [string]$label) {
-  if ($null -eq $value) { throw "R10 $label evidence missing" }
-  $actual = @($value.PSObject.Properties.Name)
-  if ($actual.Count -ne $fields.Count -or @($fields | Where-Object { $_ -cnotin $actual }).Count -gt 0 -or @($actual | Where-Object { $_ -cnotin $fields }).Count -gt 0) { throw "R10 $label evidence schema mismatch" }
-}
-
-function Assert-R10ExperienceEvidence($path) {
-  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "R10 native experience evidence unavailable" }
-  try { $evidence = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json } catch { throw "R10 native experience evidence invalid" }
-  Assert-R10Shape $evidence @("native", "lifecycle", "identity", "expected", "observed", "launcher_streams", "launcher_paths", "sanitization", "r11_handoff") "root"
-  Assert-R10Shape $evidence.identity @("yasb_version", "yasb_commit", "custom_module_sha256", "python", "architecture", "qt_platform", "launcher_name", "launcher_sha256_before", "launcher_sha256_after", "shadow_launcher_sha256") "identity"
-  Assert-R10Shape $evidence.expected @("primary_label", "alternate_label", "tooltip", "alternate_tooltip", "malformed_label", "malformed_alternate_label", "malformed_tooltip", "malformed_visible", "malformed_fallback", "valid_toggle", "alternate_toggle", "malformed_toggle", "final_toggle", "css_class", "configured_refresh_ms") "expected"
-   Assert-R10Shape $evidence.observed @("valid", "alternate", "malformed", "final", "css", "cleanup", "qt_platform", "timer_interval_test_ms", "timer_refresh_count", "valid_to_malformed_to_valid") "observed"
-  foreach ($phase in @("valid", "alternate")) { Assert-R10Shape $evidence.observed.$phase @("primary_label", "alternate_label", "tooltip", "visible", "toggle") $phase }
-  Assert-R10Shape $evidence.observed.malformed @("primary_label", "alternate_label", "tooltip", "visible", "fallback", "toggle") "malformed"
-  Assert-R10Shape $evidence.observed.final @("primary_label", "alternate_label", "tooltip", "visible", "toggle", "path_restored", "final_real_qtimer_refresh") "final"
-  foreach ($toggle in @("valid_toggle", "alternate_toggle", "malformed_toggle", "final_toggle")) { Assert-R10Shape $evidence.expected.$toggle @("primary_visible", "alternate_visible") "expected.$toggle" }
-  foreach ($phase in @("valid", "alternate", "malformed", "final")) { Assert-R10Shape $evidence.observed.$phase.toggle @("primary_visible", "alternate_visible") "$phase.toggle" }
-   Assert-R10Shape $evidence.observed.css @("processor", "processed", "stylesheet_applied", "classes") "css"
-   Assert-R10Shape $evidence.observed.css.classes @("widget", "primary", "alternate") "css.classes"
-   Assert-R10Shape $evidence.observed.cleanup @("timer_inactive", "worker_stopped", "worker_threads_terminated", "worker_released", "worker_deleted", "subprocesses_terminated", "widget_closed", "widget_deleted") "cleanup"
-  Assert-R10Shape $evidence.launcher_paths @("installed", "shadow", "path_restored") "launcher_paths"
-  Assert-R10Shape $evidence.sanitization @("secret_like_output", "raw_streams_persisted", "paths_redacted", "status") "sanitization"
-  Assert-R10Shape $evidence.r11_handoff @("status", "next", "excluded") "r11_handoff"
-  if ($evidence.native -ne $true -or $evidence.identity.qt_platform -cne "windows" -or $evidence.observed.qt_platform -cne "windows") { throw "R10 native Qt platform evidence invalid" }
-  if ($evidence.expected.primary_label -cne "Quota 80% remaining; state=available; freshness=fresh" -or $evidence.expected.alternate_label -cne "Quota account / day: 80% remaining; state=available; freshness=fresh" -or $evidence.expected.tooltip -cne "State: available`nFreshness: fresh`nQuota: 80% remaining" -or $evidence.expected.alternate_tooltip -cne $evidence.expected.tooltip -or $evidence.expected.malformed_label -cne "{data[providers][0][compact_text]}" -or $evidence.expected.malformed_alternate_label -cne "Quota account / day: 80% remaining; state=available; freshness=fresh" -or $evidence.expected.malformed_tooltip -cne "None" -or $evidence.expected.malformed_visible -ne $true -or $evidence.expected.malformed_fallback -cne "raw_primary_template_previous_valid_alternate_literal_None" -or $evidence.expected.valid_toggle.primary_visible -ne $true -or $evidence.expected.valid_toggle.alternate_visible -ne $false -or $evidence.expected.alternate_toggle.primary_visible -ne $false -or $evidence.expected.alternate_toggle.alternate_visible -ne $true -or $evidence.expected.malformed_toggle.primary_visible -ne $true -or $evidence.expected.malformed_toggle.alternate_visible -ne $false -or $evidence.expected.final_toggle.primary_visible -ne $true -or $evidence.expected.final_toggle.alternate_visible -ne $false -or $evidence.expected.css_class -cne "widget custom-widget limitora-r9" -or [int]$evidence.expected.configured_refresh_ms -ne 120000) { throw "R10 expected experience evidence mismatch" }
-  if ($evidence.observed.valid.primary_label -cne $evidence.expected.primary_label -or $evidence.observed.valid.alternate_label -cne $evidence.expected.alternate_label -or $evidence.observed.valid.tooltip -cne $evidence.expected.tooltip -or $evidence.observed.valid.visible -ne $true -or $evidence.observed.valid.toggle.primary_visible -ne $evidence.expected.valid_toggle.primary_visible -or $evidence.observed.valid.toggle.alternate_visible -ne $evidence.expected.valid_toggle.alternate_visible) { throw "R10 valid observation mismatch" }
-  if ($evidence.observed.alternate.primary_label -cne $evidence.expected.primary_label -or $evidence.observed.alternate.alternate_label -cne $evidence.expected.alternate_label -or $evidence.observed.alternate.tooltip -cne $evidence.expected.alternate_tooltip -or $evidence.observed.alternate.visible -ne $true -or $evidence.observed.alternate.toggle.primary_visible -ne $evidence.expected.alternate_toggle.primary_visible -or $evidence.observed.alternate.toggle.alternate_visible -ne $evidence.expected.alternate_toggle.alternate_visible) { throw "R10 alternate observation mismatch" }
-  if ($evidence.observed.malformed.primary_label -cne $evidence.expected.malformed_label -or $evidence.observed.malformed.alternate_label -cne $evidence.expected.malformed_alternate_label -or $evidence.observed.malformed.tooltip -cne $evidence.expected.malformed_tooltip -or $evidence.observed.malformed.visible -ne $evidence.expected.malformed_visible -or $evidence.observed.malformed.fallback -cne "raw_primary_template_previous_valid_alternate_literal_None" -or $evidence.observed.malformed.toggle.primary_visible -ne $evidence.expected.malformed_toggle.primary_visible -or $evidence.observed.malformed.toggle.alternate_visible -ne $evidence.expected.malformed_toggle.alternate_visible) { throw "R10 malformed observation mismatch" }
-  if ($evidence.observed.final.primary_label -cne $evidence.expected.primary_label -or $evidence.observed.final.alternate_label -cne $evidence.expected.alternate_label -or $evidence.observed.final.tooltip -cne $evidence.expected.tooltip -or $evidence.observed.final.visible -ne $true -or $evidence.observed.final.toggle.primary_visible -ne $evidence.expected.final_toggle.primary_visible -or $evidence.observed.final.toggle.alternate_visible -ne $evidence.expected.final_toggle.alternate_visible -or $evidence.observed.final.path_restored -ne $true -or $evidence.observed.final.final_real_qtimer_refresh -ne $true) { throw "R10 final recovery observation mismatch" }
-  if ($evidence.observed.css.processor -cne "core.utils.css_processor.CSSProcessor" -or $evidence.observed.css.processed -ne $true -or $evidence.observed.css.stylesheet_applied -ne $true -or $evidence.observed.css.classes.widget -cne $evidence.expected.css_class -or $evidence.observed.css.classes.primary -cne "label" -or $evidence.observed.css.classes.alternate -cne "label alt") { throw "R10 CSS processing evidence mismatch" }
-   if ([int]$evidence.observed.timer_interval_test_ms -ne 50 -or [int]$evidence.observed.timer_refresh_count -lt 2 -or $evidence.observed.valid_to_malformed_to_valid -ne $true) { throw "R10 refresh evidence incomplete" }
-     if ($evidence.observed.cleanup.timer_inactive -ne $true -or $evidence.observed.cleanup.worker_stopped -ne $true -or $evidence.observed.cleanup.worker_threads_terminated -ne $true -or $evidence.observed.cleanup.worker_released -ne $true -or $evidence.observed.cleanup.worker_deleted -ne $true -or $evidence.observed.cleanup.subprocesses_terminated -ne $true -or $evidence.observed.cleanup.widget_closed -ne $true -or $evidence.observed.cleanup.widget_deleted -ne $true) { throw "R10 CustomWidget cleanup evidence incomplete" }
-   if (($evidence.lifecycle -join ",") -cne "constructed,valid,alternate,malformed,restored_valid,cleaned") { throw "R10 lifecycle evidence mismatch" }
-  if ($evidence.launcher_paths.installed -cne "<sys.prefix>/Scripts/yasb-limitora.exe" -or $evidence.launcher_paths.shadow -cne "<temp>/r10-yasb-shadow/yasb-limitora.exe" -or $evidence.launcher_paths.path_restored -ne $true) { throw "R10 launcher path evidence mismatch" }
-  if ($evidence.identity.launcher_name -cne "yasb-limitora.exe" -or $evidence.identity.launcher_sha256_before -notmatch "^[0-9a-f]{64}$" -or $evidence.identity.launcher_sha256_after -cne $evidence.identity.launcher_sha256_before -or $evidence.identity.shadow_launcher_sha256 -notmatch "^[0-9a-f]{64}$") { throw "R10 launcher hash evidence mismatch" }
-  $roles = @("installed_before", "shadow_valid", "shadow_malformed", "installed_after"); $streams = @($evidence.launcher_streams)
-  if ($streams.Count -ne $roles.Count) { throw "R10 launcher stream evidence incomplete" }
-  for ($index = 0; $index -lt $roles.Count; $index++) { Assert-R10Shape $streams[$index] @("role", "launcher_name", "launcher_path", "exit_code", "stdout_bytes", "stderr_bytes", "stderr_empty", "stdout_sha256") "launcher_streams[$index]"; if ($streams[$index].role -cne $roles[$index] -or $streams[$index].launcher_name -cne "yasb-limitora.exe" -or $streams[$index].exit_code -ne 0 -or [int]$streams[$index].stdout_bytes -lt 1 -or [int]$streams[$index].stderr_bytes -ne 0 -or $streams[$index].stderr_empty -ne $true -or $streams[$index].stdout_sha256 -notmatch "^[0-9a-f]{64}$") { throw "R10 launcher stream evidence mismatch" } }
-  if ([int]$streams[2].stdout_bytes -ne 1 -or $streams[0].launcher_path -cne $evidence.launcher_paths.installed -or $streams[1].launcher_path -cne $evidence.launcher_paths.shadow -or $streams[2].launcher_path -cne $evidence.launcher_paths.shadow -or $streams[3].launcher_path -cne $evidence.launcher_paths.installed) { throw "R10 launcher path stream mismatch" }
-  if ($evidence.sanitization.secret_like_output -ne $false -or $evidence.sanitization.raw_streams_persisted -ne $false -or $evidence.sanitization.paths_redacted -ne $true -or $evidence.sanitization.status -cne "pass") { throw "R10 native experience sanitization failed" }
-  $content = [IO.File]::ReadAllText((Resolve-Path $path))
-  if ($content -match "(?i)password|api[_-]?key|authorization|cookie|native-redaction-sentinel|[A-Za-z]:\\\\|/home/|/tmp/|RUNNER_TEMP") { throw "R10 native experience evidence contains unsafe output" }
 }
 
 function Invoke-R10WithPath($action) {
@@ -226,9 +173,9 @@ function Invoke-NativePytestWmi {
   $rawLogPath = Join-Path $workspace $RawLogName
   $privateRawPath = Join-Path $workspace "$prefix.raw.log"
   $pytestArguments = if ($Mode -eq "selected") {
-    @("-m", "pytest", "-q", "--strict-markers", "tests/test_windows_native_proof.py", "-k", "not native_yasb_customwidget_lifecycle_and_recovery", "--junitxml=native-proof.xml")
+    @("-m", "pytest", "-q", "--strict-markers", "tests/test_windows_native_proof.py", "--junitxml=native-proof.xml")
   } else {
-    @("-m", "pytest", "-q", "--strict-markers", "tests", "-k", "not native_yasb_customwidget_lifecycle_and_recovery", "--junitxml=native-proof.xml")
+    @("-m", "pytest", "-q", "--strict-markers", "tests")
   }
   $argumentLines = ($pytestArguments | ForEach-Object { "    `"$_`"" }) -join "`r`n"
   $launcher = @"

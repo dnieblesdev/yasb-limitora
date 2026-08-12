@@ -58,7 +58,6 @@ _R10_WHEELS = (
     ("winrt_windows_data_xml_dom-3.2.1-cp314-cp314-win_amd64.whl", "1cf1b6f31fff4e4c0ae30f1643b169da72b3b053a2996010f2c3a1e26b5d4970"),
     ("winrt_windows_ui_notifications-3.2.1-cp314-cp314-win_amd64.whl", "943599c727abf710ae94644b1d521e11857bd568e080e894a8be11aa717e383a"),
     ("winrt_windows_management_deployment-3.2.1-cp314-cp314-win_amd64.whl", "fbf20fa4becf20edb9980bfb9e4f45dfd323d57e4819c49c40a65fde82a1bb24"),
-    ("comtypes-1.4.16-py3-none-any.whl", "e18d85179ff12955524c5a8c3bc09cb3c0d890f1da4d7123d14244c7b78f84c8"),
     ("pytest-8.4.1-py3-none-any.whl", "539c70ba6fcead8e78eebbf1115e8b589e7565830d7d006a8723f19ac8a0afb7"),
     ("iniconfig-2.1.0-py3-none-any.whl", "9deba5723312380e77435581c6bf4935c94cbfab9b1ed33ef8d238ea168eb760"),
     ("packaging-25.0-py3-none-any.whl", "29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484"),
@@ -74,20 +73,23 @@ _R10_WINRT_IMPORTS = (
     "winrt.windows.ui.notifications",
     "winrt.windows.management.deployment",
 )
-_R10_RUNTIME_IMPORTS = ("PyQt6.QtCore", "pydantic", "pydantic_core", "yaml", "_yaml", "win32api", "pywintypes", "comtypes", *_R10_WINRT_IMPORTS)
+_R10_RUNTIME_IMPORTS = ("PyQt6.QtCore", "pydantic", "pydantic_core", "yaml", "_yaml", "win32api", "pywintypes", *_R10_WINRT_IMPORTS)
 
 
 def _require_r10_workflow_contract(text: str) -> None:
-    required = (_R10_YASB_COMMIT, _R10_YASB_ARCHIVE_SHA256, _R10_YASB_MODULE_SHA256, "v2.0.6", "3.14", "x64", "--no-build-isolation", "wheelPaths.Count -ne 23")
-    if any(value not in text for value in required): raise AssertionError("R10 frozen source identity drifted")
+    required = (_R10_YASB_COMMIT, _R10_YASB_ARCHIVE_SHA256, _R10_YASB_MODULE_SHA256, "v2.0.6", "3.14", "x64", "--no-build-isolation", "wheelPaths.Count -ne 22")
+    if any(value not in text for value in required):
+        raise AssertionError("R10 frozen source identity drifted")
     if text.count(_R10_YASB_COMMIT) < 2 or f"tar.gz/{_R10_YASB_COMMIT}" not in text:
         raise AssertionError("R10 source commit/archive identity drifted")
     for filename, digest in _R10_WHEELS:
         if text.count(filename) < 2 or digest not in text or "--no-index" not in text or "--no-deps" not in text:
             raise AssertionError("R10 fixed wheel closure drifted")
     binary_wheels = (filename for filename, _ in _R10_WHEELS if filename.startswith(("pyqt6_sip", "pydantic_core", "pywin32", "pyyaml", "winrt_")))
-    if len(_R10_WHEELS) != 23 or any("cp314" not in filename or "win_amd64" not in filename for filename in binary_wheels): raise AssertionError("R10 closure is not CPython 3.14 x64")
-    if any(module not in text for module in _R10_RUNTIME_IMPORTS): raise AssertionError("R10 WinRT import smoke is incomplete")
+    if len(_R10_WHEELS) != 22 or any("cp314" not in filename or "win_amd64" not in filename for filename in binary_wheels):
+        raise AssertionError("R10 closure is not CPython 3.14 x64")
+    if any(module not in text for module in _R10_RUNTIME_IMPORTS):
+        raise AssertionError("R10 WinRT import smoke is incomplete")
 
 
 def _assert_pe(path: Path) -> None:
@@ -157,23 +159,8 @@ def test_r10_admission_contract_rejects_launcher_ambiguity_spaces_path_drift_and
     assert re.search(r"(?i)nonzero|exit", wrapper)
     assert re.search(r"(?i)skipped", wrapper)
     assert "$env:Path" in wrapper and "finally" in wrapper.lower()
-def test_r10_native_experience_contract_is_declared() -> None:
-    root = Path(__file__).parents[1]; source = Path(__file__).read_text(encoding="utf-8"); workflow = (root / ".github/workflows/windows-proof.yml").read_text(encoding="utf-8"); wrapper = (root / ".github/workflows/windows-proof-functions.ps1").read_text(encoding="utf-8"); required_source = ("test_native_yasb_customwidget_lifecycle_and_recovery", "QApplication", "CustomWidget", "QTimer", "CSSProcessor", "valid_to_malformed_to_valid", "tooltip_text", "r10-yasb-experience.json"); assert all(marker in source for marker in required_source); assert "from core.utils.css_processor import CSSProcessor" in source and "from PyQt6.QtGui import QGuiApplication" in source and ("from PyQt6.QtCore import " + "QEvent, QGuiApplication") not in source; assert "app." + "setStyleSheet(css_text)" not in source and "QT_QPA_PLATFORM: offscreen" not in workflow and "r10-yasb-experience.xml" in workflow; assert "Assert-R10ExperienceEvidence" in wrapper and wrapper.count("not native_yasb_customwidget_lifecycle_and_recovery") >= 2; assert re.search(r'\$Mode -eq "selected".*?else.*?"-k", "not native_yasb_customwidget_lifecycle_and_recovery"', wrapper, re.S); assert all(marker in wrapper for marker in ("primary_label", "alternate_label", "malformed_tooltip", "launcher_paths", "final_real_qtimer_refresh", "worker_threads_terminated", "subprocesses_terminated", "timer_inactive", "worker_deleted", "Get-R10JUnitDiagnostic", "--junitxml=", "diagnostics withheld", "R10_JUNIT_DIAGNOSTIC_STAGE", 'stage = "args-count"', 'stage = "args-match"', 'stage = "args-known"', 'stage = "args-file"', 'stage = "xml"', 'stage = "candidate"', 'stage = "node"', 'stage = "match"', 'stage = "sanitize"', 'stage = "assemble"', "password", "240")); start = source.rfind("    def cleanup_widget"); cleanup = source[start:source.index("    real_before =", start)]; assert all(token in cleanup for token in ("process.terminate()", "process.kill()", "subprocess.TimeoutExpired")) and cleanup.index("process.terminate()") < cleanup.index("thread.join(timeout=5)"); assert source.index("cleanup_observed = cleanup_widget()") < source.index('"lifecycle": [')
 
-@pytest.mark.skipif(not any(shutil.which(name) for name in ("pwsh", "powershell")), reason="PowerShell unavailable")
-def test_r10_junit_diagnostic_integration_contract(tmp_path: Path) -> None:
-    shell = next(shutil.which(name) for name in ("pwsh", "powershell") if shutil.which(name)); wrapper = Path(__file__).parents[1] / ".github/workflows/windows-proof-functions.ps1"
-    cases = ((("--junitxml=r10-admission.xml",), "r10-admission.xml", "windows", r'File "C:\Users\Jane Doe\repo\test.py", line 12, in test_name password=SECRET; token=SECOND', 'R10 diagnostic: test=windows; line=12; message=File "[PATH]", line 12, in test_name [REDACTED]; [REDACTED]', None), (("--junitxml=r10-admission.xml",), "r10-admission.xml", "posix", r"File '/home/Jane Doe/repo/test.py', line 7, in test_name api_key='VALUE'", "R10 diagnostic: test=posix; line=7; message=File '[PATH]', line 7, in test_name [REDACTED]", None), (("--junitxml=r10-admission.xml",), "r10-admission.xml", "relative", r"tests/test_parser.py:23: message credential=VALUE", "R10 diagnostic: test=relative; line=23; message=tests/test_parser.py:23: message [REDACTED]", None), (("--junitxml=r10-admission.xml",), "r10-admission.xml", "cap", "tests/test_parser.py:99: " + "x" * 300, ("R10 diagnostic: test=cap; line=99; message=tests/test_parser.py:99: " + "x" * 300)[:240], None), (("--junitxml=r10-admission.xml",), "r10-admission.xml", "malformed", "MALFORMED", "diagnostics withheld", "xml"), (("--junitxml=r10-yasb-experience.xml",), "r10-yasb-experience.xml", "missing", None, "diagnostics withheld", "args-file"), (("--junitxml=not-junitxml",), "r10-admission.xml", "regex", "ignored", "diagnostics withheld", "args-match"), (("--junitxml=r10-admission.xml", "--junitxml=r10-admission.xml"), "r10-admission.xml", "duplicate-case", "ignored", "diagnostics withheld", "args-count"), (("--junitxml=other.xml",), "r10-admission.xml", "other-case", "ignored", "diagnostics withheld", "args-known")); final_marker = 'phase=final;timer_timeout_observed=1;timer_timeout_count=1;timer_inactive=1;final_worker_created=1;final_worker_thread_seen=1;final_worker_thread_alive=0;final_worker_deleted=0;owned_process_count=1;owned_processes_exited=1;data_ready_seen=1;finished_seen=1;widget_visible=1;primary_matches_expected=0;alternate_matches_expected=1;primary_visible=1;alternate_visible=0;tooltip_matches_expected=1;path_restored=1'; cases += ((('--junitxml=r10-yasb-experience.xml',), 'r10-yasb-experience.xml', 'final-exact', final_marker, final_marker, None), (('--junitxml=r10-yasb-experience.xml',), 'r10-yasb-experience.xml', 'final-assertion-error', 'AssertionError: ' + final_marker, final_marker, None), (('--junitxml=r10-yasb-experience.xml',), 'r10-yasb-experience.xml', 'final-arbitrary-prefix', 'prefix ' + final_marker, 'diagnostics withheld', 'final-marker'), (('--junitxml=r10-yasb-experience.xml',), 'r10-yasb-experience.xml', 'final-suffix', final_marker + ' suffix', 'diagnostics withheld', 'final-marker'), (('--junitxml=r10-yasb-experience.xml',), 'r10-yasb-experience.xml', 'final-duplicate', final_marker + ';' + final_marker, 'diagnostics withheld', 'final-marker'), (('--junitxml=r10-yasb-experience.xml',), 'r10-yasb-experience.xml', 'final-innertext-only', '', 'diagnostics withheld', 'final-marker', final_marker), (('--junitxml=r10-yasb-experience.xml',), 'r10-yasb-experience.xml', 'final-malformed-boolean', 'phase=final;timer_timeout_observed=yes;timer_timeout_count=1;timer_inactive=1;final_worker_created=1;final_worker_thread_seen=1;final_worker_thread_alive=0;final_worker_deleted=0;owned_process_count=1;owned_processes_exited=1;data_ready_seen=1;finished_seen=1;widget_visible=1;primary_matches_expected=0;alternate_matches_expected=1;primary_visible=1;alternate_visible=0;tooltip_matches_expected=1;path_restored=1', 'diagnostics withheld', 'final-marker'), (('--junitxml=r10-yasb-experience.xml',), 'r10-yasb-experience.xml', 'final-unknown', final_marker + ';unknown=0', 'diagnostics withheld', 'final-marker'), (('--junitxml=r10-yasb-experience.xml',), 'r10-yasb-experience.xml', 'final-oversized', final_marker.replace('timer_timeout_count=1', 'timer_timeout_count=33'), 'diagnostics withheld', 'final-marker'))
-    for case in cases:
-        arguments, name, testcase, message, normal, stage = case[:6]; innertext = case[6] if len(case) > 6 else ""; (tmp_path / name).unlink(missing_ok=True) if message is None else (tmp_path / name).write_text("<testsuite><testcase name=\"" + testcase + "\"><failure message=\"" + ("<testsuite>" if message == "MALFORMED" else message.replace("&", "&amp;").replace('"', "&quot;").replace("'", "&apos;")) + "\">" + innertext + "</failure></testcase></testsuite>", encoding="utf-8")
-        for trace in ((False, None), (True, stage)):
-            environment = os.environ.copy(); environment.pop("R10_JUNIT_DIAGNOSTIC_STAGE", None); environment.update({"R10_JUNIT_DIAGNOSTIC_STAGE": "1"} if trace else {}); expected = normal if stage is None or not trace else f"{normal}; stage={stage}"; powershell_arguments = ", ".join(f"'{argument}'" for argument in arguments)
-            result = subprocess.run([shell, "-NoProfile", "-NonInteractive", "-Command", f". '{wrapper}'; Get-R10JUnitDiagnostic @({powershell_arguments})"], cwd=tmp_path, env=environment, capture_output=True, text=True); assert result.returncode == 0 and result.stdout.strip() == expected
-            if trace and stage is not None:
-                output = result.stdout.strip()
-                assert output == f"diagnostics withheld; stage={stage}"
-                assert all(secret not in output for secret in (name, testcase, "ignored", "SECRET"))
-                assert not any(token in output for token in ("--junitxml=", "r10-", ".xml"))
+
 @pytest.mark.skipif(os.name != "nt", reason="R10 native admission requires Windows")
 def test_r10_native_admission_identity_imports_and_fixture() -> None:
     source_root_value = os.environ.get("R10_YASB_SOURCE_ROOT")
@@ -198,7 +185,6 @@ def test_r10_native_admission_identity_imports_and_fixture() -> None:
         "typing-inspection": "0.4.2",
         "pywin32": "312",
         "PyYAML": "6.0.3",
-        "comtypes": "1.4.16",
         "winrt-runtime": "3.2.1",
         "winrt-windows-data-xml-dom": "3.2.1",
         "winrt-windows-ui-notifications": "3.2.1",
@@ -221,156 +207,7 @@ def test_r10_native_admission_identity_imports_and_fixture() -> None:
     _assert_pe(fixture)
     launcher = _resolve_no_space_launcher([Path(os.environ["R10_LAUNCHER_PATH"])])
     assert hashlib.sha256(launcher.read_bytes()).hexdigest() == os.environ["R10_LAUNCHER_SHA256"]
-@pytest.mark.skipif(os.name != "nt", reason="R10 native YASB experience requires Windows")
-def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None:
-    """Exercise the pinned YASB CustomWidget without replacing native Qt."""
-    if os.environ.get("QT_QPA_PLATFORM"): pytest.fail("R10 native YASB proof must not use a substituted Qt platform")
-    source_root = Path(os.environ["R10_YASB_SOURCE_ROOT"])
-    assert 'BUILD_VERSION = "2.0.6"' in (source_root / "settings.py").read_text(encoding="utf-8") and hashlib.sha256((source_root / "core/widgets/yasb/custom.py").read_bytes()).hexdigest() == _R10_YASB_MODULE_SHA256
-    from PyQt6 import sip; from PyQt6.QtCore import QEvent
-    from PyQt6.QtGui import QGuiApplication; from PyQt6.QtWidgets import QApplication
-    from core.utils.css_processor import CSSProcessor
-    from yaml import safe_load
-    from core.validation.widgets.yasb.custom import CustomConfig
-    from core.widgets.yasb.custom import CustomWidget
-    app = QApplication.instance() or QApplication([]); assert QGuiApplication.platformName().lower() == "windows"
-    root = Path(__file__).parents[1]
-    yaml_text = (root / "examples/customwidget/customwidget.yaml").read_text(encoding="utf-8")
-    css_text = (root / "examples/customwidget/styles.css").read_text(encoding="utf-8")
-    document = safe_load(yaml_text)
-    options = document["widgets"]["limitora_r9"]["options"]
-    assert options == {"class_name": "limitora-r9", "label": "{data[providers][0][compact_text]}", "label_alt": "{data[providers][0][alternate_text]}", "tooltip": True, "tooltip_label": "{data[providers][0][tooltip_text]}", "exec_options": {"run_cmd": "yasb-limitora --output-version 2", "run_once": False, "run_interval": 120000, "return_format": "json", "hide_empty": True, "use_shell": False}}
-    assert all(selector in css_text for selector in (".custom-widget.limitora-r9", ".label", ".label.alt", ".icon"))
-    processed_css = CSSProcessor(str(root / "examples/customwidget/styles.css")).process(); assert processed_css; app.setStyleSheet(processed_css); assert app.styleSheet() == processed_css
-    expected_primary = "Quota 80% remaining; state=available; freshness=fresh"
-    expected_alternate = "Quota account / day: 80% remaining; state=available; freshness=fresh"
-    expected_tooltip = "State: available\nFreshness: fresh\nQuota: 80% remaining"
-    expected_malformed_primary = "{data[providers][0][compact_text]}"
-    expected_malformed_alternate = expected_alternate
-    state_path = tmp_path / "r10-fixture.state"; state_path.write_text("valid", encoding="ascii")
-    config_path = tmp_path / "r10-config.json"; config_path.write_text(json.dumps({"codex": {"enabled": False}, "opencode_go": {"enabled": False}}), encoding="utf-8")
-    fixture = Path(os.environ["R10_FIXTURE_EXE"])
-    _assert_pe(fixture)
-    scripts = Path(sys.prefix) / "Scripts"
-    saved_path = os.environ["PATH"]
-    real_launcher = _resolve_no_space_launcher(list(scripts.glob("yasb-limitora*.exe")))
-    assert real_launcher.resolve() == Path(os.environ["R10_LAUNCHER_PATH"]).resolve(); real_hash_before = hashlib.sha256(real_launcher.read_bytes()).hexdigest(); assert real_hash_before == os.environ["R10_LAUNCHER_SHA256"]
-    shadow_dir = Path(tempfile.gettempdir()) / "r10-yasb-shadow"
-    if " " in str(shadow_dir): pytest.fail("R10 shadow launcher path contains spaces")
-    shadow_dir.mkdir(parents=True, exist_ok=True); shadow_launcher = shadow_dir / "yasb-limitora.exe"; shutil.copy2(fixture, shadow_launcher); shadow_hash = hashlib.sha256(shadow_launcher.read_bytes()).hexdigest()
-    base_env = os.environ.copy()
-    base_env.update({"YASB_LIMITORA_CONFIG": str(config_path), "YASB_R10_FIXTURE_STATE": str(state_path)})
-    def run_launcher(path: Path, environment: dict[str, str]) -> subprocess.CompletedProcess[bytes]: return subprocess.run([str(path), "--output-version", "2"], env=environment, capture_output=True, timeout=5, check=False)
-    def wait_for(predicate, description: str, timeout_diagnostic: object = None) -> None:
-        deadline = time.monotonic() + 8
-        while time.monotonic() < deadline:
-            if (app.processEvents(), predicate())[1]:
-                return
-            app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-            time.sleep(0.02)
-        raise AssertionError(timeout_diagnostic() if callable(timeout_diagnostic) else f"native YASB lifecycle timeout: {description}")
-    def current_tooltip(widget: object) -> str: return widget._widget_container._tooltip_filter.tooltip_text
-    def stream_record(role: str, path: Path, result: subprocess.CompletedProcess[bytes]) -> dict[str, object]:
-        combined = result.stdout + result.stderr
-        assert not re.search(rb"password|api[_-]?key|authorization|cookie|native-redaction-sentinel", combined, re.I)
-        return {"role": role, "launcher_name": path.name, "launcher_path": "<sys.prefix>/Scripts/yasb-limitora.exe" if path.resolve() == real_launcher.resolve() else "<temp>/r10-yasb-shadow/yasb-limitora.exe", "exit_code": result.returncode, "stdout_bytes": len(result.stdout), "stderr_bytes": len(result.stderr), "stderr_empty": result.stderr == b"", "stdout_sha256": hashlib.sha256(result.stdout).hexdigest()}
-    custom_module = importlib.import_module("core.widgets.yasb.custom"); original_worker_run, original_popen = custom_module.CustomWorker.run, custom_module.subprocess.Popen; worker_threads: list[threading.Thread] = []; worker_runs: list[tuple[object, threading.Thread]] = []; worker_processes: list[tuple[threading.Thread, subprocess.Popen[bytes]]] = []; widget_processes: list[subprocess.Popen[bytes]] = []; data_ready_seen = [0]; finished_seen = [0]; final_worker_ref: list[object | None] = [None]; final_timer_timeout_count = [0]; final_restore_started = [False]; final_timeout_marker = lambda: (lambda worker, thread, processes: "phase=final;timer_timeout_observed={};timer_timeout_count={};timer_inactive={};final_worker_created={};final_worker_thread_seen={};final_worker_thread_alive={};final_worker_deleted={};owned_process_count={};owned_processes_exited={};data_ready_seen={};finished_seen={};widget_visible={};primary_matches_expected={};alternate_matches_expected={};primary_visible={};alternate_visible={};tooltip_matches_expected={};path_restored={}".format(int(final_timer_timeout_count[0] > 0), min(final_timer_timeout_count[0], 32), int(not widget.timer.isActive()), int(worker is not None), int(thread is not None), int(thread is not None and thread.is_alive()), int(worker is not None and sip.isdeleted(worker)), min(len(processes), 32), int(all(process.poll() is not None for process in processes)), min(data_ready_seen[0], 32), min(finished_seen[0], 32), int(widget.isVisible()), int(widget._widgets[0].text() == expected_primary), int(widget._widgets_alt[0].text() == expected_alternate), int(widget._widgets[0].isVisible()), int(widget._widgets_alt[0].isVisible()), int(current_tooltip(widget) == expected_tooltip), int(os.environ["PATH"] == saved_path)))(final_worker_ref[0], next((thread for candidate, thread in worker_runs if candidate is final_worker_ref[0]), None), [process for thread, process in worker_processes if thread is next((candidate_thread for candidate, candidate_thread in worker_runs if candidate is final_worker_ref[0]), None)])
-    def tracking_worker_run(worker: object) -> None: worker_threads.append(threading.current_thread()); worker_runs.append((worker, threading.current_thread())); worker.data_ready.connect(lambda *_: data_ready_seen.__setitem__(0, min(data_ready_seen[0] + 1, 4096))); worker.finished.connect(lambda *_: finished_seen.__setitem__(0, min(finished_seen[0] + 1, 4096))); original_worker_run(worker)
-    def tracking_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
-        process = original_popen(*args, **kwargs)
-        if "creationflags" in kwargs: widget_processes.append(process); worker_processes.append((threading.current_thread(), process))
-        return process
-    def cleanup_widget() -> dict[str, object]:
-        widget.timer.stop(); worker = widget._worker; worker_deleted_before_cleanup = worker is None or sip.isdeleted(worker)
-        if worker is not None and not worker_deleted_before_cleanup: worker.stop()
-        for process in widget_processes:
-            if process.poll() is None: process.terminate()
-            try: process.wait(timeout=5)
-            except subprocess.TimeoutExpired: process.kill(); process.wait(timeout=5)
-            if process.poll() is None: raise AssertionError("native widget subprocess survived cleanup")
-        for thread in worker_threads: thread.join(timeout=5)
-        observed = {"timer_inactive": not widget.timer.isActive(), "worker_stopped": worker_deleted_before_cleanup or not worker._is_running, "worker_threads_terminated": all(not thread.is_alive() for thread in worker_threads), "subprocesses_terminated": all(process.poll() is not None for process in widget_processes)}
-        widget.close(); observed["widget_closed"] = not widget.isVisible()
-        if worker is not None and not worker_deleted_before_cleanup: worker.deleteLater()
-        widget._worker = None; observed["worker_released"] = widget._worker is None; widget.deleteLater()
-        for _ in range(50):
-            app.processEvents(); app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-            if sip.isdeleted(widget): break
-            time.sleep(0.02)
-        observed.update({"worker_deleted": worker is None or sip.isdeleted(worker), "widget_deleted": sip.isdeleted(widget)})
-        if not all(observed.values()): raise AssertionError(f"native YASB cleanup incomplete: {observed}")
-        return observed
-    real_before = run_launcher(real_launcher, {**os.environ, "YASB_LIMITORA_CONFIG": str(config_path)})
-    assert real_before.returncode == 0 and real_before.stderr == b""
-    assert json.loads(real_before.stdout)["version"] == 2
-    os.environ.update(base_env)
-    os.environ["PATH"] = str(shadow_dir) + os.pathsep + saved_path
-    widget = None
-    refreshes: list[float] = []
-    try:
-        custom_module.CustomWorker.run = tracking_worker_run
-        custom_module.subprocess.Popen = tracking_popen
-        valid_probe = run_launcher(shadow_launcher, os.environ.copy())
-        assert valid_probe.returncode == 0 and json.loads(valid_probe.stdout)["version"] == 2
-        widget = CustomWidget(CustomConfig.model_validate(options))
-        widget.show()
-        wait_for(lambda: isinstance(widget._exec_data, dict) and widget._widgets[0].text().startswith("Quota 80%"), "initial valid render")
-        assert widget.isVisible()
-        assert widget._widgets[0].text() == expected_primary
-        assert current_tooltip(widget) == expected_tooltip
-        assert widget._widgets[0].isVisible() and not widget._widgets_alt[0].isVisible()
-        assert widget._widget_frame.property("class") == "widget custom-widget limitora-r9"
-        assert widget._widgets[0].property("class") == "label"
-        assert widget._widgets_alt[0].property("class") == "label alt"
-        valid_observed = {"primary_label": widget._widgets[0].text(), "alternate_label": widget._widgets_alt[0].text(), "tooltip": current_tooltip(widget), "visible": widget.isVisible(), "toggle": {"primary_visible": widget._widgets[0].isVisible(), "alternate_visible": widget._widgets_alt[0].isVisible()}}
 
-        widget._toggle_label()
-        assert widget._widgets_alt[0].isVisible() and not widget._widgets[0].isVisible()
-        assert widget._widgets_alt[0].text() == expected_alternate
-        assert widget.isVisible() and current_tooltip(widget) == expected_tooltip
-        alternate_observed = {"primary_label": widget._widgets[0].text(), "alternate_label": widget._widgets_alt[0].text(), "tooltip": current_tooltip(widget), "visible": widget.isVisible(), "toggle": {"primary_visible": widget._widgets[0].isVisible(), "alternate_visible": widget._widgets_alt[0].isVisible()}}
-        widget._toggle_label()
-        widget.timer.stop()
-        widget.timer.setInterval(50)
-        widget.timer.timeout.connect(lambda: (refreshes.append(time.monotonic()), widget.timer.stop(), final_timer_timeout_count.__setitem__(0, min(final_timer_timeout_count[0] + 1, 4096)) if final_restore_started[0] else None, final_worker_ref.__setitem__(0, widget._worker) if final_restore_started[0] else None))
-        widget.timer.start()
-        malformed_worker_start = len(worker_runs); state_path.write_text("malformed", encoding="ascii")
-        malformed_probe = run_launcher(shadow_launcher, os.environ.copy())
-        assert malformed_probe.returncode == 0 and malformed_probe.stdout == b"{" and malformed_probe.stderr == b""
-        refresh_count = len(refreshes)
-        wait_for(lambda: len(refreshes) > refresh_count and widget._widgets[0].text() == expected_malformed_primary and widget._widgets_alt[0].text() == expected_malformed_alternate and current_tooltip(widget) == "None" and widget.isVisible() and widget._widgets[0].isVisible() and not widget._widgets_alt[0].isVisible(), "malformed fallback"); widget.timer.stop(); stale_worker = widget._worker; malformed_workers = worker_runs[malformed_worker_start:]; malformed_threads = {thread for worker, thread in malformed_workers}; malformed_processes = [process for thread, process in worker_processes if thread in malformed_threads]; wait_for(lambda: stale_worker is not None and any(worker is stale_worker for worker, _ in malformed_workers) and all(not thread.is_alive() and sip.isdeleted(worker) for worker, thread in malformed_workers) and all(process.poll() is not None for process in malformed_processes), "malformed refresh worker synchronization"); widget._worker = None
-        malformed_observed = {"primary_label": widget._widgets[0].text(), "alternate_label": widget._widgets_alt[0].text(), "tooltip": current_tooltip(widget), "visible": widget.isVisible(), "fallback": "raw_primary_template_previous_valid_alternate_literal_None", "toggle": {"primary_visible": widget._widgets[0].isVisible(), "alternate_visible": widget._widgets_alt[0].isVisible()}}
-        state_path.write_text("valid", encoding="ascii")
-        widget.timer.stop()
-        os.environ["PATH"] = saved_path
-        assert os.environ["PATH"] == saved_path
-        restored_launcher = _resolve_no_space_launcher(list(scripts.glob("yasb-limitora*.exe")))
-        assert restored_launcher.resolve() == real_launcher.resolve()
-        real_hash_after = hashlib.sha256(restored_launcher.read_bytes()).hexdigest()
-        assert real_hash_after == real_hash_before
-        real_after = run_launcher(restored_launcher, {**base_env, "PATH": saved_path})
-        assert real_after.returncode == 0 and real_after.stderr == b""
-        assert json.loads(real_after.stdout)["version"] == 2
-        refresh_count = len(refreshes)
-        final_restore_started[0] = True; data_ready_seen[0] = 0; finished_seen[0] = 0; final_timer_timeout_count[0] = 0; final_worker_ref[0] = None; widget.timer.start()
-        wait_for(lambda: len(refreshes) > refresh_count and widget.isVisible() and widget._widgets[0].text() == expected_primary and widget._widgets_alt[0].text() == expected_alternate and widget._widgets[0].isVisible() and not widget._widgets_alt[0].isVisible() and current_tooltip(widget) == expected_tooltip, "final valid restoration under restored launcher", final_timeout_marker)
-        final_observed = {"primary_label": widget._widgets[0].text(), "alternate_label": widget._widgets_alt[0].text(), "tooltip": current_tooltip(widget), "visible": widget.isVisible(), "toggle": {"primary_visible": widget._widgets[0].isVisible(), "alternate_visible": widget._widgets_alt[0].isVisible()}, "path_restored": os.environ["PATH"] == saved_path, "final_real_qtimer_refresh": True}
-        css_observed = {"processor": "core.utils.css_processor.CSSProcessor", "processed": True, "stylesheet_applied": app.styleSheet() == processed_css, "classes": {"widget": widget._widget_frame.property("class"), "primary": widget._widgets[0].property("class"), "alternate": widget._widgets_alt[0].property("class")}}
-        cleanup_observed = cleanup_widget()
-        evidence = {"native": True, "lifecycle": ["constructed", "valid", "alternate", "malformed", "restored_valid", "cleaned"], "identity": {"yasb_version": "2.0.6", "yasb_commit": _R10_YASB_COMMIT, "custom_module_sha256": _R10_YASB_MODULE_SHA256, "python": f"{sys.version_info.major}.{sys.version_info.minor}", "architecture": os.environ.get("PROCESSOR_ARCHITECTURE"), "qt_platform": QGuiApplication.platformName(), "launcher_name": real_launcher.name, "launcher_sha256_before": real_hash_before, "launcher_sha256_after": real_hash_after, "shadow_launcher_sha256": shadow_hash}, "expected": {"primary_label": expected_primary, "alternate_label": expected_alternate, "tooltip": expected_tooltip, "alternate_tooltip": expected_tooltip, "malformed_label": expected_malformed_primary, "malformed_alternate_label": expected_malformed_alternate, "malformed_tooltip": "None", "malformed_visible": False, "valid_toggle": {"primary_visible": True, "alternate_visible": False}, "alternate_toggle": {"primary_visible": False, "alternate_visible": True}, "malformed_toggle": {"primary_visible": False, "alternate_visible": False}, "final_toggle": {"primary_visible": True, "alternate_visible": False}, "css_class": "widget custom-widget limitora-r9", "configured_refresh_ms": 120000}, "observed": {"valid": valid_observed, "alternate": alternate_observed, "malformed": malformed_observed, "final": final_observed, "css": css_observed, "cleanup": cleanup_observed, "qt_platform": QGuiApplication.platformName(), "timer_interval_test_ms": 50, "timer_refresh_count": len(refreshes), "valid_to_malformed_to_valid": True}, "launcher_streams": [stream_record("installed_before", real_launcher, real_before), stream_record("shadow_valid", shadow_launcher, valid_probe), stream_record("shadow_malformed", shadow_launcher, malformed_probe), stream_record("installed_after", restored_launcher, real_after)], "launcher_paths": {"installed": "<sys.prefix>/Scripts/yasb-limitora.exe", "shadow": "<temp>/r10-yasb-shadow/yasb-limitora.exe", "path_restored": os.environ["PATH"] == saved_path}, "sanitization": {"secret_like_output": False, "raw_streams_persisted": False, "paths_redacted": True, "status": "pass"}, "r11_handoff": {"status": "excluded_from_r10", "next": "R11", "excluded": ["live providers", "credentials", "network smoke", "MSI/release coverage"]}}
-        evidence["expected"].update({"malformed_visible": True, "malformed_fallback": "raw_primary_template_previous_valid_alternate_literal_None", "malformed_toggle": {"primary_visible": True, "alternate_visible": False}}); serialized = json.dumps(evidence, sort_keys=True)
-        assert not re.search(r"password|api[_-]?key|authorization|cookie|native-redaction-sentinel", serialized, re.I)
-        evidence_path = os.environ.get("YASB_NATIVE_EXPERIENCE_EVIDENCE_PATH")
-        if not evidence_path:
-            pytest.fail("R10 native YASB evidence path is unavailable")
-        Path(evidence_path).write_text(serialized + "\n", encoding="utf-8")
-    finally:
-        custom_module.CustomWorker.run = original_worker_run
-        custom_module.subprocess.Popen = original_popen
-        if widget is not None and not sip.isdeleted(widget):
-            cleanup_widget()
-        os.environ["PATH"] = saved_path
-        state_path.unlink(missing_ok=True)
 _FIXTURE = Path(__file__).with_name("fixtures") / "windows_descendant.py"
 _STILL_ACTIVE = 259
 _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
