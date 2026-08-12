@@ -55,6 +55,7 @@ jobs:
               @("winrt_windows_data_xml_dom-3.2.1-cp314-cp314-win_amd64.whl", "https://files.pythonhosted.org/packages/ab/d2/3a4b7e38feafdec21cb044e0c1ee2c76a71cfbda02bfedcc50634e9fb652/winrt_windows_data_xml_dom-3.2.1-cp314-cp314-win_amd64.whl", "1cf1b6f31fff4e4c0ae30f1643b169da72b3b053a2996010f2c3a1e26b5d4970"),
               @("winrt_windows_ui_notifications-3.2.1-cp314-cp314-win_amd64.whl", "https://files.pythonhosted.org/packages/17/d8/910a58698d722120f2401c3bfeb6018361d92f3b2814caae839f54693305/winrt_windows_ui_notifications-3.2.1-cp314-cp314-win_amd64.whl", "943599c727abf710ae94644b1d521e11857bd568e080e894a8be11aa717e383a"),
               @("winrt_windows_management_deployment-3.2.1-cp314-cp314-win_amd64.whl", "https://files.pythonhosted.org/packages/d7/34/9a2205298282e4635bf2f065fa39b98fec48ce67c297de8c9b81822d57d1/winrt_windows_management_deployment-3.2.1-cp314-cp314-win_amd64.whl", "fbf20fa4becf20edb9980bfb9e4f45dfd323d57e4819c49c40a65fde82a1bb24"),
+               @("comtypes-1.4.16-py3-none-any.whl", "https://files.pythonhosted.org/packages/5f/7c/0eb685107290b6221c03c46d39214a4e42a124189691cb83ae3228257f46/comtypes-1.4.16-py3-none-any.whl", "e18d85179ff12955524c5a8c3bc09cb3c0d890f1da4d7123d14244c7b78f84c8"),
                @("pytest-8.4.1-py3-none-any.whl", "https://files.pythonhosted.org/packages/29/16/c8a903f4c4dffe7a12843191437d7cd8e32751d5de349d45d3fe69544e87/pytest-8.4.1-py3-none-any.whl", "539c70ba6fcead8e78eebbf1115e8b589e7565830d7d006a8723f19ac8a0afb7"),
                @("iniconfig-2.1.0-py3-none-any.whl", "https://files.pythonhosted.org/packages/2c/e1/e6716421ea10d38022b952c159d5161ca1193197fb744506875fbb87ea7b/iniconfig-2.1.0-py3-none-any.whl", "9deba5723312380e77435581c6bf4935c94cbfab9b1ed33ef8d238ea168eb760"),
                @("packaging-25.0-py3-none-any.whl", "https://files.pythonhosted.org/packages/20/12/38679034af332785aac8774540895e234f4d07f7545804097de4b666afd8/packaging-25.0-py3-none-any.whl", "29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484"),
@@ -81,7 +82,7 @@ jobs:
               Assert-R10Artifact $path $wheel[0] $wheel[2]
             }
             $wheelPaths = @(Get-ChildItem -LiteralPath $wheelDir -Filter "*.whl" -File | ForEach-Object FullName)
-            if ($wheelPaths.Count -ne 22) { throw "R10 wheel closure incomplete" }
+            if ($wheelPaths.Count -ne 23) { throw "R10 wheel closure incomplete" }
             Invoke-R10CheckedPython "fixed local runtime installation" (@("-m", "pip", "install", "--no-index", "--no-deps") + $wheelPaths)
             Invoke-R10CheckedPython "local project launcher installation" @("-m", "pip", "install", "--no-index", "--no-deps", "--no-build-isolation", ".")
             $fixture = Join-Path $root "r10-provider.exe"

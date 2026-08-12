@@ -58,6 +58,7 @@ _R10_WHEELS = (
     ("winrt_windows_data_xml_dom-3.2.1-cp314-cp314-win_amd64.whl", "1cf1b6f31fff4e4c0ae30f1643b169da72b3b053a2996010f2c3a1e26b5d4970"),
     ("winrt_windows_ui_notifications-3.2.1-cp314-cp314-win_amd64.whl", "943599c727abf710ae94644b1d521e11857bd568e080e894a8be11aa717e383a"),
     ("winrt_windows_management_deployment-3.2.1-cp314-cp314-win_amd64.whl", "fbf20fa4becf20edb9980bfb9e4f45dfd323d57e4819c49c40a65fde82a1bb24"),
+    ("comtypes-1.4.16-py3-none-any.whl", "e18d85179ff12955524c5a8c3bc09cb3c0d890f1da4d7123d14244c7b78f84c8"),
     ("pytest-8.4.1-py3-none-any.whl", "539c70ba6fcead8e78eebbf1115e8b589e7565830d7d006a8723f19ac8a0afb7"),
     ("iniconfig-2.1.0-py3-none-any.whl", "9deba5723312380e77435581c6bf4935c94cbfab9b1ed33ef8d238ea168eb760"),
     ("packaging-25.0-py3-none-any.whl", "29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484"),
@@ -73,23 +74,20 @@ _R10_WINRT_IMPORTS = (
     "winrt.windows.ui.notifications",
     "winrt.windows.management.deployment",
 )
-_R10_RUNTIME_IMPORTS = ("PyQt6.QtCore", "pydantic", "pydantic_core", "yaml", "_yaml", "win32api", "pywintypes", *_R10_WINRT_IMPORTS)
+_R10_RUNTIME_IMPORTS = ("PyQt6.QtCore", "pydantic", "pydantic_core", "yaml", "_yaml", "win32api", "pywintypes", "comtypes", *_R10_WINRT_IMPORTS)
 
 
 def _require_r10_workflow_contract(text: str) -> None:
-    required = (_R10_YASB_COMMIT, _R10_YASB_ARCHIVE_SHA256, _R10_YASB_MODULE_SHA256, "v2.0.6", "3.14", "x64", "--no-build-isolation", "wheelPaths.Count -ne 22")
-    if any(value not in text for value in required):
-        raise AssertionError("R10 frozen source identity drifted")
+    required = (_R10_YASB_COMMIT, _R10_YASB_ARCHIVE_SHA256, _R10_YASB_MODULE_SHA256, "v2.0.6", "3.14", "x64", "--no-build-isolation", "wheelPaths.Count -ne 23")
+    if any(value not in text for value in required): raise AssertionError("R10 frozen source identity drifted")
     if text.count(_R10_YASB_COMMIT) < 2 or f"tar.gz/{_R10_YASB_COMMIT}" not in text:
         raise AssertionError("R10 source commit/archive identity drifted")
     for filename, digest in _R10_WHEELS:
         if text.count(filename) < 2 or digest not in text or "--no-index" not in text or "--no-deps" not in text:
             raise AssertionError("R10 fixed wheel closure drifted")
     binary_wheels = (filename for filename, _ in _R10_WHEELS if filename.startswith(("pyqt6_sip", "pydantic_core", "pywin32", "pyyaml", "winrt_")))
-    if len(_R10_WHEELS) != 22 or any("cp314" not in filename or "win_amd64" not in filename for filename in binary_wheels):
-        raise AssertionError("R10 closure is not CPython 3.14 x64")
-    if any(module not in text for module in _R10_RUNTIME_IMPORTS):
-        raise AssertionError("R10 WinRT import smoke is incomplete")
+    if len(_R10_WHEELS) != 23 or any("cp314" not in filename or "win_amd64" not in filename for filename in binary_wheels): raise AssertionError("R10 closure is not CPython 3.14 x64")
+    if any(module not in text for module in _R10_RUNTIME_IMPORTS): raise AssertionError("R10 WinRT import smoke is incomplete")
 
 
 def _assert_pe(path: Path) -> None:
@@ -159,18 +157,8 @@ def test_r10_admission_contract_rejects_launcher_ambiguity_spaces_path_drift_and
     assert re.search(r"(?i)nonzero|exit", wrapper)
     assert re.search(r"(?i)skipped", wrapper)
     assert "$env:Path" in wrapper and "finally" in wrapper.lower()
-
-
 def test_r10_native_experience_contract_is_declared() -> None:
-    root = Path(__file__).parents[1]; source = Path(__file__).read_text(encoding="utf-8"); workflow = (root / ".github/workflows/windows-proof.yml").read_text(encoding="utf-8"); wrapper = (root / ".github/workflows/windows-proof-functions.ps1").read_text(encoding="utf-8")
-    required_source = ("test_native_yasb_customwidget_lifecycle_and_recovery", "QApplication", "CustomWidget", "QTimer", "CSSProcessor", "valid_to_malformed_to_valid", "tooltip_text", "r10-yasb-experience.json")
-    assert all(marker in source for marker in required_source)
-    assert "from core.utils.css_processor import CSSProcessor" in source and "from PyQt6.QtGui import QGuiApplication" in source and ("from PyQt6.QtCore import " + "QEvent, QGuiApplication") not in source
-    assert "app." + "setStyleSheet(css_text)" not in source and "QT_QPA_PLATFORM: offscreen" not in workflow and "r10-yasb-experience.xml" in workflow
-    assert "Assert-R10ExperienceEvidence" in wrapper and wrapper.count("not native_yasb_customwidget_lifecycle_and_recovery") >= 2
-    assert re.search(r'\$Mode -eq "selected".*?else.*?"-k", "not native_yasb_customwidget_lifecycle_and_recovery"', wrapper, re.S)
-    assert all(marker in wrapper for marker in ("primary_label", "alternate_label", "malformed_tooltip", "launcher_paths", "final_real_qtimer_refresh", "worker_threads_terminated", "subprocesses_terminated", "timer_inactive", "worker_deleted", "Get-R10JUnitDiagnostic", "--junitxml=", "diagnostics withheld", "R10_JUNIT_DIAGNOSTIC_STAGE", 'stage = "args-count"', 'stage = "args-match"', 'stage = "args-known"', 'stage = "args-file"', 'stage = "xml"', 'stage = "candidate"', 'stage = "node"', 'stage = "match"', 'stage = "sanitize"', 'stage = "assemble"', "password", "240"))
-    start = source.rfind("    def cleanup_widget"); cleanup = source[start:source.index("    real_before =", start)]; assert all(token in cleanup for token in ("process.terminate()", "process.kill()", "subprocess.TimeoutExpired")) and cleanup.index("process.terminate()") < cleanup.index("thread.join(timeout=5)") ; assert source.index("cleanup_observed = cleanup_widget()") < source.index('"lifecycle": [')
+    root = Path(__file__).parents[1]; source = Path(__file__).read_text(encoding="utf-8"); workflow = (root / ".github/workflows/windows-proof.yml").read_text(encoding="utf-8"); wrapper = (root / ".github/workflows/windows-proof-functions.ps1").read_text(encoding="utf-8"); required_source = ("test_native_yasb_customwidget_lifecycle_and_recovery", "QApplication", "CustomWidget", "QTimer", "CSSProcessor", "valid_to_malformed_to_valid", "tooltip_text", "r10-yasb-experience.json"); assert all(marker in source for marker in required_source); assert "from core.utils.css_processor import CSSProcessor" in source and "from PyQt6.QtGui import QGuiApplication" in source and ("from PyQt6.QtCore import " + "QEvent, QGuiApplication") not in source; assert "app." + "setStyleSheet(css_text)" not in source and "QT_QPA_PLATFORM: offscreen" not in workflow and "r10-yasb-experience.xml" in workflow; assert "Assert-R10ExperienceEvidence" in wrapper and wrapper.count("not native_yasb_customwidget_lifecycle_and_recovery") >= 2; assert re.search(r'\$Mode -eq "selected".*?else.*?"-k", "not native_yasb_customwidget_lifecycle_and_recovery"', wrapper, re.S); assert all(marker in wrapper for marker in ("primary_label", "alternate_label", "malformed_tooltip", "launcher_paths", "final_real_qtimer_refresh", "worker_threads_terminated", "subprocesses_terminated", "timer_inactive", "worker_deleted", "Get-R10JUnitDiagnostic", "--junitxml=", "diagnostics withheld", "R10_JUNIT_DIAGNOSTIC_STAGE", 'stage = "args-count"', 'stage = "args-match"', 'stage = "args-known"', 'stage = "args-file"', 'stage = "xml"', 'stage = "candidate"', 'stage = "node"', 'stage = "match"', 'stage = "sanitize"', 'stage = "assemble"', "password", "240")); start = source.rfind("    def cleanup_widget"); cleanup = source[start:source.index("    real_before =", start)]; assert all(token in cleanup for token in ("process.terminate()", "process.kill()", "subprocess.TimeoutExpired")) and cleanup.index("process.terminate()") < cleanup.index("thread.join(timeout=5)"); assert source.index("cleanup_observed = cleanup_widget()") < source.index('"lifecycle": [')
 
 @pytest.mark.skipif(not any(shutil.which(name) for name in ("pwsh", "powershell")), reason="PowerShell unavailable")
 def test_r10_junit_diagnostic_integration_contract(tmp_path: Path) -> None:
@@ -210,6 +198,7 @@ def test_r10_native_admission_identity_imports_and_fixture() -> None:
         "typing-inspection": "0.4.2",
         "pywin32": "312",
         "PyYAML": "6.0.3",
+        "comtypes": "1.4.16",
         "winrt-runtime": "3.2.1",
         "winrt-windows-data-xml-dom": "3.2.1",
         "winrt-windows-ui-notifications": "3.2.1",
@@ -240,10 +229,8 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
     source_root = Path(os.environ["R10_YASB_SOURCE_ROOT"])
     assert 'BUILD_VERSION = "2.0.6"' in (source_root / "settings.py").read_text(encoding="utf-8")
     assert hashlib.sha256((source_root / "core/widgets/yasb/custom.py").read_bytes()).hexdigest() == _R10_YASB_MODULE_SHA256
-    from PyQt6 import sip
-    from PyQt6.QtCore import QEvent
-    from PyQt6.QtGui import QGuiApplication
-    from PyQt6.QtWidgets import QApplication
+    from PyQt6 import sip; from PyQt6.QtCore import QEvent
+    from PyQt6.QtGui import QGuiApplication; from PyQt6.QtWidgets import QApplication
     from core.utils.css_processor import CSSProcessor
     from yaml import safe_load
     from core.validation.widgets.yasb.custom import CustomConfig
@@ -312,7 +299,6 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
             timeout=5,
             check=False,
         )
-
     def wait_for(predicate, description: str) -> None:
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
@@ -323,7 +309,6 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
         raise AssertionError(f"native YASB lifecycle timeout: {description}")
     def current_tooltip(widget: object) -> str:
         return widget._widget_container._tooltip_filter.tooltip_text
-
     def stream_record(role: str, path: Path, result: subprocess.CompletedProcess[bytes]) -> dict[str, object]:
         combined = result.stdout + result.stderr
         assert not re.search(rb"password|api[_-]?key|authorization|cookie|native-redaction-sentinel", combined, re.I)
@@ -337,19 +322,12 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
             "stderr_empty": result.stderr == b"",
             "stdout_sha256": hashlib.sha256(result.stdout).hexdigest(),
         }
-    custom_module = importlib.import_module("core.widgets.yasb.custom")
-    original_worker_run, original_popen = custom_module.CustomWorker.run, custom_module.subprocess.Popen
-    worker_threads: list[threading.Thread] = []; widget_processes: list[subprocess.Popen[bytes]] = []
-
-    def tracking_worker_run(worker: object) -> None:
-        worker_threads.append(threading.current_thread()); original_worker_run(worker)
-
+    custom_module = importlib.import_module("core.widgets.yasb.custom"); original_worker_run, original_popen = custom_module.CustomWorker.run, custom_module.subprocess.Popen; worker_threads: list[threading.Thread] = []; widget_processes: list[subprocess.Popen[bytes]] = []
+    def tracking_worker_run(worker: object) -> None: worker_threads.append(threading.current_thread()); original_worker_run(worker)
     def tracking_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
         process = original_popen(*args, **kwargs)
-        if "creationflags" in kwargs:
-            widget_processes.append(process)
+        if "creationflags" in kwargs: widget_processes.append(process)
         return process
-
     def cleanup_widget() -> dict[str, object]:
         widget.timer.stop(); worker = widget._worker; worker_deleted_before_cleanup = worker is None or sip.isdeleted(worker)
         if worker is not None and not worker_deleted_before_cleanup: worker.stop()
@@ -371,11 +349,9 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
         observed.update({"worker_deleted": worker is None or sip.isdeleted(worker), "widget_deleted": sip.isdeleted(widget)})
         if not all(observed.values()): raise AssertionError(f"native YASB cleanup incomplete: {observed}")
         return observed
-
     real_before = run_launcher(real_launcher, {**os.environ, "YASB_LIMITORA_CONFIG": str(config_path)})
     assert real_before.returncode == 0 and real_before.stderr == b""
     assert json.loads(real_before.stdout)["version"] == 2
-
     os.environ.update(base_env)
     os.environ["PATH"] = str(shadow_dir) + os.pathsep + saved_path
     widget = None
@@ -410,7 +386,6 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
         widget.timer.setInterval(50)
         widget.timer.timeout.connect(lambda: refreshes.append(time.monotonic()))
         widget.timer.start()
-
         state_path.write_text("malformed", encoding="ascii")
         malformed_probe = run_launcher(shadow_launcher, os.environ.copy())
         assert malformed_probe.returncode == 0 and malformed_probe.stdout == b"{" and malformed_probe.stderr == b""
@@ -426,7 +401,6 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
             "malformed fallback",
         )
         malformed_observed = {"primary_label": widget._widgets[0].text(), "alternate_label": widget._widgets_alt[0].text(), "tooltip": current_tooltip(widget), "visible": widget.isVisible(), "fallback": "raw_template_labels_and_literal_None", "toggle": {"primary_visible": widget._widgets[0].isVisible(), "alternate_visible": widget._widgets_alt[0].isVisible()}}
-
         state_path.write_text("valid", encoding="ascii")
         widget.timer.stop()
         os.environ["PATH"] = saved_path
@@ -453,7 +427,6 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
         final_observed = {"primary_label": widget._widgets[0].text(), "alternate_label": widget._widgets_alt[0].text(), "tooltip": current_tooltip(widget), "visible": widget.isVisible(), "toggle": {"primary_visible": widget._widgets[0].isVisible(), "alternate_visible": widget._widgets_alt[0].isVisible()}, "path_restored": os.environ["PATH"] == saved_path, "final_real_qtimer_refresh": True}
         css_observed = {"processor": "core.utils.css_processor.CSSProcessor", "processed": True, "stylesheet_applied": app.styleSheet() == processed_css, "classes": {"widget": widget._widget_frame.property("class"), "primary": widget._widgets[0].property("class"), "alternate": widget._widgets_alt[0].property("class")}}
         cleanup_observed = cleanup_widget()
-
         evidence = {
             "native": True,
             "lifecycle": ["constructed", "valid", "alternate", "malformed", "restored_valid", "cleaned"],
@@ -529,7 +502,6 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
             cleanup_widget()
         os.environ["PATH"] = saved_path
         state_path.unlink(missing_ok=True)
-
 _FIXTURE = Path(__file__).with_name("fixtures") / "windows_descendant.py"
 _STILL_ACTIVE = 259
 _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
