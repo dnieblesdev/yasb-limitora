@@ -264,9 +264,9 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
     def wait_for(predicate, description: str, timeout_diagnostic: object = None) -> None:
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
-            app.processEvents(); app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-            if predicate():
+            if (app.processEvents(), predicate())[1]:
                 return
+            app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
             time.sleep(0.02)
         raise AssertionError(timeout_diagnostic() if callable(timeout_diagnostic) else f"native YASB lifecycle timeout: {description}")
     def current_tooltip(widget: object) -> str: return widget._widget_container._tooltip_filter.tooltip_text
