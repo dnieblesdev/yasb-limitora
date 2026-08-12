@@ -162,30 +162,21 @@ def test_r10_admission_contract_rejects_launcher_ambiguity_spaces_path_drift_and
 
 
 def test_r10_native_experience_contract_is_declared() -> None:
-    root = Path(__file__).parents[1]
-    source = Path(__file__).read_text(encoding="utf-8")
-    workflow = (root / ".github/workflows/windows-proof.yml").read_text(encoding="utf-8")
-    wrapper = (root / ".github/workflows/windows-proof-functions.ps1").read_text(encoding="utf-8")
-    required_source = (
-        "test_native_yasb_customwidget_lifecycle_and_recovery",
-        "QApplication",
-        "CustomWidget",
-        "QTimer",
-        "CSSProcessor",
-        "valid_to_malformed_to_valid",
-        "tooltip_text",
-        "r10-yasb-experience.json",
-    )
+    root = Path(__file__).parents[1]; source = Path(__file__).read_text(encoding="utf-8"); workflow = (root / ".github/workflows/windows-proof.yml").read_text(encoding="utf-8"); wrapper = (root / ".github/workflows/windows-proof-functions.ps1").read_text(encoding="utf-8")
+    required_source = ("test_native_yasb_customwidget_lifecycle_and_recovery", "QApplication", "CustomWidget", "QTimer", "CSSProcessor", "valid_to_malformed_to_valid", "tooltip_text", "r10-yasb-experience.json")
     assert all(marker in source for marker in required_source)
-    assert "from core.utils.css_processor import CSSProcessor" in source
-    assert "app." + "setStyleSheet(css_text)" not in source
-    assert "QT_QPA_PLATFORM: offscreen" not in workflow
-    assert "r10-yasb-experience.xml" in workflow
-    assert "Assert-R10ExperienceEvidence" in wrapper
-    assert wrapper.count("not native_yasb_customwidget_lifecycle_and_recovery") >= 2
+    assert "from core.utils.css_processor import CSSProcessor" in source and "from PyQt6.QtGui import QGuiApplication" in source and ("from PyQt6.QtCore import " + "QEvent, QGuiApplication") not in source
+    assert "app." + "setStyleSheet(css_text)" not in source and "QT_QPA_PLATFORM: offscreen" not in workflow and "r10-yasb-experience.xml" in workflow
+    assert "Assert-R10ExperienceEvidence" in wrapper and wrapper.count("not native_yasb_customwidget_lifecycle_and_recovery") >= 2
     assert re.search(r'\$Mode -eq "selected".*?else.*?"-k", "not native_yasb_customwidget_lifecycle_and_recovery"', wrapper, re.S)
-    assert all(marker in wrapper for marker in ("primary_label", "alternate_label", "malformed_tooltip", "launcher_paths", "final_real_qtimer_refresh", "worker_threads_terminated", "subprocesses_terminated", "timer_inactive", "worker_deleted"))
+    assert all(marker in wrapper for marker in ("primary_label", "alternate_label", "malformed_tooltip", "launcher_paths", "final_real_qtimer_refresh", "worker_threads_terminated", "subprocesses_terminated", "timer_inactive", "worker_deleted", "Get-R10JUnitDiagnostic", "--junitxml=", "diagnostics withheld", "password", "240"))
     start = source.rfind("    def cleanup_widget"); cleanup = source[start:source.index("    real_before =", start)]; assert all(token in cleanup for token in ("process.terminate()", "process.kill()", "subprocess.TimeoutExpired")) and cleanup.index("process.terminate()") < cleanup.index("thread.join(timeout=5)") ; assert source.index("cleanup_observed = cleanup_widget()") < source.index('"lifecycle": [')
+
+
+def test_r10_junit_secret_redaction_contract_handles_adversarial_values() -> None:
+    wrapper = (Path(__file__).parents[1] / ".github/workflows/windows-proof-functions.ps1").read_text(encoding="utf-8"); pattern = r"(?i)\b(?:password|passwd|credential|api[_-]?key|authorization|cookie|token|secret)\b[ \t]*[:=][ \t]*(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|[^,;\r\n]*)"; assert pattern.replace('\\"', '"') in wrapper.replace("''", "'")
+    redact = lambda value: re.sub(pattern, "[REDACTED]", value); cases = ("authorization=Bearer SECRET multi token", 'password = "quoted SECRET value"', "api_key='quoted SECRET value'; context=kept", "api-key=SECRET, context=kept", "cookie=SECRET; context=kept\nline=kept", "token=SECRET secret=SECOND", "passwd=SECRET, credential=\"SECOND\"")
+    assert all("SECRET" not in redact(value) and "SECOND" not in redact(value) and "[REDACTED]" in redact(value) for value in cases) and re.sub(r"\s+", " ", redact(cases[2])).endswith("; context=kept") and re.sub(r"\s+", " ", redact(cases[4])).endswith("; context=kept line=kept")
 
 
 @pytest.mark.skipif(os.name != "nt", reason="R10 native admission requires Windows")
@@ -246,7 +237,8 @@ def test_native_yasb_customwidget_lifecycle_and_recovery(tmp_path: Path) -> None
     assert hashlib.sha256((source_root / "core/widgets/yasb/custom.py").read_bytes()).hexdigest() == _R10_YASB_MODULE_SHA256
 
     from PyQt6 import sip
-    from PyQt6.QtCore import QEvent, QGuiApplication
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtGui import QGuiApplication
     from PyQt6.QtWidgets import QApplication
     from core.utils.css_processor import CSSProcessor
     from yaml import safe_load

@@ -26,6 +26,14 @@ function ConvertTo-R10ProcessArgument([string]$argument) {
   return '"' + (($argument -replace '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"'
 }
 
+function Get-R10JUnitDiagnostic([string[]]$Arguments) {
+  try {
+    $known = @("r10-admission.xml", "r10-yasb-experience.xml"); $paths = @($Arguments | % { $m = [regex]::Match($_, '^--junitxml=(?<path>[^\\/:]+\.xml)$'); if ($m.Success) { $m.Groups.path.Value } }); if ($paths.Count -ne 1 -or $paths[0] -notin $known -or -not (Test-Path -LiteralPath $paths[0] -PathType Leaf)) { return "diagnostics withheld" }
+    $r = [xml](Get-Content -LiteralPath $paths[0] -Raw -ErrorAction Stop); $c = @(@($r.testsuites.testsuite) + @($r.testsuite) | % { $_.testcase } | ? { $null -ne $_.failure -or $null -ne $_.error } | select -First 1); if ($null -eq $c) { return "diagnostics withheld" }; $n = if ($null -ne $c.failure) { $c.failure } else { $c.error }; $raw = "$($n.message) $($n.InnerText)"; $lm = [regex]::Match($raw, '(?i)(?:[A-Za-z]:[\\/]|/|tests[\\/])[^:\r\n]+:(?<line>[0-9]{1,6})(?::[0-9]+)?'); if (!$lm.Success) { return "diagnostics withheld" }
+    $s = { param($v) $v = [regex]::Replace([string]$v, '(?i)\b(?:password|passwd|credential|api[_-]?key|authorization|cookie|token|secret)\b[ \t]*[:=][ \t]*(?:"[^"\r\n]*"|''[^''\r\n]*''|[^,;\r\n]*)', '[REDACTED]'); [regex]::Replace([regex]::Replace($v, '(?i)[A-Za-z]:[\\/][^\s"''<>;]+|(?<![\w])/(?:[^\s"''<>;]+/)+[^\s"''<>;]*', '[PATH]'), '\s+', ' ').Trim() }; $d = "R10 diagnostic: test=$(&$s $c.name); line=$($lm.Groups.line.Value); message=$(&$s $raw)"; if ($d.Length -gt 240) { $d = $d.Substring(0, 240) }; return $d
+  } catch { return "diagnostics withheld" }
+}
+
 function Invoke-R10CheckedPython {
   param([string]$Label, [string[]]$Arguments, [int]$TimeoutSeconds = 180)
   $root = Join-Path $env:RUNNER_TEMP "r10-checked-python"
@@ -47,7 +55,7 @@ function Invoke-R10CheckedPython {
       if ($remaining.Count) { throw "$Label timed out; process-tree termination unconfirmed; diagnostics withheld" }
       throw "$Label timed out; diagnostics withheld"
     }
-    if ($process.ExitCode -ne 0) { throw "$Label failed; exit=$($process.ExitCode); diagnostics withheld" }
+    if ($process.ExitCode -ne 0) { throw "$Label failed; exit=$($process.ExitCode); $(Get-R10JUnitDiagnostic $Arguments)" }
     return $process.ExitCode
   } catch {
     if ($_.Exception.Message -like "$Label failed*" -or $_.Exception.Message -like "$Label timed out*") { throw }
