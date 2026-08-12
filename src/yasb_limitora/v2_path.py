@@ -158,27 +158,31 @@ def _bounded_file_read(path: str, context) -> bytes:
         process = process_context.Process(target=_file_read_child, args=(path, authorized, output))
         process.start()
         if os.name == "nt":
-            job = __import__("yasb_limitora.isolation.windows_job", fromlist=["WindowsJobBoundary"]).WindowsJobBoundary()
-            job.assign_process(process.pid)
+            windows_job = __import__("yasb_limitora.isolation.windows_job", fromlist=["WindowsJobBoundary"])
+            job = windows_job.WindowsJobBoundary()
+            if job.is_process_externally_contained(process.pid):
+                job.close_with_deadline(context)
+                job = None
+            else:
+                job.assign_process(process.pid)
         authorized.set()
         process.join(min(context.usable_ns() / 1_000_000_000, 0.1))
-        if process.is_alive():
-            try:
-                success, data = output.get(timeout=context.usable_ns() / 1_000_000_000)
-            except queue.Empty:
-                if job is not None:
-                    job.close_with_deadline(context)
-                else:
-                    process.terminate()
-                    process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
-                raise V2DeadlineError("configuration deadline exhausted")
-            process.join(max(0.0, context.usable_ns() / 1_000_000_000))
-        else:
-            success, data = output.get_nowait()
+        try:
+            success, data = output.get(timeout=context.usable_ns() / 1_000_000_000)
+        except queue.Empty:
+            if job is not None:
+                job.close_with_deadline(context)
+                job = None
+            else:
+                process.terminate()
+                process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
+            raise V2DeadlineError("configuration deadline exhausted")
+        process.join(max(0.0, context.usable_ns() / 1_000_000_000))
         if process.is_alive():
             raise V2FileError("configuration read failed")
         if job is not None:
             job.close_with_deadline(context)
+            job = None
         _usable_or_fail(context)
         if not success or not isinstance(data, bytes):
             raise V2FileError("configuration read failed")
@@ -188,6 +192,11 @@ def _bounded_file_read(path: str, context) -> bytes:
     except Exception:
         raise V2FileError("configuration read failed") from None
     finally:
+        if job is not None:
+            try:
+                job.close_with_deadline(context)
+            except Exception:
+                pass
         if process is not None and process.is_alive():
             try:
                 process.terminate()

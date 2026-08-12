@@ -31,6 +31,7 @@ class FakeApi:
     def open_process(self, pid, access): self.calls.append(("open", pid, access)); return None if self.flags.get("open_fail") else "process"
     def is_process_in_job(self, process, job):
         self.calls.append(("in_job", job))
+        if job is None and self.flags.get("probe_query_error"): raise OSError("probe failed")
         if job is None: return bool(self.flags.get("nested"))
         return not self.flags.get("post_check_fail")
     def assign(self, job, process): self.calls.append("assign"); return not self.flags.get("assign_fail")
@@ -45,6 +46,7 @@ class FakeApi:
         self.calls.append(("wait", handle, timeout_ms)); return self.wait_results.pop(0) if self.wait_results else self.flags.get("wait_result", WAIT_OBJECT_0)
     def close(self, handle):
         self.closed.append(handle)
+        if self.flags.get("close_error") == handle: raise OSError("close failed")
         if self.flags.get("close_fail_once") == handle:
             self.flags["close_fail_once"] = None
             return False
@@ -67,12 +69,28 @@ def test_abi_structures_and_non_windows_fail_closed() -> None:
 def test_access_mask_and_containment_order_before_authorization() -> None:
     api = FakeApi()
     job = boundary(api)
+    assert not job.is_process_externally_contained(42) and api.closed == ["process"]
     job.assign_process(42)
     assert next(call for call in api.calls if isinstance(call, tuple) and call[0] == "open") == ("open", 42, PROCESS_ACCESS)
     assert PROCESS_ACCESS == PROCESS_TERMINATE | PROCESS_SET_QUOTA | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE
     assert api.calls.index("assign") < api.calls.index(("in_job", "job")) < api.calls.index("query")
     job.authorize()
     assert job.state is JobState.AUTHORIZED
+def test_probe_close_success_returns_verdict() -> None:
+    api = FakeApi(); job = boundary(api)
+    assert job.is_process_externally_contained(42) is False and job.probe_process is None and api.closed == ["process"]
+@pytest.mark.parametrize("flags", [{"close_fail_once": "process"}, {"close_error": "process"}])
+def test_probe_close_failure_is_fail_closed_and_retried(flags: dict[str, object]) -> None:
+    api = FakeApi(**flags); job = boundary(api)
+    with pytest.raises(JobError) as error: job.is_process_externally_contained(42)
+    assert error.value.code is CLEANUP_ERROR and job.probe_process == "process"
+    api.flags.pop("close_error", None)
+    job.close(1.0); assert job.state is JobState.CLOSED and api.closed.count("process") == 2
+@pytest.mark.parametrize("flags, code", [({"probe_query_error": True}, JobErrorCode.INTERNAL_ERROR), ({"probe_query_error": True, "close_fail_once": "process"}, CLEANUP_ERROR)])
+def test_probe_query_error_preserves_precedence_only_after_cleanup(flags: dict[str, object], code: JobErrorCode) -> None:
+    api = FakeApi(**flags); job = boundary(api)
+    with pytest.raises(JobError) as error: job.is_process_externally_contained(42)
+    assert error.value.code is code and (job.probe_process == "process" if flags.get("close_fail_once") else job.probe_process is None)
 @pytest.mark.parametrize("flags, code", [
     ({"assign_fail": True}, JobErrorCode.ASSIGNMENT_FAILED),
     ({"post_check_fail": True}, JobErrorCode.ASSIGNMENT_FAILED),
