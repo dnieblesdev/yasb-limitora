@@ -425,6 +425,61 @@ def test_executor_returns_the_rich_child_result_after_authenticated_dispatch(mon
     assert b'"nonce":"nonce"' in writes[0]
 
 
+def test_executor_preserves_decoded_snapshot_when_supervisor_cleanup_fails(monkeypatch):
+    expected = _rich_view()
+
+    class Transport:
+        def write_control(self, payload, *, timeout_seconds):
+            pass
+
+        def read_response(self, timeout_seconds):
+            return _payload(expected)
+
+    monkeypatch.setattr("yasb_limitora.codex_helper._PersistentTransport", lambda *args, **kwargs: Transport())
+
+    def factory(**kwargs):
+        kwargs["transport_factory"](1, 2, nonblocking=True)
+
+        def close(timeout):
+            raise RuntimeError("private cleanup detail")
+
+        return SimpleNamespace(_nonce=b"nonce", acquire=lambda: None, close=close)
+
+    executor = CodexHelperExecutor(factory)
+    assert executor.run((r"C:\codex.exe", "app-server")) == expected
+    assert executor._pending_supervisor is not None
+
+
+def test_deadline_executor_preserves_decoded_snapshot_when_cleanup_fails(monkeypatch):
+    expected = _rich_view()
+
+    class Transport:
+        def write_control_with_deadline(self, payload, *, context):
+            pass
+
+        def read_response_with_deadline(self, context):
+            return _payload(expected)
+
+    monkeypatch.setattr("yasb_limitora.codex_helper._PersistentTransport", lambda *args, **kwargs: Transport())
+
+    def factory(**kwargs):
+        kwargs["transport_factory"](1, 2, nonblocking=True)
+
+        def close_with_deadline(context):
+            raise RuntimeError("private cleanup detail")
+
+        return SimpleNamespace(
+            _nonce=b"nonce",
+            acquire_with_deadline=lambda context: None,
+            close_with_deadline=close_with_deadline,
+        )
+
+    executor = CodexHelperExecutor(factory)
+    result = executor.run_with_deadline((r"C:\codex.exe", "app-server"), DeadlineContext.from_seconds(1))
+    assert result == expected
+    assert executor._pending_supervisor is not None
+
+
 @pytest.mark.parametrize(
     ("view", "state", "outcome"),
     (

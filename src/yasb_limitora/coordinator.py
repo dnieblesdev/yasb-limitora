@@ -102,7 +102,7 @@ class RuntimeCoordinator:
             runner = config.codex.runner
             executor = self._codex
             calls[ProviderKey.CODEX] = _Invocation(
-                ProviderKey.CODEX, lambda: executor.run((runner,)), config.codex.timeout_seconds
+                ProviderKey.CODEX, lambda: executor.run((runner, "app-server")), config.codex.timeout_seconds
             )
 
         workspace = config.opencode_go.workspace_id

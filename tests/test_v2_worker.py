@@ -1,12 +1,28 @@
 import io
 import json
 import queue
+from datetime import datetime, timezone
+from decimal import Decimal
 
 import pytest
 
 from yasb_limitora.cli import main
 from yasb_limitora.config import LocalConfig
-from yasb_limitora.model import ProviderKey, ProviderOutcome, ProviderState, ProviderView, SafeErrorCode
+from yasb_limitora.model import (
+    ProviderKey,
+    ProviderOutcome,
+    ProviderSnapshotView,
+    ProviderState,
+    ProviderView,
+    PublicProviderState,
+    QuotaAvailability,
+    QuotaMetricKind,
+    QuotaQuantity,
+    QuotaWindowKind,
+    QuotaWindowView,
+    SafeErrorCode,
+    SnapshotFreshness,
+)
 from yasb_limitora.v2_deadline import DeadlineContext
 from yasb_limitora.v2_worker import V2ExecutionOrchestrator, WorkerRecord, cleanup_complete
 
@@ -167,10 +183,30 @@ def test_orchestrator_preserves_outcomes_when_mutex_cleanup_fails():
     events, lease = [], Lease([], close=False)
     lease.events = events
     config = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": r"C:\codex.exe"}, "opencode_go": {}})
-    executor = type("Executor", (), {"run_with_deadline": lambda self, runner, deadline: ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED)})()
+    now = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    snapshot = ProviderSnapshotView(
+        PublicProviderState.PARTIAL,
+        SnapshotFreshness.FRESH,
+        now,
+        now,
+        now,
+        "codex-app-server-v2",
+        (QuotaWindowView(
+            QuotaWindowKind.COMMERCIAL_QUOTA,
+            "account",
+            "weekly",
+            None,
+            QuotaAvailability.KNOWN,
+            "codex-app-server-v2",
+            remaining=QuotaQuantity(Decimal("75"), QuotaMetricKind.COMMERCIAL_QUOTA, "percentage_points"),
+        ),),
+    )
+    expected = ProviderView(ProviderKey.CODEX, ProviderState.SUCCESS, outcome=ProviderOutcome.SNAPSHOT, snapshot=snapshot)
+    executor = type("Executor", (), {"run_with_deadline": lambda self, runner, deadline: expected})()
     document = V2ExecutionOrchestrator(guard_factory=lambda: Guard(lease), codex_executor=executor).run(config, {}, context(), r"C:\config.json")
     assert document.document_error.code.value == "cleanup_failed"
-    assert tuple(view.outcome for view in document.providers) == (ProviderOutcome.UNDETECTED, ProviderOutcome.NOT_RUN)
+    assert document.providers[0] == expected
+    assert document.providers[1].outcome is ProviderOutcome.NOT_RUN
     assert events == ["release-mutex", "close-mutex"]
 
 

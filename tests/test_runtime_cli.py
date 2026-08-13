@@ -35,8 +35,9 @@ def view(provider, state=ProviderState.SUCCESS, code=None, display_label=None):
 
 class Codex:
     def __init__(self, result):
-        self.result = result
+        self.result, self.runners = result, []
     def run(self, runner):
+        self.runners.append(runner)
         return self.result
 
 
@@ -48,12 +49,14 @@ def enabled_config(codex=True, opencode=True, timeout=0.2):
 
 
 def test_coordinator_preserves_mixed_outcomes_and_fixed_order():
+    codex = Codex(view(ProviderKey.CODEX))
     document = RuntimeCoordinator(
-        Codex(view(ProviderKey.CODEX)),
+        codex,
         lambda workspace, environment: view(ProviderKey.OPENCODE_GO, ProviderState.SAFE_ERROR, SafeErrorCode.PROVIDER_ERROR),
     ).run(enabled_config(), {"LIMITORA_AUTH_COOKIE": "cookie"})
     assert tuple(v.provider for v in document.providers) == (ProviderKey.CODEX, ProviderKey.OPENCODE_GO)
     assert tuple(v.state for v in document.providers) == (ProviderState.SUCCESS, ProviderState.SAFE_ERROR)
+    assert codex.runners == [(r"C:\codex.exe", "app-server")]
 
 
 def test_coordinator_retries_retained_codex_cleanup_before_next_normal_invocation(monkeypatch):
@@ -330,7 +333,11 @@ class _MatrixGuard:
 
 
 class _MatrixCodex:
+    def __init__(self):
+        self.runners = []
+
     def run_with_deadline(self, runner, context):
+        self.runners.append(runner)
         return ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED)
 
 
@@ -363,9 +370,10 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
         expected = project_v2_not_run_bytes(scenario)
         expected_stderr = "yasb-limitora: runtime_error\n"
     else:
+        codex = _MatrixCodex()
         orchestrator = V2ExecutionOrchestrator(
             guard_factory=lambda: _MatrixGuard(lease=_MatrixLease(close=False)),
-            codex_executor=_MatrixCodex(),
+            codex_executor=codex,
         )
         expected_document = DocumentView.ordered(
             ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED),
@@ -383,3 +391,5 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
     assert stdout.getvalue() == expected
     assert stdout.getvalue().endswith(b"\n") and not stdout.getvalue().endswith(b"\n\n")
     assert stderr.getvalue() == expected_stderr
+    if scenario == "cleanup_failed":
+        assert codex.runners == [(r"C:\\codex.exe", "app-server")]

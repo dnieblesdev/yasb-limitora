@@ -288,7 +288,7 @@ class CodexHelperExecutor:
             transport_box.append(transport)
             return transport
 
-        supervisor, result = None, _error(SafeErrorCode.INTERNAL_ERROR)
+        supervisor, result, decoded = None, _error(SafeErrorCode.INTERNAL_ERROR), False
         try:
             supervisor = self._factory(
                 command=(sys.executable, "-I", "-E", "-c", _CHILD_BOOTSTRAP),
@@ -309,6 +309,11 @@ class CodexHelperExecutor:
                 return _error(SafeErrorCode.INVOCATION_INVALID)
             transport.write_control(struct.pack(">I", len(request)) + request, timeout_seconds=self._timeout)
             result = _decode(transport.read_response(self._timeout))
+            decoded = result.outcome in (
+                ProviderOutcome.SNAPSHOT,
+                ProviderOutcome.UNDETECTED,
+                ProviderOutcome.NOT_RUN,
+            )
         except (_TransportTimeout, TimeoutError):
             result = _error(SafeErrorCode.TIMEOUT)
         except Exception:  # noqa: BLE001 - map unknown worker failures safely
@@ -320,7 +325,8 @@ class CodexHelperExecutor:
                 except Exception:  # noqa: BLE001 - cleanup failure is a safe error
                     with self._lifecycle:
                         self._pending_supervisor = supervisor
-                    result = _error(SafeErrorCode.INTERNAL_ERROR)
+                    if not decoded:
+                        result = _error(SafeErrorCode.INTERNAL_ERROR)
             with self._lifecycle:
                 self._active = False
         return result
@@ -355,7 +361,7 @@ class CodexHelperExecutor:
             transport_box.append(transport)
             return transport
 
-        supervisor, result = None, _error(SafeErrorCode.INTERNAL_ERROR)
+        supervisor, result, decoded = None, _error(SafeErrorCode.INTERNAL_ERROR), False
         try:
             supervisor = self._factory(
                 command=(sys.executable, "-I", "-E", "-c", _CHILD_BOOTSTRAP),
@@ -373,6 +379,11 @@ class CodexHelperExecutor:
                 return _error(SafeErrorCode.INVOCATION_INVALID)
             transport.write_control_with_deadline(struct.pack(">I", len(request)) + request, context=context)
             result = _decode(transport.read_response_with_deadline(context))
+            decoded = result.outcome in (
+                ProviderOutcome.SNAPSHOT,
+                ProviderOutcome.UNDETECTED,
+                ProviderOutcome.NOT_RUN,
+            )
         except (_TransportTimeout, TimeoutError):
             result = _error(SafeErrorCode.TIMEOUT)
         except Exception:
@@ -384,7 +395,8 @@ class CodexHelperExecutor:
                 except Exception:
                     with self._lifecycle:
                         self._pending_supervisor = supervisor
-                    result = _error(SafeErrorCode.INTERNAL_ERROR)
+                    if not decoded:
+                        result = _error(SafeErrorCode.INTERNAL_ERROR)
             with self._lifecycle:
                 self._active = False
         return result
