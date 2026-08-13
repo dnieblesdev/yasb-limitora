@@ -151,6 +151,16 @@ compact/alternate labels and tooltip. Native widget code, popovers, tabs,
 interactive progress, dynamic state CSS, and subprocess termination are not
 part of this runtime boundary.
 
+### Executable discovery
+
+The bare `yasb-limitora` command in the documented
+`run_cmd: "yasb-limitora --output-version 2"` form requires YASB
+to inherit a user `PATH` that contains the installed console script. After
+installing or changing that user `PATH`, restart YASB so its process receives
+the updated environment. A fully qualified executable may be used locally as a
+diagnostic or workaround when investigating PATH inheritance; machine-specific
+paths must not be published in configuration, documentation, or issue logs.
+
 ## Verified limitations and troubleshooting
 
 - Native Job Object and descendant cleanup require native Windows. Linux and

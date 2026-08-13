@@ -43,6 +43,10 @@ def test_scoped_docs_declare_one_bounded_windows_only_contract():
 
     assert "yasb-limitora" in combined and "python -m yasb_limitora" in combined
     assert re.search(r"both public CLI routes|installed console route.*python -m yasb_limitora", combined, re.IGNORECASE | re.DOTALL)
+    assert "bare `yasb-limitora` command" in combined
+    assert "user `PATH`" in combined and "restart YASB" in combined
+    assert re.search(r"fully qualified executable.{0,160}(?:diagnostic|workaround)", combined, re.IGNORECASE | re.DOTALL)
+    assert re.search(r"machine-specific\s+paths?", combined, re.IGNORECASE)
 
     for path in STATUS_DOCUMENTS:
         context = _r10_context(texts[path]).lower()

@@ -180,7 +180,8 @@ class V2ExecutionOrchestrator:
                 if executor not in self.codex_helpers:
                     self.codex_helpers.append(executor)
                 run = getattr(executor, "run_with_deadline", None)
-                views[ProviderKey.CODEX] = run((config.codex.runner,), context) if run else executor.run((config.codex.runner,))
+                runner = (config.codex.runner, "app-server")
+                views[ProviderKey.CODEX] = run(runner, context) if run else executor.run(runner)
             if result is None and ProviderKey.OPENCODE_GO in enabled:
                 worker = self.opencode_factory()
                 self.workers.append(worker)

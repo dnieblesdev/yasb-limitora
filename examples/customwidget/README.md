@@ -10,12 +10,18 @@ widget runtime, provider logic, quota calculations, or CSS state machine.
 2. Merge the named `limitora_r9` entry from `customwidget.yaml` into YASB's
    `widgets:` map, then add `limitora_r9` to the desired bar widget list.
 3. Copy or merge `styles.css` into the YASB stylesheet.
-4. Restart YASB and confirm that the label and tooltip show the CLI output.
+4. Ensure YASB inherits the user `PATH` containing `yasb-limitora`, restart YASB,
+   and confirm that the label and tooltip show the CLI output.
 
 The installation advice is provisional. It is not an R11 release, packaging,
 or automatic-installation contract. The command in the YAML is the real CLI;
 the JSON files in `fixtures/` are validation-only documents and are not
 executable commands.
+
+The bare `yasb-limitora` command depends on YASB inheriting the updated user
+`PATH`; restart YASB after installing or changing PATH. A fully qualified
+executable is only a local diagnostic/workaround for PATH troubleshooting. Do
+not commit or publish a machine-specific path.
 
 ## What the YAML renders
 
