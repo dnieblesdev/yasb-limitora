@@ -50,9 +50,20 @@ def test_scoped_docs_declare_one_bounded_windows_only_contract():
 
     for path in STATUS_DOCUMENTS:
         context = _r10_context(texts[path]).lower()
-        assert "automated" in context and "manual" in context
-        assert "native" in context or "cli/json v2" in context
-        assert "automated yasb" in context or "automated y" in context or "no automated" in context
+        assert "automated" in context
+        assert re.search(r"\b(?:cli|executable)\b", context, re.IGNORECASE)
+        assert re.search(r"\bjson\s+v2\b", context, re.IGNORECASE)
+        assert re.search(
+            r"\bmaintainer(?:'s)?\s+manual\s+acceptance\b|\baccepted\s+manually\s+by\s+the\s+maintainer\b",
+            context,
+            re.IGNORECASE,
+        )
+        assert re.search(r"\breal\s+yasb\b", texts[path], re.IGNORECASE)
+        assert re.search(
+            r"\bno\s+automated\s+yasb\s+(?:rendering|e2e)\b|\bdoes\s+not\s+claim\s+automated\s+yasb\s+(?:rendering|e2e)\b",
+            context,
+            re.IGNORECASE | re.DOTALL,
+        )
 
     assert re.search(r"R1-R10.{0,100}complete", texts[ROOT / "README.md"], re.IGNORECASE | re.DOTALL)
     assert re.search(r"R1-R10.{0,100}(?:evidenced|complete)", texts[ROOT / "docs/architecture/README.md"], re.IGNORECASE | re.DOTALL)
