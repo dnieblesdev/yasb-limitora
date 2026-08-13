@@ -49,7 +49,8 @@ are strict JSON v2 validation inputs with safe presentation strings. They do
 not contain process exit codes or stderr metadata, and they are not a runtime
 proof of YASB rendering.
 
-R9 validates repository artifacts and the documented data boundary only. R10
-owns real YASB/Windows integration and live-provider proof. R11 owns release,
-installation, and packaging contracts. This example claims none of those
-proofs.
+R9 validated repository artifacts and the documented data boundary. R10 is now
+complete through automated native CLI/JSON proof and maintainer manual
+acceptance of the real YASB CustomWidget. This example does not claim automated
+YASB rendering or OpenCode real-provider acceptance. R11 owns release,
+installation, and packaging contracts.

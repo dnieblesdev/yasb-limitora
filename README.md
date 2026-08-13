@@ -5,9 +5,11 @@
 [Limitora](https://github.com/dnieblesdev/limitora) API and never makes provider
 calls from YASB.
 
-> **Current status:** R1-R9 are evidenced complete. R10-related integration work is
-> historical, reverted, and non-authoritative; it is not proof of this boundary or
-> of Windows integration. The current CLI enforces the Windows-only product boundary.
+> **Current status:** R1-R10 are complete. R10 has two truthful proof boundaries:
+> automated native Windows proof of the `yasb-limitora` CLI/JSON v2 contract, and
+> maintainer manual acceptance of the real YASB CustomWidget on YASB v2.0.6. This
+> does not claim automated YASB rendering or external YASB E2E support. The current
+> CLI enforces the Windows-only product boundary.
 
 ## Runtime support boundary
 
@@ -90,7 +92,8 @@ artifacts.
 - [`docs/research/README.md`](docs/research/README.md): verified CustomWidget
   and Limitora evidence.
 - [`docs/specifications/json-v2.md`](docs/specifications/json-v2.md): normative
-  R2 contract, acceptance criteria, and historical R2/R10 scope notes.
+  R2 contract, acceptance criteria, and the historical abandoned-harness boundary
+  alongside the completed R10 proof split.
 - [`docs/specifications/json-v2.schema.json`](docs/specifications/json-v2.schema.json):
   structural machine-checkable support for the normative specification.
 
@@ -109,9 +112,11 @@ not authorize native YASB implementation work.
 
 ## Roadmap gate
 
-R1-R9 are the evidenced product units recorded in
-[`docs/roadmap.md`](docs/roadmap.md). R10 remains a separate, non-authoritative
-historical/reverted integration effort and has no completion or proof claim.
+R1-R10 are the completed product units recorded in
+[`docs/roadmap.md`](docs/roadmap.md). Automated proof covers the native
+`yasb-limitora` CLI/JSON v2 boundary; the maintainer accepted the real YASB
+CustomWidget behavior manually. The abandoned R10 automation harness remains
+historical context only, and no automated YASB rendering claim is made.
 
 ## License
 

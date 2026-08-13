@@ -2,7 +2,7 @@
 
 This is the product source of truth for the approved R1-R11 order. The 0.2
 integration is exclusively `YASB CustomWidget -> yasb-limitora CLI / JSON v2 ->
-Limitora public API`. R1-R9 are complete. R6 implementation and runtime
+Limitora public API`. R1-R10 are complete. R6 implementation and runtime
 verification are complete at the exact pre-closeout integration candidate
 `352e8f03c4f877a877de8b2e0b2d3b10e815fa27`; final publication is merged to
 `main` at `30c94d00f780b597644c1494833d4dd50738556b`.
@@ -27,8 +27,8 @@ runtime portability or Windows integration proof.
 | R7 | Resolve default Windows configuration | Add the accepted default Windows configuration resolution | Complete — merged to `main` at `2850169` |
 | R8 | Add the cross-process execution guard | Add bounded guard acquisition, deadlines, and cleanup behavior | Complete — merged to `main` at `5bee184` |
 | R9 | Package CustomWidget examples and static CSS | Package the CustomWidget examples and static presentation assets | Complete — merged to `main` at `2d529ae` |
-| R10 | Prove pinned YASB integration on Windows | Validate the pinned YASB CustomWidget integration on Windows | Not complete — historical/reverted and non-authoritative; requires a new approved unit |
-| R11 | Release and smoke-test 0.2.0 | Complete release readiness and the final smoke test | Deferred until a separately authorized R10 proof |
+| R10 | Prove pinned YASB integration on Windows | Validate the YASB CustomWidget integration on Windows | Complete — automated native CLI/JSON proof plus maintainer manual YASB acceptance |
+| R11 | Release and smoke-test 0.2.0 | Complete release readiness and the final smoke test | Next, gated by #130 and the released Limitora dependency/manual OpenCode acceptance |
 
 ## Official architecture
 
@@ -262,9 +262,37 @@ provider, guard, JSON-v2 contract, packaging, R10, or R11 behavior changed.
 - Planning, Slice A, Slice B, and final fixture Judgment Day gates are
   approved after bounded corrections, with no open BLOCKER or CRITICAL.
 
-R10 remains a separate historical/reverted effort with no authoritative
-completion, Windows-integration, or boundary-proof claim. A new R10 attempt
-requires a new approved unit and fresh evidence; R11 remains deferred.
+## R10 closeout
+
+R10 is complete through approved parent issue #124, merged implementation PRs
+#128 and #131, and the maintainer's manual acceptance record. The closeout has
+two explicit proof boundaries, and makes no automated YASB rendering claim:
+
+- Automated native Windows proof owns the installed `yasb-limitora` CLI and JSON
+  v2 contract. PR #128 established the native contract boundary at merge
+  `a1e25a8`. PR #131 fixed the live Codex execution boundary at merge
+  `2254c66`; native CI run [31660883600](../../actions/runs/31660883600)
+  passed the selected 10 checks and the full suite (379 passed, 4 skipped),
+  retained checkpoint 9, and confirmed clean process-tree termination and
+  streams.
+- Real YASB behavior was accepted manually by the maintainer in [#124](../../issues/124#issuecomment-5275489518)
+  using YASB v2.0.6, an accepted minor-version deviation from the original
+  v2.0.5 plan. Primary label, alternate label, multiline tooltip, static CSS,
+  120-second refresh, and disabled fallback all passed from a clean `main`
+  installation. The final configuration returned both providers to disabled.
+
+This closeout does not claim automated YASB rendering, an external YASB E2E
+harness, or OpenCode real-provider acceptance. The earlier unsupported
+automation harness remains historical context only. OpenCode Bearer API
+migration #130 is the next R11 dependency and must be completed and manually
+accepted in real YASB before R11 release readiness; #62 remains the broader
+release and smoke-test gate.
+
+## Current gate
+
+R1-R10 are complete. R11 is next, gated by the released Limitora dependency,
+approved OpenCode migration #130, and separate manual OpenCode acceptance in a
+real YASB installation. No R11 release claim is made here.
 
 ## Explicit exclusions for 0.2
 

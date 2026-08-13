@@ -15,7 +15,8 @@ The product runtime is Windows-only. The installed console route and
 non-Windows invocation with exit `2`, exact stderr
 `yasb-limitora: unsupported_platform\n`, and zero stdout bytes before argv,
 environment, configuration, provider, native-process, or clock activity.
-Hermetic test injection does not offer non-Windows compatibility or prove R10.
+Hermetic test injection does not offer non-Windows compatibility or replace the
+separate R10 automated native proof and maintainer manual YASB acceptance.
 
 ## 1. Normative Language
 
@@ -34,8 +35,9 @@ NOT silently coerce unknown states, floats, duplicate keys, or trailing data.
 
 The R2 review was a specification and test unit: it did not authorize changes
 to `src/`, JSON v2 execution, a native YASB widget, or a v1 runtime change.
-That historical review boundary does not describe the later R3-R9 runtime
-closeouts. No R10 completion or Windows-integration proof is asserted here.
+That historical review boundary does not describe the later R3-R10 runtime
+closeouts. This specification is not itself the R10 evidence record; the
+roadmap records the completed automated native proof and manual YASB acceptance.
 
 ## 2. Scope and Invariants
 
@@ -818,18 +820,24 @@ current CustomWidget `stop()` behavior is not a process-termination primitive.
 
 ## 14. YASB Validation
 
-R9 repository-artifact proof is separate from the future R10 pinned-YASB
-integration proof; passing one does not substitute for the other. No R10 proof
-is claimed by this document.
+R10 is complete at two separate boundaries, with no automated YASB rendering
+claim. Automated native Windows proof
+covers the installed `yasb-limitora` executable, JSON v2 presentation leaves,
+exit behavior, sanitization, static YAML/CSS compatibility, and clean process
+termination. Real YASB CustomWidget behavior was accepted manually by the
+maintainer on YASB v2.0.6. Passing the repository proof does not substitute for
+manual acceptance, and manual acceptance does not claim automated YASB E2E.
 
-### 14.1 Deterministic integration
+### 14.1 Historical abandoned automation
 
-This section defines the future R10 acceptance shape. It is not evidence that
-R10 integration has been completed; R10-related work remains historical,
-reverted, and non-authoritative.
+The following subsection records an abandoned R10 automation proposal. Its MUST
+language described an unsupported external YASB harness and is not a current
+delivery requirement. It remains here only to preserve the malformed-JSON and
+stock-CustomWidget behavior that informed the final manual boundary.
 
-Run the real pinned YASB v2.0.5, its real `CustomWidget`, and a deterministic
-fixture executable. The fixture MUST cover:
+The abandoned proposal would have run the real pinned YASB v2.0.5, its real
+`CustomWidget`, and a deterministic fixture executable. The fixture was intended
+to cover:
 
 - complete snapshot;
 - partial snapshot;
@@ -838,7 +846,7 @@ fixture executable. The fixture MUST cover:
 - invalid JSON;
 - overlapping invocations and guard wait expiry.
 
-#### 14.1.1 Malformed JSON fallback
+#### 14.1.1 Malformed JSON fallback (historical proposal)
 
 The invalid-JSON case MUST use only stock pinned CustomWidget behavior and this
 copy-ready configuration. The fixture executable path contains no spaces so it
@@ -891,9 +899,11 @@ compatibility.
 
 ### 14.2 Live-provider smoke
 
-A separate opt-in smoke may use current Codex and OpenCode Go credentials. It
-MUST NOT be required for deterministic fixture proof and MUST NOT store or
-print credentials, cookies, workspace IDs, raw payloads, or private diagnostics.
+A separate opt-in smoke may use current Codex credentials, but it is not an
+automated YASB proof and must not be confused with OpenCode acceptance. OpenCode
+real-provider acceptance is deferred to approved migration #130 and the R11
+release gate. Credentials, cookies, workspace IDs, raw payloads, and private
+diagnostics must never be stored or printed.
 
 ## 15. Explicit Exclusions
 
@@ -947,8 +957,8 @@ The R2 review gate required:
   or explicit manual proof.
 
 That gate was subsequently passed. The old R3-blocked state is historical and
-does not override the current R1-R9 implementation status. R10 remains
-separate and unproven.
+does not override the current R1-R10 implementation status. R10's completion
+is recorded at the separate automated-native/manual-YASB boundaries above.
 
 ## 18. Complete Examples
 

@@ -20,9 +20,11 @@ before argument, configuration, provider, native-process, or clock activity.
 Linux, macOS, and WSL are not compatibility targets. Test-only predicate
 injection keeps supported-path tests hermetic without claiming Windows proof.
 
-R1-R9 are evidenced product work. Any R10 integration attempt is historical,
-reverted, and non-authoritative; this boundary does not claim R10 or Windows
-integration proof.
+R1-R10 are evidenced product work. R10's automated proof covers the native
+Windows CLI/JSON v2 boundary; the real YASB CustomWidget behavior was accepted
+manually by the maintainer on YASB v2.0.6. The abandoned automation harness is
+historical context only, and this boundary does not claim automated YASB E2E or
+automated YASB rendering.
 
 ## Ownership
 

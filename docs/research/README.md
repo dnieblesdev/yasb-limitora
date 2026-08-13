@@ -30,18 +30,21 @@ explicitly rejected.
 - A mutex serializes execution but does not coalesce requests or promise
   instantaneous process death when YASB closes.
 
-## Verification still required
+## Verification status and remaining gates
 
-R9 will validate the seam against pinned YASB v2.0.5 in two separate layers:
+R9 artifact validation is complete for the repository evidence and documented
+data boundary. The abandoned external YASB harness is historical context, not a
+current requirement, and must not be recreated.
 
-1. Deterministic integration with the real CustomWidget and a fixture
-   executable covering complete, partial, stale, window disappearance and
-   reappearance, invalid JSON, and overlapping invocations.
-2. A separate live-provider smoke for current Codex and OpenCode Go evidence.
+R10 is complete at two separate boundaries:
 
-Both layers must record the exact YASB version/commit, environment, commands,
-stdout/stderr, exit code, and bounded eventual process termination. Compatibility
-claims are limited to the pinned evidence; they are not indefinite support.
+1. Automated native Windows proof covers the `yasb-limitora` CLI and JSON v2
+   contract.
+2. The maintainer accepted the real YASB CustomWidget manually on YASB v2.0.6.
+
+OpenCode supported-API validation remains an R11 gate under migration #130. It
+requires a separate maintainer manual acceptance in a real YASB installation
+after that migration; it is not an R10 or automated-YASB-rendering claim.
 
 ## Rejected research paths
 
