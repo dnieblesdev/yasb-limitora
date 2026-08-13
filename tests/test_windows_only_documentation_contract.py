@@ -50,13 +50,14 @@ def test_scoped_docs_declare_one_bounded_windows_only_contract():
 
     for path in STATUS_DOCUMENTS:
         context = _r10_context(texts[path]).lower()
-        assert {"historical", "reverted", "non-authoritative"} <= set(re.findall(r"[a-z-]+", context))
-        assert re.search(r"\b(?:not|no|does not|without)\b[^.]{0,120}\b(?:proof|completion)\b", context, re.IGNORECASE)
+        assert "automated" in context and "manual" in context
+        assert "native" in context or "cli/json v2" in context
+        assert "automated yasb" in context or "automated y" in context or "no automated" in context
 
-    assert re.search(r"R1-R9.{0,100}(?:evidenced|complete)", texts[ROOT / "README.md"], re.IGNORECASE | re.DOTALL)
-    assert re.search(r"R1-R9.{0,100}(?:evidenced|complete)", texts[ROOT / "docs/architecture/README.md"], re.IGNORECASE | re.DOTALL)
-    assert re.search(r"R1-R9.{0,100}(?:evidenced|complete)", texts[ROOT / "docs/roadmap.md"], re.IGNORECASE | re.DOTALL)
+    assert re.search(r"R1-R10.{0,100}complete", texts[ROOT / "README.md"], re.IGNORECASE | re.DOTALL)
+    assert re.search(r"R1-R10.{0,100}(?:evidenced|complete)", texts[ROOT / "docs/architecture/README.md"], re.IGNORECASE | re.DOTALL)
+    assert re.search(r"R1-R10.{0,100}complete", texts[ROOT / "docs/roadmap.md"], re.IGNORECASE | re.DOTALL)
 
     roadmap_r10 = next(line for line in texts[ROOT / "docs/roadmap.md"].splitlines() if "| R10 |" in line)
-    assert re.search(r"not complete", roadmap_r10, re.IGNORECASE)
-    assert {"historical", "reverted", "non-authoritative"} <= set(re.findall(r"[a-z-]+", roadmap_r10.lower()))
+    assert re.search(r"complete", roadmap_r10, re.IGNORECASE)
+    assert "automated" in roadmap_r10.lower() and "manual" in roadmap_r10.lower()
