@@ -116,6 +116,16 @@ unknown, or absent source becomes `null`, and numeric quantities from a window
 without its provider-bound source MUST NOT remain trusted; the window is
 projected as unavailable with null quantities and reset.
 
+OpenCode `available`/`partial` snapshots contain exactly one commercial slot for
+each `five_hour`, `monthly`, and `weekly` period. Completion uses provider
+identity/state, not nullable root `source_id`: valid provider-bound numeric
+windows remain `known`; missing, duplicate, invalid, non-known, or extra
+commercial windows become fixed unavailable/null slots or are discarded, while
+non-commercial windows remain subject to the general rules. A `rate_limited`
+snapshot is provider-level HTTP 429 taxonomy, preserving only technical windows
+(including an empty array) without embedded per-window provenance; #55/#133
+remain deferred.
+
 ### 3.2 Window object
 
 Every item in `windows` has exactly these fields:
@@ -165,7 +175,7 @@ closed.
 
 | Outcome | Meaning | Public state/freshness | Window rule |
 |---------|---------|-----------------------|-------------|
-| `snapshot` | A provider call returned a validated public snapshot | Both are present and exact | Preserve all safe quota windows, including an empty array when none is present |
+| `snapshot` | A provider call returned a validated public snapshot | Both are present and exact | Preserve all safe quota windows; OpenCode `available`/`partial` snapshots use the fixed commercial slots defined in section 6 |
 | `undetected` | No usable provider source was detected | Both are `null`; no public provider state exists | `[]`; no snapshot context or raw detection message |
 | `not_run` | No provider call was attempted | Both are `null` | `[]`; `not_run_reason` is required |
 | `execution_error` | A provider call or provider-bound execution failed before a valid snapshot existed | Both are `null` | `[]`; sanitized `execution_error` is required |
@@ -321,10 +331,11 @@ The identity of a window is exactly:
 ```
 
 A provider MUST NOT emit two windows with the same identity, even when their
-plans or sources differ. Consumers MUST NOT assume a fixed number, name, or
-order of provider windows. An open/future `period` is valid when it meets the
-sanitized string limits; unknown period names MUST NOT be rejected merely
-because they are new.
+plans or sources differ. Codex and non-commercial windows remain open to future
+period names when they meet the sanitized string limits. OpenCode
+`available`/`partial` snapshots are the explicit exception: their commercial
+windows are exactly `five_hour`, `monthly`, and `weekly`; unknown commercial
+periods are discarded rather than passed through.
 
 Mathematical cross-provider compatibility requires equal:
 
@@ -1034,6 +1045,30 @@ this R2 unit.
         {
           "kind": "commercial_quota",
           "scope": "account",
+          "period": "five_hour",
+          "plan_id": null,
+          "availability": "unavailable",
+          "source_id": null,
+          "limit": null,
+          "used": null,
+          "remaining": null,
+          "reset_at": null
+        },
+        {
+          "kind": "commercial_quota",
+          "scope": "account",
+          "period": "monthly",
+          "plan_id": null,
+          "availability": "unavailable",
+          "source_id": null,
+          "limit": null,
+          "used": null,
+          "remaining": null,
+          "reset_at": null
+        },
+        {
+          "kind": "commercial_quota",
+          "scope": "account",
           "period": "weekly",
           "plan_id": null,
           "availability": "known",
@@ -1057,7 +1092,7 @@ this R2 unit.
       },
       "compact_text": "Quota 60% remaining; state=available; freshness=fresh",
       "alternate_text": "Quota account / weekly: 60% remaining; state=available; freshness=fresh",
-      "tooltip_text": "State: available\nFreshness: fresh\nQuota: 60% remaining\nWindow: kind=commercial_quota; scope=account; period=weekly; plan_id=null; unit=percentage_points; source_id=\"opencode-go-api\"; result=60% remaining\nReset: 2026-08-08T12:00:01.000000Z"
+      "tooltip_text": "State: available\nFreshness: fresh\nQuota: 60% remaining\nWindow: kind=commercial_quota; scope=account; period=five_hour; plan_id=null; unit=null; source_id=null; result=availability=unavailable\nWindow: kind=commercial_quota; scope=account; period=monthly; plan_id=null; unit=null; source_id=null; result=availability=unavailable\nWindow: kind=commercial_quota; scope=account; period=weekly; plan_id=null; unit=percentage_points; source_id=\"opencode-go-api\"; result=60% remaining\nReset: 2026-08-08T12:00:01.000000Z"
     }
   ]
 }

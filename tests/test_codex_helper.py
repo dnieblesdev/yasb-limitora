@@ -181,7 +181,9 @@ def test_opencode_adapter_uses_keyword_bearer_api_and_emits_provider_source(monk
     monkeypatch.setattr("yasb_limitora.limitora_api.activate_provider", lambda config: (captured.append(config) or client))
     result = read_opencode_go(OpenCodeRequest("bearer-sentinel", 7.0))
     assert (captured[0].api_key, captured[0].timeout) == ("bearer-sentinel", timedelta(seconds=7))
-    assert result.view.snapshot is not None and (result.view.snapshot.source_id, result.view.snapshot.windows[0].source_id) == ("opencode-go-api",) * 2
+    assert result.view.snapshot is not None
+    weekly = next(window for window in result.view.snapshot.windows if window.period == "weekly")
+    assert (result.view.snapshot.source_id, weekly.source_id) == ("opencode-go-api",) * 2
     assert "bearer-sentinel" not in repr(result)
 
 
@@ -200,7 +202,6 @@ def _malformed_window(source, **mutations):
     (
         ("future-source", {"availability": "malformed", "plan_id": object(), "limit": object(), "used": object(), "remaining": object(), "reset_at": object()}, ProviderOutcome.SNAPSHOT),
         ("codex-app-server-v2", {"availability": "malformed", "plan_id": object(), "limit": object(), "used": object(), "remaining": object(), "reset_at": object()}, ProviderOutcome.SNAPSHOT),
-        ("opencode-go-api", {"plan_id": {"invalid": True}}, ProviderOutcome.EXECUTION_ERROR),
     ),
 )
 def test_adapter_trusts_only_provider_bound_window_evidence(monkeypatch, source, mutations, expected_outcome):
@@ -220,6 +221,20 @@ def test_adapter_trusts_only_provider_bound_window_evidence(monkeypatch, source,
         assert all(getattr(normalized, field) is None for field in ("plan_id", "limit", "used", "remaining", "reset_at"))
     else:
         assert result.error is not None and result.error.code is SafeErrorCode.INVALID_PROVIDER_DATA
+
+
+@pytest.mark.parametrize("field", ("availability", "plan_id", "limit", "used", "remaining", "reset_at", "period", "scope"))
+def test_adapter_rejects_malformed_trusted_window_fields(monkeypatch, field):
+    monkeypatch.setattr("yasb_limitora.limitora_api.activate_provider", lambda config: SimpleNamespace(
+        read_status=lambda request: _snapshot(
+            provider="opencode-go", source="opencode-go-api", windows=(_malformed_window("opencode-go-api", **{field: object()}),)
+        )
+    ))
+
+    result = read_opencode_go(OpenCodeRequest("bearer-sentinel", 7.0)).view
+
+    assert result.outcome is ProviderOutcome.EXECUTION_ERROR
+    assert result.error is not None and result.error.code is SafeErrorCode.INVALID_PROVIDER_DATA
 
 
 @pytest.mark.parametrize("kind,message,evidence", ((limitora.ProviderErrorKind.UNAUTHORIZED, "invalid bearer", "credential_invalid"), (limitora.ProviderErrorKind.RATE_LIMITED, "provider busy", "rate_limited"), (limitora.ProviderErrorKind.TRANSPORT, "OpenCode Go request timed out", "timeout"), (limitora.ProviderErrorKind.SOURCE_UNAVAILABLE, "provider unavailable", "unavailable")))
