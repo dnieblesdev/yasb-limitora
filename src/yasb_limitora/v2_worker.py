@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from typing import Any, Callable
 
 from .config import LocalConfig
-from .limitora_api import read_opencode_go
+from .limitora_api import OPENCODE_API_KEY_ENV, OpenCodeReadResult, OpenCodeRequest, read_opencode_go
 from .model import DocumentView, ProviderKey, ProviderOutcome, ProviderState, ProviderView, SafeError, SafeErrorCode, V2SafeErrorCode
 from .v2_deadline import DeadlineContext
 from .v2_guard import GuardError, GuardLease, V2Guard
@@ -22,11 +22,11 @@ def _not_run(provider: ProviderKey, reason: str) -> ProviderView:
     return ProviderView(provider, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason=reason)
 
 
-def _opencode_bootstrap(reader: Callable[[str, Mapping[str, str]], ProviderView], workspace: str, environment: Mapping[str, str], output: Any, authorized: Any = None) -> None:
+def _opencode_bootstrap(reader: Callable[[OpenCodeRequest], OpenCodeReadResult], request: OpenCodeRequest, output: Any, authorized: Any = None) -> None:
     try:
         if authorized is not None:
             authorized.wait()
-        output.put(reader(workspace, environment))
+        output.put(reader(request))
     except Exception:
         output.put(_safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR))
 
@@ -35,10 +35,13 @@ def _opencode_bootstrap(reader: Callable[[str, Mapping[str, str]], ProviderView]
 class WorkerRecord:
     worker: Any
     job: Any
+    queue_closed: bool = True
     reaped: bool = False
     exit_code: int | None = None
     job_active_zero: bool = False
-    handles_closed: bool = False
+    job_closed: bool = False
+    process_closed: bool = False
+    started: bool = False
 
 
 def _supervisor_quiescent(supervisor: Any) -> bool:
@@ -60,7 +63,7 @@ def _helper_quiescent(helper: Any) -> bool:
 
 def cleanup_complete(records: list[WorkerRecord], *, supervisors=(), helpers=()) -> bool:
     return bool(records or tuple(supervisors) or tuple(helpers)) and all(
-        record.reaped and record.exit_code is not None and record.job_active_zero and record.handles_closed
+        record.reaped and (record.exit_code is not None or not record.started) and (record.job is None or (record.job_active_zero and record.job_closed)) and record.process_closed and record.queue_closed
         for record in records
     ) and all(_supervisor_quiescent(supervisor) for supervisor in supervisors) and all(_helper_quiescent(helper) for helper in helpers)
 
@@ -73,7 +76,7 @@ class OpenCodeWorkerProcess:
         self.context_factory = context_factory or multiprocessing.get_context
         self.record: WorkerRecord | None = None
 
-    def run_with_deadline(self, workspace: str, environment: Mapping[str, str], context: DeadlineContext) -> ProviderView:
+    def run_with_deadline(self, request: OpenCodeRequest, context: DeadlineContext) -> ProviderView:
         if context.usable_ns() <= 0:
             return _not_run(ProviderKey.OPENCODE_GO, "deadline_exhausted")
         if self.process_factory is None and os.name != "nt":
@@ -82,10 +85,11 @@ class OpenCodeWorkerProcess:
             queue = self.context_factory("spawn").Queue()
             authorized = self.context_factory("spawn").Event()
             process = (self.process_factory or self.context_factory("spawn").Process)(
-                target=_opencode_bootstrap, args=(self.reader, workspace, environment, queue, authorized)
+                target=_opencode_bootstrap, args=(self.reader, request, queue, authorized)
             )
+            record = self.record = WorkerRecord(process, None, queue_closed=False)
             process.start()
-            record = self.record = WorkerRecord(process, None)
+            record.started = True
             job = self.job_factory() if self.job_factory is not None else WindowsJobBoundary()
             job.assign_process(process.pid)
             record.job = job
@@ -93,32 +97,83 @@ class OpenCodeWorkerProcess:
             process.join(context.usable_ns() / 1_000_000_000)
             if process.is_alive():
                 self._close_job(job, context)
-                process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
-                record.exit_code = process.exitcode
-                record.reaped = not process.is_alive()
                 record.job_active_zero = self._job_zero(job)
-                record.handles_closed = self._job_closed(job)
+                record.job_closed = self._job_closed(job)
+                self._reap_process(process, context, terminate=True)
                 return _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.TIMEOUT)
             record.exit_code = process.exitcode
             record.reaped = True
             result = queue.get_nowait()
             self._close_job(job, context)
             record.job_active_zero = self._job_zero(job)
-            record.handles_closed = self._job_closed(job)
-            return result if isinstance(result, ProviderView) else _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR)
+            record.job_closed = self._job_closed(job)
+            self._reap_process(process, context, terminate=False)
+            if isinstance(result, OpenCodeReadResult):
+                return result.view
+            if isinstance(result, ProviderView):
+                return result
+            return _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR)
         except Exception:
             if self.record is not None and self.record.job is not None:
                 try:
                     self._close_job(self.record.job, context)
+                    self.record.job_active_zero = self._job_zero(self.record.job)
+                    self.record.job_closed = self._job_closed(self.record.job)
                 except Exception:
                     pass
-            if "process" in locals() and getattr(process, "is_alive", lambda: False)():
+            if "process" in locals():
+                self._reap_process(process, context, terminate=True)
+            return _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR)
+        finally:
+            if "process" in locals() and self.record is not None and not self.record.reaped:
+                self._reap_process(process, context, terminate=False)
+            if "queue" in locals():
+                try:
+                    cancel = getattr(queue, "cancel_join_thread", None)
+                    if cancel is not None:
+                        cancel()
+                    close = getattr(queue, "close", None)
+                    if close is not None:
+                        close()
+                    if self.record is not None:
+                        self.record.queue_closed = True
+                except Exception:
+                    if self.record is not None:
+                        self.record.queue_closed = False
+
+    def _reap_process(self, process: Any, context: DeadlineContext, *, terminate: bool) -> None:
+        record = self.record
+        if record is None:
+            return
+        if record.started:
+            alive = getattr(process, "is_alive", lambda: False)()
+            if alive and terminate:
                 try:
                     process.terminate()
+                except Exception:
+                    pass
+            if alive:
+                try:
                     process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
                 except Exception:
                     pass
-            return _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR)
+            alive = getattr(process, "is_alive", lambda: False)()
+            record.exit_code = getattr(process, "exitcode", None)
+            record.reaped = not alive
+        else:
+            record.reaped = True
+        if not record.reaped:
+            return
+        close = getattr(process, "close", None)
+        if close is None:
+            record.process_closed = True
+            return
+        try:
+            close()
+        except Exception:
+            record.process_closed = False
+        else:
+            record.process_closed = True
 
     def _close_job(self, job: Any, context: DeadlineContext) -> None:
         close = getattr(job, "close_with_deadline", None)
@@ -153,7 +208,8 @@ class V2ExecutionOrchestrator:
         enabled = frozenset()
         if config.codex.enabled and config.codex.runner:
             enabled = enabled | {ProviderKey.CODEX}
-        if config.opencode_go.enabled and config.opencode_go.workspace_id:
+        api_key = environment.get(OPENCODE_API_KEY_ENV)
+        if config.opencode_go.enabled and isinstance(api_key, str) and api_key:
             enabled = enabled | {ProviderKey.OPENCODE_GO}
         if not enabled:
             return self._document(views)
@@ -183,12 +239,20 @@ class V2ExecutionOrchestrator:
                 runner = (config.codex.runner, "app-server")
                 views[ProviderKey.CODEX] = run(runner, context) if run else executor.run(runner)
             if result is None and ProviderKey.OPENCODE_GO in enabled:
-                worker = self.opencode_factory()
-                self.workers.append(worker)
-                views[ProviderKey.OPENCODE_GO] = worker.run_with_deadline(config.opencode_go.workspace_id, environment, context)
-                if worker.record is not None:
-                    if worker.record not in self.worker_records:
-                        self.worker_records.append(worker.record)
+                remaining_ns = context.remaining_ns()
+                usable_ns = max(0, remaining_ns - context.reserve_ns)
+                if usable_ns <= 0:
+                    views[ProviderKey.OPENCODE_GO] = _not_run(ProviderKey.OPENCODE_GO, "deadline_exhausted")
+                    result = self._document(views, V2SafeErrorCode.DEADLINE_EXHAUSTED)
+                else:
+                    worker = self.opencode_factory()
+                    self.workers.append(worker)
+                    remaining = remaining_ns / 1_000_000_000
+                    request = OpenCodeRequest(api_key, min(config.opencode_go.timeout_seconds, usable_ns / 1_000_000_000), remaining)
+                    views[ProviderKey.OPENCODE_GO] = worker.run_with_deadline(request, context)
+                    if worker.record is not None:
+                        if worker.record not in self.worker_records:
+                            self.worker_records.append(worker.record)
             if result is None:
                 result = self._document(views)
         except GuardError as error:
@@ -206,7 +270,7 @@ class V2ExecutionOrchestrator:
                 # Workers and their Job handles are closed before ownership is
                 # relinquished. This is the no-overlap boundary.
                 for record in self.worker_records:
-                    if not record.handles_closed and record.job is not None:
+                    if not record.job_closed and record.job is not None:
                         try:
                             close = getattr(record.job, "close_with_deadline", None)
                             if close is not None:
@@ -214,17 +278,18 @@ class V2ExecutionOrchestrator:
                             else:
                                 record.job.close(max(0.0, context.cleanup_ns() / 1_000_000_000))
                             record.job_active_zero = self._job_zero(record.job)
-                            record.handles_closed = self._job_closed(record.job)
+                            record.job_closed = self._job_closed(record.job)
                         except Exception:
                             cleanup_error = True
-                if (self.worker_records or self.codex_helpers) and not cleanup_complete(self.worker_records, helpers=self.codex_helpers):
+                cleanup_safe = not cleanup_error and (not (self.worker_records or self.codex_helpers) or cleanup_complete(self.worker_records, helpers=self.codex_helpers))
+                if not cleanup_safe:
                     cleanup_error = True
                 try:
-                    release_ok = lease.release()
+                    release_ok = lease.release() if cleanup_safe else True
                 except Exception:
                     release_ok = False
                 try:
-                    close_ok = lease.close()
+                    close_ok = lease.close() if cleanup_safe else True
                 except Exception:
                     close_ok = False
                 if not close_ok or not release_ok:

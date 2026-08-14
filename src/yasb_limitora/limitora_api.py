@@ -1,6 +1,7 @@
-"""The narrow, root-public Limitora 0.1.0 adapter boundary."""
+"""The narrow, root-public Limitora 0.2.0 adapter boundary."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
 from unicodedata import normalize
@@ -14,6 +15,7 @@ from limitora import (
     MetricKind,
     OpenCodeGoConfig,
     ProviderError,
+    ProviderErrorKind,
     StatusClient,
     StatusRequest,
     StatusSnapshotResult,
@@ -53,7 +55,8 @@ from .model import (
     canonical_identity,
 )
 
-AUTH_COOKIE_ENV = "LIMITORA_AUTH_COOKIE"
+OPENCODE_API_KEY_ENV = "LIMITORA_OPENCODE_API_KEY"
+_TRANSPORT_TIMEOUT_MESSAGES = {"HTTP request timed out", "OpenCode Go request timed out", "OpenCode Go request budget expired"}
 _REQUEST = StatusRequest(
     frozenset({MetricKind.COMMERCIAL_QUOTA}),
     AuthorizationPolicy.ALLOW_AUTHORIZED_SOURCE,
@@ -72,6 +75,36 @@ def _error(provider: ProviderKey, code: SafeErrorCode) -> ProviderView:
         SafeError(code),
         outcome=ProviderOutcome.EXECUTION_ERROR,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class OpenCodeRequest:
+    api_key: str
+    timeout_seconds: float
+    deadline_seconds: float | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.api_key, str) or not self.api_key:
+            raise ValueError("invalid OpenCode API key")
+        if not isinstance(self.timeout_seconds, (int, float)) or isinstance(self.timeout_seconds, bool) or not 0 < self.timeout_seconds <= 10:
+            raise ValueError("invalid OpenCode timeout")
+        if self.deadline_seconds is not None and (not isinstance(self.deadline_seconds, (int, float)) or isinstance(self.deadline_seconds, bool) or self.deadline_seconds <= 0):
+            raise ValueError("invalid OpenCode deadline")
+
+    def __repr__(self) -> str:
+        return f"OpenCodeRequest(timeout_seconds={self.timeout_seconds!r}, deadline_seconds={self.deadline_seconds!r})"
+
+    __str__ = __repr__
+
+
+@dataclass(frozen=True, slots=True)
+class OpenCodeReadResult:
+    view: ProviderView
+
+    def __repr__(self) -> str:
+        return f"OpenCodeReadResult(view={self.view!r})"
+
+    __str__ = __repr__
 
 
 def _safe_source(source: object) -> str | None:
@@ -174,8 +207,9 @@ def _read(provider: ProviderKey, client: StatusClient) -> ProviderView:
         result = client.read_status(_REQUEST)
     except TimeoutError:
         return _error(provider, SafeErrorCode.TIMEOUT)
-    except ProviderError:
-        return _error(provider, SafeErrorCode.PROVIDER_ERROR)
+    except ProviderError as error:
+        code = SafeErrorCode.TIMEOUT if error.kind is ProviderErrorKind.TRANSPORT and error.safe_message in _TRANSPORT_TIMEOUT_MESSAGES else SafeErrorCode.PROVIDER_ERROR
+        return _error(provider, code)
     except (CompositionError, TypeError, ValueError):
         return _error(provider, SafeErrorCode.CONFIGURATION_INVALID)
     except Exception:  # noqa: BLE001 - unknown provider failures are redacted
@@ -207,24 +241,16 @@ def read_codex(runner: Sequence[str]) -> ProviderView:
     return CodexLimitoraAdapter().read(runner)
 
 
-def read_opencode_go(
-    workspace_id: str, environment: Mapping[str, str]
-) -> ProviderView:
-    cookie = environment.get(AUTH_COOKIE_ENV)
-    if not isinstance(cookie, str) or not cookie or not isinstance(workspace_id, str) or not workspace_id:
-        return ProviderView(
-            ProviderKey.OPENCODE_GO,
-            ProviderState.UNAVAILABLE,
-            outcome=ProviderOutcome.NOT_RUN,
-            not_run_reason="disabled",
-        )
+def read_opencode_go(request: OpenCodeRequest) -> OpenCodeReadResult:
+    if not isinstance(request, OpenCodeRequest) or not isinstance(request.api_key, str) or not request.api_key:
+        return OpenCodeReadResult(ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason="disabled"))
     try:
-        client = activate_provider(OpenCodeGoConfig(workspace_id, cookie))
+        client = activate_provider(OpenCodeGoConfig(api_key=request.api_key, timeout=timedelta(seconds=request.timeout_seconds)))
     except (CompositionError, TypeError, ValueError):
-        return _error(ProviderKey.OPENCODE_GO, SafeErrorCode.CONFIGURATION_INVALID)
+        return OpenCodeReadResult(_error(ProviderKey.OPENCODE_GO, SafeErrorCode.CONFIGURATION_INVALID))
     except Exception:  # noqa: BLE001 - construction failures are redacted
-        return _error(ProviderKey.OPENCODE_GO, SafeErrorCode.INTERNAL_ERROR)
-    return _read(ProviderKey.OPENCODE_GO, client)
+        return OpenCodeReadResult(_error(ProviderKey.OPENCODE_GO, SafeErrorCode.INTERNAL_ERROR))
+    return OpenCodeReadResult(_read(ProviderKey.OPENCODE_GO, client))
 
 
-__all__ = ("AUTH_COOKIE_ENV", "CodexLimitoraAdapter", "read_codex", "read_opencode_go")
+__all__ = ("OPENCODE_API_KEY_ENV", "CodexLimitoraAdapter", "OpenCodeReadResult", "OpenCodeRequest", "read_codex", "read_opencode_go")

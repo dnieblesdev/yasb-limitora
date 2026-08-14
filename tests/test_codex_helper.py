@@ -11,6 +11,7 @@ from limitora.models import Quantity, ProviderId, ProviderStatus, QuotaWindow, S
 from yasb_limitora.codex_helper import CodexHelperExecutor, _decode, _decode_timestamp, _payload, _timestamp
 from yasb_limitora.limitora_api import (
     CodexLimitoraAdapter,
+    OpenCodeRequest,
     read_opencode_go,
 )
 from yasb_limitora.model import (
@@ -83,11 +84,10 @@ def test_adapter_uses_root_public_api_and_maps_success_unavailable_stale_and_err
     assert provider_error_view.error.code is SafeErrorCode.PROVIDER_ERROR
     assert provider_error_view.outcome is ProviderOutcome.EXECUTION_ERROR
     assert timeout_view.error.code is SafeErrorCode.TIMEOUT
-    view = read_opencode_go("private-workspace", {})
-    assert view.state is ProviderState.UNAVAILABLE
-    assert view.outcome is ProviderOutcome.NOT_RUN
-    assert view.not_run_reason == "disabled"
-    assert "private-workspace" not in repr(view)
+    view = read_opencode_go(OpenCodeRequest("private-api-key", 7)).view
+    assert view.state is ProviderState.SAFE_ERROR
+    assert view.error is not None and view.error.code is SafeErrorCode.PROVIDER_ERROR
+    assert "private-api-key" not in repr(view)
 
 
 def test_prestart_deadline_exhaustion_marks_codex_not_run_without_spawning():
@@ -163,6 +163,34 @@ def test_adapter_preserves_snapshot_state_freshness_windows_and_safe_sources():
     assert known.source_id == "codex-app-server-v2"
     assert unavailable.source_id is None
     assert "private-provider-detail" not in repr(view)
+
+
+def test_opencode_adapter_uses_keyword_bearer_api_and_suppresses_root_and_window_sources(monkeypatch):
+    observed_at = datetime(2026, 8, 1, 12, tzinfo=timezone.utc)
+    window = QuotaWindow(WindowKind.COMMERCIAL_QUOTA, "account", "weekly", None, ValueAvailability.KNOWN, SourceMetadata("opencode-go-api"), _quantity("100"), _quantity("25"), _quantity("75"), observed_at)
+    client = SimpleNamespace(read_status=lambda request: _snapshot(provider="opencode-go", source="opencode-go-api", windows=(window,), observed_at=observed_at, fetched_at=observed_at, data_at=observed_at))
+    captured = []
+    monkeypatch.setattr("yasb_limitora.limitora_api.activate_provider", lambda config: (captured.append(config) or client))
+    result = read_opencode_go(OpenCodeRequest("bearer-sentinel", 7.0))
+    assert (captured[0].api_key, captured[0].timeout) == ("bearer-sentinel", timedelta(seconds=7))
+    assert result.view.snapshot is not None and result.view.snapshot.source_id is None and result.view.snapshot.windows[0].source_id is None
+    assert "bearer-sentinel" not in repr(result)
+
+
+@pytest.mark.parametrize("message", ["OpenCode Go request timed out", "OpenCode Go request budget expired"])
+def test_opencode_adapter_maps_timeout_to_public_timeout_without_private_details(monkeypatch, message):
+    failure = limitora.ProviderError(
+        limitora.ProviderErrorKind.TRANSPORT,
+        limitora.ProviderId("opencode-go"),
+        message,
+        retryable=True,
+    )
+    client = SimpleNamespace(read_status=lambda request: (_ for _ in ()).throw(failure))
+    monkeypatch.setattr("yasb_limitora.limitora_api.activate_provider", lambda config: client)
+    result = read_opencode_go(OpenCodeRequest("bearer-sentinel", 7.0))
+    assert result.view.error is not None
+    assert result.view.error.code is SafeErrorCode.TIMEOUT
+    assert message not in repr(result)
 
 
 def test_adapter_retains_stale_and_empty_snapshots_as_snapshots():
