@@ -10,7 +10,6 @@ from unicodedata import normalize
 from .limitora_api import OpenCodeFailureEvidence
 from .model import (
     PROVIDER_ORDER,
-    SAFE_SOURCE_IDS,
     DocumentView,
     ProviderKey,
     ProviderOutcome,
@@ -27,6 +26,8 @@ from .model import (
     SafeError,
     V2SafeErrorCode,
     SnapshotFreshness,
+    CODEX_SOURCE_ID,
+    OPENCODE_SOURCE_ID,
 )
 
 _KIND_ORDER = {
@@ -90,11 +91,12 @@ def _presentation_identity(value: str) -> str:
     if any(character in ";=\\" for character in value):
         return json.dumps(value, ensure_ascii=False)
     return value
-def _source(value: object) -> str | None:
+def _source(value: object, provider: ProviderKey = ProviderKey.CODEX) -> str | None:
     if not isinstance(value, str):
         return None
     candidate = normalize("NFC", value).strip()
-    return candidate if candidate in SAFE_SOURCE_IDS else None
+    expected = CODEX_SOURCE_ID if provider is ProviderKey.CODEX else OPENCODE_SOURCE_ID
+    return candidate if candidate == expected else None
 def _timestamp(value: object) -> str:
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("invalid v2 timestamp")
@@ -110,22 +112,25 @@ def _quantity(quantity: object) -> dict[str, str]:
     if "." in rendered:
         rendered = rendered.rstrip("0").rstrip(".")
     return {"value": rendered or "0", "metric": metric.value, "unit": _identity(quantity.unit, "invalid v2 unit")}
-def _window(window: object) -> dict[str, Any]:
+def _window(window: object, provider: ProviderKey = ProviderKey.CODEX) -> dict[str, Any]:
     if not isinstance(window, QuotaWindowView):
         raise ValueError("invalid v2 window")
     kind = _enum(QuotaWindowKind, window.kind, "invalid v2 window kind")
-    availability = _enum(QuotaAvailability, window.availability, "invalid v2 availability")
+    source_id = _source(window.source_id, provider)
+    trusted = source_id is not None
+    availability = _enum(QuotaAvailability, window.availability, "invalid v2 availability") if trusted else QuotaAvailability.UNAVAILABLE
+    plan_id = None if not trusted or window.plan_id is None else _identity(window.plan_id, "invalid v2 plan id")
     return {
         "kind": kind.value,
         "scope": _identity(window.scope, "invalid v2 scope"),
         "period": _identity(window.period, "invalid v2 period"),
-        "plan_id": None if window.plan_id is None else _identity(window.plan_id, "invalid v2 plan id"),
+        "plan_id": plan_id,
         "availability": availability.value,
-        "source_id": _source(window.source_id),
-        "limit": None if window.limit is None else _quantity(window.limit),
-        "used": None if window.used is None else _quantity(window.used),
-        "remaining": None if window.remaining is None else _quantity(window.remaining),
-        "reset_at": None if window.reset_at is None else _timestamp(window.reset_at),
+        "source_id": source_id,
+        "limit": None if not trusted or window.limit is None else _quantity(window.limit),
+        "used": None if not trusted or window.used is None else _quantity(window.used),
+        "remaining": None if not trusted or window.remaining is None else _quantity(window.remaining),
+        "reset_at": None if not trusted or window.reset_at is None else _timestamp(window.reset_at),
     }
 def _window_sort_key(window: dict[str, Any]) -> tuple[object, ...]:
     return (
@@ -317,9 +322,9 @@ def _provider(view: ProviderView, enabled: frozenset[ProviderKey], tooltip_limit
             status_observed_at=_timestamp(snapshot.status_observed_at),
             fetched_at=_timestamp(snapshot.fetched_at),
             data_at=_timestamp(snapshot.data_at),
-            source_id=_source(snapshot.source_id),
+            source_id=_source(snapshot.source_id, provider),
         )
-        windows = [_window(window) for window in snapshot.windows]
+        windows = [_window(window, provider) for window in snapshot.windows]
         item["windows"] = sorted(windows, key=_window_sort_key)
     elif outcome is ProviderOutcome.UNDETECTED:
         if view.snapshot is not None or view.error is not None:
