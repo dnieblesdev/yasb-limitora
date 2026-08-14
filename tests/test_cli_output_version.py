@@ -344,6 +344,46 @@ def test_v2_deadline_defaults_to_seven_seconds(tmp_path):
     assert coordinator.calls[0][0].deadline_seconds == 7.0
 
 
+@pytest.mark.parametrize("timeout", ("7", True, float("nan"), float("inf")))
+def test_v2_opencode_timeout_type_errors_are_configuration_invalid(tmp_path, timeout):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"opencode_go": {"timeout_seconds": timeout}}), encoding="utf-8")
+    coordinator = _Coordinator(_disabled_document())
+
+    code, document, stderr, _ = _run(("--output-version", "2", "--config", str(path)), coordinator=coordinator)
+
+    assert code == 2
+    assert document["execution_error"] == {"code": "configuration_invalid", "phase": "configuration"}
+    assert stderr == "yasb-limitora: configuration_invalid\n"
+    assert coordinator.calls == []
+
+
+@pytest.mark.parametrize("timeout", (1, 7, 7.5, 10))
+def test_v2_opencode_numeric_timeout_is_accepted(tmp_path, timeout):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"opencode_go": {"timeout_seconds": timeout}}), encoding="utf-8")
+    coordinator = _Coordinator(_disabled_document())
+
+    code, document, stderr, _ = _run(("--output-version", "2", "--config", str(path)), coordinator=coordinator)
+
+    assert code == 0 and stderr == "" and document["version"] == 2
+    assert coordinator.calls[0][0].opencode_go.timeout_seconds == float(timeout)
+
+
+@pytest.mark.parametrize("legacy", ({"workspace_id": "legacy"}, {"cookie": "legacy"}))
+def test_v2_opencode_legacy_auth_fields_are_configuration_invalid(tmp_path, legacy):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"opencode_go": legacy}), encoding="utf-8")
+    coordinator = _Coordinator(_disabled_document())
+
+    code, document, stderr, _ = _run(("--output-version", "2", "--config", str(path)), coordinator=coordinator)
+
+    assert code == 2
+    assert document["execution_error"] == {"code": "configuration_invalid", "phase": "configuration"}
+    assert stderr == "yasb-limitora: configuration_invalid\n"
+    assert coordinator.calls == []
+
+
 @pytest.mark.parametrize(
     "raw",
     (

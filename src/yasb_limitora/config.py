@@ -55,6 +55,12 @@ def _timeout(value: object, maximum: float) -> float:
     return result
 
 
+def _strict_timeout(value: object, maximum: float) -> float:
+    if type(value) not in (int, float):
+        raise ConfigError(_INVALID_TIMEOUT)
+    return _timeout(value, maximum)
+
+
 def _deadline(value: object) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ConfigError("invalid deadline_seconds")
@@ -99,6 +105,14 @@ class CodexConfig:
         _fields(fields, {"enabled", "runner", "timeout_seconds"})
         return cls(**fields)
 
+    @classmethod
+    def from_v2_mapping(cls, value: object) -> "CodexConfig":
+        fields = _mapping(value)
+        _fields(fields, {"enabled", "runner", "timeout_seconds"})
+        if "timeout_seconds" in fields:
+            _strict_timeout(fields["timeout_seconds"], MAX_CODEX_TIMEOUT_SECONDS)
+        return cls(**fields)
+
     def __repr__(self) -> str:
         return f"CodexConfig(enabled={self.enabled!r}, runner=<redacted>, timeout_seconds={self.timeout_seconds!r})"
 
@@ -116,6 +130,14 @@ class OpenCodeGoConfig:
     def from_mapping(cls, value: object) -> "OpenCodeGoConfig":
         fields = _mapping(value)
         _fields(fields, {"enabled", "timeout_seconds"})
+        return cls(**fields)
+
+    @classmethod
+    def from_v2_mapping(cls, value: object) -> "OpenCodeGoConfig":
+        fields = _mapping(value)
+        _fields(fields, {"enabled", "timeout_seconds"})
+        if "timeout_seconds" in fields:
+            _strict_timeout(fields["timeout_seconds"], MAX_OPENCODE_TIMEOUT_SECONDS)
         return cls(**fields)
 
     def __repr__(self) -> str:
@@ -146,8 +168,8 @@ class LocalConfig:
         fields = _mapping(value)
         _fields(fields, {"deadline_seconds", "codex", "opencode_go"})
         return cls(
-            codex=CodexConfig.from_mapping(fields.get("codex", {})),
-            opencode_go=OpenCodeGoConfig.from_mapping(fields.get("opencode_go", {})),
+            codex=CodexConfig.from_v2_mapping(fields.get("codex", {})),
+            opencode_go=OpenCodeGoConfig.from_v2_mapping(fields.get("opencode_go", {})),
             deadline_seconds=fields.get("deadline_seconds", DEFAULT_DEADLINE_SECONDS),
         )
 
