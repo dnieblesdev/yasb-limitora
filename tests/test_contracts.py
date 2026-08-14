@@ -15,7 +15,7 @@ from yasb_limitora import (
     SafeErrorCode,
     project_bytes,
 )
-from yasb_limitora.config import DEFAULT_TIMEOUT_SECONDS, MAX_CODEX_TIMEOUT_SECONDS
+from yasb_limitora.config import CodexConfig, DEFAULT_TIMEOUT_SECONDS, MAX_CODEX_TIMEOUT_SECONDS
 
 
 def test_config_is_immutable_and_repr_redacts_private_values() -> None:
@@ -53,6 +53,33 @@ def test_timeout_errors_are_finite_deterministic_and_safe(timeout: object) -> No
     with pytest.raises(ConfigError) as error:
         OpenCodeGoConfig(timeout_seconds=timeout)
     assert str(error.value) == "invalid timeout_seconds"
+
+
+@pytest.mark.parametrize("timeout", [1, 7, 7.5, 10])
+def test_opencode_timeout_accepts_json_numbers(timeout: int | float) -> None:
+    assert OpenCodeGoConfig.from_v2_mapping({"timeout_seconds": timeout}).timeout_seconds == float(timeout)
+
+
+@pytest.mark.parametrize("timeout", ["7", True, math.nan, math.inf, -math.inf])
+def test_opencode_timeout_rejects_non_json_numbers(timeout: object) -> None:
+    with pytest.raises(ConfigError, match="^invalid timeout_seconds$"):
+        OpenCodeGoConfig.from_v2_mapping({"timeout_seconds": timeout})
+
+
+@pytest.mark.parametrize("timeout", [1, 7, 120])
+def test_codex_timeout_accepts_json_numbers(timeout: int | float) -> None:
+    assert CodexConfig.from_v2_mapping({"timeout_seconds": timeout}).timeout_seconds == float(timeout)
+
+
+@pytest.mark.parametrize("timeout", ["7", True, math.nan, math.inf, -math.inf])
+def test_codex_timeout_rejects_non_json_numbers(timeout: object) -> None:
+    with pytest.raises(ConfigError, match="^invalid timeout_seconds$"):
+        CodexConfig.from_v2_mapping({"timeout_seconds": timeout})
+
+
+def test_v1_timeout_retains_string_coercion_compatibility() -> None:
+    assert LocalConfig.from_mapping({"codex": {"timeout_seconds": "7"}}).codex.timeout_seconds == 7.0
+    assert LocalConfig.from_mapping({"opencode_go": {"timeout_seconds": "7"}}).opencode_go.timeout_seconds == 7.0
 
 
 def test_codex_timeout_range_remains_independent_from_opencode_timeout_range() -> None:

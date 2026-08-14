@@ -123,8 +123,9 @@ windows remain `known`; missing, duplicate, invalid, non-known, or extra
 commercial windows become fixed unavailable/null slots or are discarded, while
 non-commercial windows remain subject to the general rules. A `rate_limited`
 snapshot is provider-level HTTP 429 taxonomy, preserving only technical windows
-(including an empty array) without embedded per-window provenance; #55/#133
-remain deferred.
+(including an empty array) without embedded per-window provenance. #55 is released upstream in
+Limitora v0.3.0, while yasb-limitora #133 remains a separate follow-up; this v2 contract does
+not consume per-window rate-limit provenance.
 
 ### 3.2 Window object
 
@@ -691,18 +692,19 @@ not equivalent to omission and is invalid.
 | top-level `opencode_go` | object | `{}` | Only the provider keys in the next table |
 | provider `enabled` | boolean | `false` | Required only when supplied; no numeric/string coercion |
 | Codex `runner` | string or `null` | `null` | Absolute Windows drive or UNC path; required when Codex is enabled; empty/relative is invalid |
-| provider `timeout_seconds` | finite JSON number, not boolean | `7` | Exclusive lower bound `0`, inclusive upper bound `120`; it is only an upper hint and cannot extend the document deadline |
-| provider `workspace_id` | string or `null` | `null` | When non-null, non-empty after trimming; local-only and never projected |
+| Codex `timeout_seconds` | finite JSON number; no string, boolean, `null`, NaN, or infinity | `7` | `(0,120]`; it is only an upper hint and cannot extend the document deadline |
+| OpenCode `timeout_seconds` | finite JSON number; no string, boolean, `null`, NaN, or infinity | `7` | `(0,10]`; it is only an upper hint and cannot extend the document deadline |
 
 The exact provider key sets are:
 
 | Provider object | Allowed keys |
 |-----------------|--------------|
-| `codex` | `enabled`, `runner`, `timeout_seconds`, `workspace_id` |
-| `opencode_go` | `enabled`, `timeout_seconds`, `workspace_id` |
+| `codex` | `enabled`, `runner`, `timeout_seconds` |
+| `opencode_go` | `enabled`, `timeout_seconds` |
 
-The v2 environment-only OpenCode Go credential remains `LIMITORA_AUTH_COOKIE`;
-it is not a configuration key. Credential-like keys are rejected recursively.
+The v2 environment-only OpenCode Go credential is `LIMITORA_OPENCODE_API_KEY`; it is not a
+configuration key. It MUST NOT be supplied in JSON or CLI arguments and MUST NOT appear in
+v2 JSON, diagnostics, or other output. Credential-like keys are rejected recursively.
 Provider defaults are applied before validation of dependent rules: an enabled
 Codex with omitted `runner` is invalid, while an omitted/disabled provider is a
 legal `not_run` provider.
