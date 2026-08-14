@@ -8,6 +8,7 @@ import sys
 import threading
 from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
+from unicodedata import normalize
 
 from .codex_supervisor import (
     _CONTROL_CAPACITY,
@@ -25,7 +26,6 @@ from .model import (
     MAX_QUOTA_WINDOWS,
     _legacy_state_for_snapshot,
     _parse_canonical_decimal,
-    SAFE_SOURCE_IDS,
     ProviderKey,
     ProviderOutcome,
     ProviderSnapshotView,
@@ -40,6 +40,8 @@ from .model import (
     SafeError,
     SafeErrorCode,
     SnapshotFreshness,
+    CODEX_SOURCE_ID,
+    OPENCODE_SOURCE_ID,
     canonical_identity,
 )
 
@@ -151,9 +153,15 @@ def _wire_identity(value: object, message: str) -> str:
 
 
 def _wire_source(value: object) -> str | None:
-    if value is not None and (type(value) is not str or value not in SAFE_SOURCE_IDS):
-        raise ValueError("invalid source id")
-    return value
+    if not isinstance(value, str):
+        return None
+    return normalize("NFC", value).strip()
+
+
+def _source_for_provider(value: object, provider: ProviderKey) -> str | None:
+    source = _wire_source(value)
+    expected = CODEX_SOURCE_ID if provider is ProviderKey.CODEX else OPENCODE_SOURCE_ID
+    return source if source == expected else None
 
 
 def _quantity_payload(quantity: QuotaQuantity) -> dict[str, str]:
@@ -471,7 +479,7 @@ def _decode(payload: bytes) -> ProviderView:
         elif raw_error is not None:
             raise ValueError("unexpected helper error")
         raw_snapshot = value["snapshot"]
-        snapshot = None if raw_snapshot is None else _decode_snapshot(raw_snapshot)
+        snapshot = None if raw_snapshot is None else _decode_snapshot(raw_snapshot, provider)
         if outcome is ProviderOutcome.SNAPSHOT:
             if snapshot is None or state is ProviderState.SAFE_ERROR or error is not None:
                 raise ValueError("contradictory helper snapshot")
@@ -495,32 +503,33 @@ def _decode_quantity(value: object) -> QuotaQuantity:
     return QuotaQuantity(_parse_canonical_decimal(item["value"]), metric, unit)
 
 
-def _decode_window(value: object) -> QuotaWindowView:
+def _decode_window(value: object, provider: ProviderKey) -> QuotaWindowView:
     item = _object(value, _WINDOW_FIELDS)
-    plan_id = item["plan_id"]
-    if plan_id is not None:
-        plan_id = _wire_identity(plan_id, "invalid quota plan id")
-    reset_at = None if item["reset_at"] is None else _decode_timestamp(item["reset_at"])
+    source_id = _source_for_provider(item["source_id"], provider)
+    trusted = source_id is not None
+    plan_id = None if not trusted or item["plan_id"] is None else _wire_identity(item["plan_id"], "invalid quota plan id")
+    reset_at = None if not trusted or item["reset_at"] is None else _decode_timestamp(item["reset_at"])
+    availability = _enum_value(QuotaAvailability, item["availability"]) if trusted else QuotaAvailability.UNAVAILABLE
     return QuotaWindowView(
         kind=_enum_value(QuotaWindowKind, item["kind"]),
         scope=_wire_identity(item["scope"], "invalid quota scope"),
         period=_wire_identity(item["period"], "invalid quota period"),
         plan_id=plan_id,
-        availability=_enum_value(QuotaAvailability, item["availability"]),
-        source_id=_wire_source(item["source_id"]),
-        reset_at=reset_at,
-        limit=None if item["limit"] is None else _decode_quantity(item["limit"]),
-        used=None if item["used"] is None else _decode_quantity(item["used"]),
-        remaining=None if item["remaining"] is None else _decode_quantity(item["remaining"]),
+        availability=availability if trusted else QuotaAvailability.UNAVAILABLE,
+        source_id=source_id,
+        reset_at=reset_at if trusted else None,
+        limit=None if not trusted or item["limit"] is None else _decode_quantity(item["limit"]),
+        used=None if not trusted or item["used"] is None else _decode_quantity(item["used"]),
+        remaining=None if not trusted or item["remaining"] is None else _decode_quantity(item["remaining"]),
     )
 
 
-def _decode_snapshot(value: object) -> ProviderSnapshotView:
+def _decode_snapshot(value: object, provider: ProviderKey) -> ProviderSnapshotView:
     item = _object(value, _SNAPSHOT_FIELDS)
     windows = item["windows"]
     if type(windows) is not list or len(windows) > MAX_QUOTA_WINDOWS:
         raise ValueError("invalid quota windows")
-    decoded_windows = tuple(_decode_window(window) for window in windows)
+    decoded_windows = tuple(_decode_window(window, provider) for window in windows)
     identities = tuple((window.kind, window.scope, window.period) for window in decoded_windows)
     if len(set(identities)) != len(identities):
         raise ValueError("duplicate quota window")
@@ -530,7 +539,7 @@ def _decode_snapshot(value: object) -> ProviderSnapshotView:
         status_observed_at=_decode_timestamp(item["status_observed_at"]),
         fetched_at=_decode_timestamp(item["fetched_at"]),
         data_at=_decode_timestamp(item["data_at"]),
-        source_id=_wire_source(item["source_id"]),
+        source_id=_source_for_provider(item["source_id"], provider),
         windows=decoded_windows,
     )
 

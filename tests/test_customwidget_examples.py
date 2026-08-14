@@ -35,7 +35,7 @@ WINDOW_TOOLTIP_SUFFIXES = {
         "unit=percentage_points; source_id=\"codex-app-server-v2\"; result=80% remaining\n"
         "Reset: 2026-08-02T00:00:00.000000Z",
         "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
-        "unit=percentage_points; source_id=\"opencode-go-dashboard\"; result=60% remaining\n"
+        "unit=percentage_points; source_id=\"opencode-go-api\"; result=60% remaining\n"
         "Reset: 2026-08-02T00:00:00.000000Z",
     ),
     "partial": (None, None),
@@ -44,14 +44,14 @@ WINDOW_TOOLTIP_SUFFIXES = {
         "unit=percentage_points; source_id=\"codex-app-server-v2\"; result=40% remaining\n"
         "Reset: 2026-08-02T00:00:00.000000Z",
         "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
-        "unit=percentage_points; source_id=\"opencode-go-dashboard\"; result=40% remaining\n"
+        "unit=percentage_points; source_id=\"opencode-go-api\"; result=40% remaining\n"
         "Reset: 2026-08-02T00:00:00.000000Z",
     ),
     "undetected": (None, None),
     "provider-unavailable": (
         None,
         "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
-        "unit=percentage_points; source_id=\"opencode-go-dashboard\"; result=60% remaining\n"
+        "unit=percentage_points; source_id=\"opencode-go-api\"; result=60% remaining\n"
         "Reset: 2026-08-02T00:00:00.000000Z",
     ),
     "providers-disabled": (None, None),
@@ -113,6 +113,8 @@ def _assert_provider(provider, expected, percentage, display_state=None, tooltip
         "tooltip_text",
     ]
     outcome, state, freshness = expected
+    expected_source = "codex-app-server-v2" if provider["provider"] == "codex" else "opencode-go-api"
+    assert provider["source_id"] in {expected_source, None} and all(window["source_id"] in {expected_source, None} for window in provider["windows"])
     display_state = state if display_state is None else display_state
     assert provider["outcome"] == outcome
     assert provider["public_state"] == state
@@ -163,7 +165,7 @@ class CustomWidgetExamplesTests(unittest.TestCase):
             assert value["version"] == 2 and value["execution_state"] == execution_state and len(value["providers"]) == 2
             assert [provider["provider"] for provider in value["providers"]] == ["codex", "opencode_go"]
             serialized = json.dumps(value).lower()
-            assert all(key not in serialized for key in ("exit_code", "stderr", "stdout", "traceback", "password", "api_key", "cookie", "/home/", "c:\\"))
+            assert all(key not in serialized for key in ("opencode-go-dashboard", "exit_code", "stderr", "stdout", "traceback", "password", "api_key", "cookie", "/home/", "c:\\"))
             expected_errors = {
                 "provider-unavailable": [
                     {"code": "provider_failed", "phase": "provider"},

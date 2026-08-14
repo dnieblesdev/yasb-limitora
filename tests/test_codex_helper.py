@@ -8,7 +8,7 @@ import limitora
 import pytest
 from limitora.models import Quantity, ProviderId, ProviderStatus, QuotaWindow, SourceMetadata, ValueAvailability, WindowKind
 
-from yasb_limitora.codex_helper import CodexHelperExecutor, _decode, _decode_timestamp, _payload, _timestamp
+from yasb_limitora.codex_helper import CodexHelperExecutor, _decode, _decode_timestamp, _payload, _source_for_provider, _timestamp
 from yasb_limitora.limitora_api import (
     CodexLimitoraAdapter,
     OpenCodeRequest,
@@ -40,7 +40,7 @@ def _snapshot(
     freshness=limitora.Freshness.FRESH,
     *,
     provider="codex",
-    source="test",
+    source="codex-app-server-v2",
     windows=(),
     observed_at=None,
     fetched_at=None,
@@ -165,7 +165,15 @@ def test_adapter_preserves_snapshot_state_freshness_windows_and_safe_sources():
     assert "private-provider-detail" not in repr(view)
 
 
-def test_opencode_adapter_uses_keyword_bearer_api_and_suppresses_root_and_window_sources(monkeypatch):
+@pytest.mark.parametrize("source,outcome", ((SourceMetadata("future-source"), ProviderOutcome.SNAPSHOT), (None, ProviderOutcome.EXECUTION_ERROR), (object(), ProviderOutcome.EXECUTION_ERROR)))
+def test_adapter_requires_source_metadata_and_normalizes_unknown_source(source, outcome):
+    result = _snapshot(); object.__setattr__(result.snapshot, "source", source)
+    view = CodexLimitoraAdapter(lambda config: SimpleNamespace(read_status=lambda request: result)).read(("C:\\codex.exe",))
+    assert view.outcome is outcome
+    assert (view.snapshot.source_id if view.snapshot is not None else view.error.code) is (None if outcome is ProviderOutcome.SNAPSHOT else SafeErrorCode.INVALID_PROVIDER_DATA)
+
+
+def test_opencode_adapter_uses_keyword_bearer_api_and_emits_provider_source(monkeypatch):
     observed_at = datetime(2026, 8, 1, 12, tzinfo=timezone.utc)
     window = QuotaWindow(WindowKind.COMMERCIAL_QUOTA, "account", "weekly", None, ValueAvailability.KNOWN, SourceMetadata("opencode-go-api"), _quantity("100"), _quantity("25"), _quantity("75"), observed_at)
     client = SimpleNamespace(read_status=lambda request: _snapshot(provider="opencode-go", source="opencode-go-api", windows=(window,), observed_at=observed_at, fetched_at=observed_at, data_at=observed_at))
@@ -173,8 +181,45 @@ def test_opencode_adapter_uses_keyword_bearer_api_and_suppresses_root_and_window
     monkeypatch.setattr("yasb_limitora.limitora_api.activate_provider", lambda config: (captured.append(config) or client))
     result = read_opencode_go(OpenCodeRequest("bearer-sentinel", 7.0))
     assert (captured[0].api_key, captured[0].timeout) == ("bearer-sentinel", timedelta(seconds=7))
-    assert result.view.snapshot is not None and result.view.snapshot.source_id is None and result.view.snapshot.windows[0].source_id is None
+    assert result.view.snapshot is not None and (result.view.snapshot.source_id, result.view.snapshot.windows[0].source_id) == ("opencode-go-api",) * 2
     assert "bearer-sentinel" not in repr(result)
+
+
+def _malformed_window(source, **mutations):
+    observed_at = datetime(2026, 8, 1, 12, tzinfo=timezone.utc)
+    window = QuotaWindow(
+        WindowKind.COMMERCIAL_QUOTA, "account", "weekly", "plus", ValueAvailability.KNOWN,
+        SourceMetadata(source), _quantity("100"), _quantity("25"), _quantity("75"), observed_at,
+    )
+    for field, value in mutations.items(): object.__setattr__(window, field, value)
+    return window
+
+
+@pytest.mark.parametrize(
+    ("source", "mutations", "expected_outcome"),
+    (
+        ("future-source", {"availability": "malformed", "plan_id": object(), "limit": object(), "used": object(), "remaining": object(), "reset_at": object()}, ProviderOutcome.SNAPSHOT),
+        ("codex-app-server-v2", {"availability": "malformed", "plan_id": object(), "limit": object(), "used": object(), "remaining": object(), "reset_at": object()}, ProviderOutcome.SNAPSHOT),
+        ("opencode-go-api", {"plan_id": {"invalid": True}}, ProviderOutcome.EXECUTION_ERROR),
+    ),
+)
+def test_adapter_trusts_only_provider_bound_window_evidence(monkeypatch, source, mutations, expected_outcome):
+    monkeypatch.setattr("yasb_limitora.limitora_api.activate_provider", lambda config: SimpleNamespace(
+        read_status=lambda request: _snapshot(
+            provider="opencode-go", source="opencode-go-api", windows=(_malformed_window(source, **mutations),)
+        )
+    ))
+    result = read_opencode_go(OpenCodeRequest("bearer-sentinel", 7.0)).view
+
+    assert result.outcome is expected_outcome
+    if expected_outcome is ProviderOutcome.SNAPSHOT:
+        assert result.snapshot is not None
+        normalized = result.snapshot.windows[0]
+        assert normalized.source_id is None
+        assert normalized.availability is QuotaAvailability.UNAVAILABLE
+        assert all(getattr(normalized, field) is None for field in ("plan_id", "limit", "used", "remaining", "reset_at"))
+    else:
+        assert result.error is not None and result.error.code is SafeErrorCode.INVALID_PROVIDER_DATA
 
 
 @pytest.mark.parametrize("kind,message,evidence", ((limitora.ProviderErrorKind.UNAUTHORIZED, "invalid bearer", "credential_invalid"), (limitora.ProviderErrorKind.RATE_LIMITED, "provider busy", "rate_limited"), (limitora.ProviderErrorKind.TRANSPORT, "OpenCode Go request timed out", "timeout"), (limitora.ProviderErrorKind.SOURCE_UNAVAILABLE, "provider unavailable", "unavailable")))
@@ -531,7 +576,7 @@ def test_rich_helper_round_trip_preserves_r3_outcome_mapping(view, state, outcom
     assert decoded.snapshot == view.snapshot
 
 
-@pytest.mark.parametrize("mutation", ("missing", "unknown", "enum", "naive", "quantity", "source", "contradiction"))
+@pytest.mark.parametrize("mutation", ("missing", "unknown", "enum", "naive", "quantity", "trusted_reset", "trusted_plan", "contradiction"))
 def test_rich_decoder_rejects_malformed_or_contradictory_worker_output(mutation):
     value = json.loads(_payload(_rich_view()).decode("utf-8"))
     if mutation == "missing":
@@ -544,8 +589,8 @@ def test_rich_decoder_rejects_malformed_or_contradictory_worker_output(mutation)
         value["snapshot"]["fetched_at"] = "2026-08-01T12:01:02.345678"
     elif mutation == "quantity":
         value["snapshot"]["windows"][0]["limit"]["value"] = "1.00"
-    elif mutation == "source":
-        value["snapshot"]["source_id"] = "private-secret-source"
+    elif mutation in ("trusted_reset", "trusted_plan"):
+        value["snapshot"]["windows"][0]["reset_at"] = "not-a-timestamp" if mutation == "trusted_reset" else value["snapshot"]["windows"][0]["reset_at"]; value["snapshot"]["windows"][0]["plan_id"] = {"invalid": True} if mutation == "trusted_plan" else value["snapshot"]["windows"][0]["plan_id"]
     else:
         value["state"] = "safe_error"
         value["error"] = {"code": "provider_error"}
@@ -555,6 +600,56 @@ def test_rich_decoder_rejects_malformed_or_contradictory_worker_output(mutation)
     assert decoded.error.code is SafeErrorCode.INTERNAL_ERROR
     assert decoded.outcome is ProviderOutcome.EXECUTION_ERROR
     assert decoded.snapshot is None
+
+
+@pytest.mark.parametrize(("root_source", "window_source", "trusted_window"), (("opencode-go-api", "opencode-go-api", False), ("future-source", "codex-app-server-v2", True)))
+def test_rich_decoder_normalizes_sources_before_trusting_evidence(root_source, window_source, trusted_window):
+    value = json.loads(_payload(_rich_view()).decode("utf-8"))
+    value["snapshot"]["source_id"] = root_source
+    value["snapshot"]["windows"][0]["source_id"] = window_source
+
+    decoded = _decode(json.dumps(value, separators=(",", ":")).encode("utf-8"))
+
+    assert decoded.outcome is ProviderOutcome.SNAPSHOT and decoded.snapshot is not None and decoded.snapshot.source_id is None
+    window = decoded.snapshot.windows[0]
+    if trusted_window:
+        assert window.source_id == "codex-app-server-v2" and window.limit is not None
+    else:
+        assert window.source_id is None and window.availability is QuotaAvailability.UNAVAILABLE
+        assert all(getattr(window, field) is None for field in ("plan_id", "limit", "used", "remaining", "reset_at"))
+
+
+@pytest.mark.parametrize(("source", "expected"), ((" codex-app-server-v2 ", "codex-app-server-v2"), ("future-source", None), ("opencode-go-api", None), (None, None), (42, None)))
+def test_provider_source_helper_normalizes_and_rejects_untrusted_values(source, expected):
+    assert _source_for_provider(source, ProviderKey.CODEX) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "field", "value"),
+    (
+        ("future-source", "reset_at", "not-a-timestamp"),
+        (
+            "opencode-go-api",
+            "limit",
+            {"metric": "commercial_quota", "value": "not-a-decimal", "unit": "percentage_points"},
+        ),
+    ),
+)
+def test_rich_decoder_scrubs_untrusted_malformed_window_evidence(source, field, value):
+    payload = json.loads(_payload(_rich_view()).decode("utf-8"))
+    window = payload["snapshot"]["windows"][0]
+    window["source_id"] = source
+    window[field] = value
+    if field == "reset_at": window["plan_id"] = {"invalid": True}
+
+    decoded = _decode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+
+    assert decoded.outcome is ProviderOutcome.SNAPSHOT
+    assert decoded.snapshot is not None
+    window = decoded.snapshot.windows[0]
+    assert window.source_id is None
+    assert window.availability is QuotaAvailability.UNAVAILABLE
+    assert all(getattr(window, field) is None for field in ("plan_id", "limit", "used", "remaining", "reset_at"))
 
 
 def test_rich_decoder_rejects_duplicate_fields_and_oversized_or_duplicate_windows():
@@ -608,7 +703,7 @@ def test_model_and_adapter_share_nfc_identity_normalization():
         decomposed,
         decomposed,
         ValueAvailability.KNOWN,
-        SourceMetadata("test"),
+        SourceMetadata("codex-app-server-v2"),
         _quantity("1", unit=decomposed),
     )
     result = _snapshot(windows=(public_window,))
@@ -632,7 +727,7 @@ def _read_single_quantity(raw: str):
         "five_hour",
         "plus",
         ValueAvailability.KNOWN,
-        SourceMetadata("test"),
+        SourceMetadata("codex-app-server-v2"),
         _quantity(raw),
     )
     result = _snapshot(windows=(window,))
@@ -647,7 +742,7 @@ def test_adapter_uses_fixed_point_canonical_quantities_and_normalizes_negative_z
         "five_hour",
         "plus",
         ValueAvailability.KNOWN,
-        SourceMetadata("test"),
+        SourceMetadata("codex-app-server-v2"),
         _quantity("1E+2"),
         _quantity("-0"),
     )

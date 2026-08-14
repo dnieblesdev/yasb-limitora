@@ -47,11 +47,12 @@ from .model import (
     QuotaQuantity,
     QuotaWindowKind,
     QuotaWindowView,
-    SAFE_SOURCE_IDS,
     SnapshotFreshness,
     ProviderView,
     SafeError,
     SafeErrorCode,
+    CODEX_SOURCE_ID,
+    OPENCODE_SOURCE_ID,
     _legacy_state_for_snapshot,
     canonical_identity,
 )
@@ -114,12 +115,13 @@ class OpenCodeReadResult:
     __str__ = __repr__
 
 
-def _safe_source(source: object) -> str | None:
+def _safe_source(source: object, provider: ProviderKey = ProviderKey.CODEX) -> str | None:
     reference = getattr(source, "reference", None)
     if not isinstance(reference, str):
         return None
     candidate = normalize("NFC", reference).strip()
-    return candidate if candidate in SAFE_SOURCE_IDS else None
+    expected = CODEX_SOURCE_ID if provider is ProviderKey.CODEX else OPENCODE_SOURCE_ID
+    return candidate if candidate == expected else None
 
 
 def _quantity(quantity: object) -> QuotaQuantity | None:
@@ -138,27 +140,37 @@ def _quantity(quantity: object) -> QuotaQuantity | None:
     return QuotaQuantity(quantity.value, metric, canonical_identity(quantity.unit, "invalid provider unit"))
 
 
-def _window(window: object) -> QuotaWindowView:
+def _window(window: object, provider: ProviderKey = ProviderKey.CODEX) -> QuotaWindowView:
     if not isinstance(window, QuotaWindow):
         raise ValueError("invalid provider quota window") from None
-    if not isinstance(window.kind, WindowKind) or not isinstance(window.availability, ValueAvailability):
+    source_id = _safe_source(window.source, provider)
+    trusted = source_id is not None
+    if not isinstance(window.kind, WindowKind):
         raise ValueError("invalid provider quota window") from None
     try:
         kind = QuotaWindowKind(window.kind.value)
-        availability = QuotaAvailability(window.availability.value)
     except (TypeError, ValueError):
         raise ValueError("invalid provider quota window") from None
+    if trusted:
+        if not isinstance(window.availability, ValueAvailability):
+            raise ValueError("invalid provider quota window") from None
+        try:
+            availability = QuotaAvailability(window.availability.value)
+        except (TypeError, ValueError):
+            raise ValueError("invalid provider quota window") from None
+    else:
+        availability = QuotaAvailability.UNAVAILABLE
     return QuotaWindowView(
         kind=kind,
         scope=canonical_identity(window.scope, "invalid provider scope"),
         period=canonical_identity(window.period, "invalid provider period"),
-        plan_id=None if window.plan_id is None else canonical_identity(window.plan_id, "invalid provider plan id"),
+        plan_id=None if not trusted or window.plan_id is None else canonical_identity(window.plan_id, "invalid provider plan id"),
         availability=availability,
-        source_id=_safe_source(window.source),
-        limit=_quantity(window.limit),
-        used=_quantity(window.used),
-        remaining=_quantity(window.remaining),
-        reset_at=window.reset_at,
+        source_id=source_id,
+        limit=_quantity(window.limit) if trusted else None,
+        used=_quantity(window.used) if trusted else None,
+        remaining=_quantity(window.remaining) if trusted else None,
+        reset_at=window.reset_at if trusted else None,
     )
 
 
@@ -181,14 +193,14 @@ def _snapshot(provider: ProviderKey, result: StatusSnapshotResult) -> tuple[Publ
         raise _UnknownProviderState from None
     if not isinstance(result.freshness, Freshness) or not isinstance(snapshot.quota_windows, tuple):
         raise ValueError("invalid provider snapshot metadata") from None
-    windows = tuple(_window(window) for window in snapshot.quota_windows)
+    windows = tuple(_window(window, provider) for window in snapshot.quota_windows)
     view = ProviderSnapshotView(
         public_state=public_state,
         freshness=SnapshotFreshness(result.freshness.value),
         status_observed_at=snapshot.status.observed_at,
         fetched_at=snapshot.fetched_at,
         data_at=snapshot.data_at,
-        source_id=_safe_source(snapshot.source),
+        source_id=_safe_source(snapshot.source, provider),
         windows=windows,
     )
     return public_state, view

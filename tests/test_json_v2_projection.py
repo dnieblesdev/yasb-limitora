@@ -18,17 +18,17 @@ QKEYS = {"value", "metric", "unit"}
 EKEYS = {"code", "phase"}
 TIME = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$")
 ERROR_PHASE = {"invocation_invalid": "configuration", "configuration_invalid": "configuration", "internal_error": "document", "provider_failed": "provider", "provider_timeout": "provider", "credential_invalid": "provider", "provider_rate_limited": "provider", "provider_unavailable": "provider", "invalid_provider_data": "provider", "unknown_provider_state": "provider"}
-def _window(period, plan=None, source=None, *, values=True, kind=QuotaWindowKind.COMMERCIAL_QUOTA, scope="account", reset=STAMP, unit="percentage_points"):
+def _window(period, plan=None, source="codex-app-server-v2", *, values=True, kind=QuotaWindowKind.COMMERCIAL_QUOTA, scope="account", reset=STAMP, unit="percentage_points"):
     metric = QuotaMetricKind.COMMERCIAL_QUOTA if kind is QuotaWindowKind.OTHER else QuotaMetricKind(kind.value)
     quantity = QuotaQuantity(Decimal("100.00"), metric, unit)
     fields = {"limit": quantity, "used": QuotaQuantity(Decimal("25"), metric, unit), "remaining": QuotaQuantity(Decimal("75"), metric, unit), "reset_at": reset}
     if not values:
         fields = {"limit": None, "used": None, "remaining": quantity, "reset_at": None}
     return QuotaWindowView(kind, scope, period, plan, QuotaAvailability.KNOWN, source, **fields)
-def _snapshot(provider, windows, *, stamp=STAMP):
+def _snapshot(provider, windows, *, stamp=STAMP, source=None):
     snapshot = ProviderSnapshotView(
         PublicProviderState.AVAILABLE, SnapshotFreshness.FRESH, stamp, stamp, stamp,
-        "codex-app-server-v2" if provider is ProviderKey.CODEX else "opencode-go-dashboard", tuple(windows),
+        ("codex-app-server-v2" if provider is ProviderKey.CODEX else "opencode-go-api") if source is None else source, tuple(windows),
     )
     return ProviderView(provider, ProviderState.SUCCESS, outcome=ProviderOutcome.SNAPSHOT, snapshot=snapshot)
 
@@ -44,7 +44,7 @@ def _large_document(period_length=64):
             make_quantity = lambda value: QuotaQuantity(value, QuotaMetricKind.COMMERCIAL_QUOTA, "u" * 64)
             windows.append(QuotaWindowView(QuotaWindowKind.COMMERCIAL_QUOTA, scope, period, None, QuotaAvailability.KNOWN, source, make_quantity(limit), make_quantity(used), make_quantity(Decimal("1")), STAMP))
         return _snapshot(key, windows)
-    return _document(provider(ProviderKey.CODEX, "codex-app-server-v2"), provider(ProviderKey.OPENCODE_GO, "opencode-go-dashboard"))
+    return _document(provider(ProviderKey.CODEX, "codex-app-server-v2"), provider(ProviderKey.OPENCODE_GO, "opencode-go-api"))
 def _document(codex, opencode):
     return DocumentView.ordered(codex, opencode)
 
@@ -56,7 +56,7 @@ def _near_boundary_document(accent_count):
         for window in provider.snapshot.windows:
             object.__setattr__(window, "plan_id", "p" * 64)
             suffix = "é" if 1 <= index <= accent_count else "s"
-            object.__setattr__(window, "scope", "s" * 60 + suffix)
+            object.__setattr__(window, "scope", "s" * 63 + suffix)
             index += 1
     return document
 def _assert_document(value):
@@ -131,13 +131,13 @@ def test_fresh_snapshot_uses_the_published_grammar_and_nullable_identities():
     )["providers"][0]
     assert set(provider["most_depleted_window"]) == {"kind", "scope", "period", "plan_id", "unit", "source_id", "remaining_percentage"}
     assert provider["most_depleted_window"]["plan_id"] is None
-    assert provider["most_depleted_window"]["source_id"] is None
+    assert provider["most_depleted_window"]["source_id"] == "codex-app-server-v2"
     assert provider["compact_text"] == "Quota 75% remaining; state=available; freshness=fresh"
     assert provider["alternate_text"] == "Quota account / weekly: 75% remaining; state=available; freshness=fresh"
     assert provider["tooltip_text"] == (
         "State: available\nFreshness: fresh\nQuota: 75% remaining\n"
         "Window: kind=commercial_quota; scope=account; period=weekly; plan_id=null; "
-        "unit=percentage_points; source_id=null; result=75% remaining"
+        "unit=percentage_points; source_id=\"codex-app-server-v2\"; result=75% remaining"
     )
 
 
@@ -220,7 +220,7 @@ def test_public_projection_excludes_numeric_non_known_windows_from_presentation(
     )
     provider = value["providers"][0]
     assert provider["most_depleted_window"]["period"] == "known"
-    assert f"Window: kind=commercial_quota; scope=account; period=non-eligible; plan_id=null; unit=percentage_points; source_id=null; result=availability={availability.value}" in provider["tooltip_text"]
+    assert f"Window: kind=commercial_quota; scope=account; period=non-eligible; plan_id=null; unit=percentage_points; source_id=\"codex-app-server-v2\"; result=availability={availability.value}" in provider["tooltip_text"]
     assert "non-eligible: 10% remaining" not in provider["tooltip_text"]
 
 
@@ -231,7 +231,7 @@ def test_derived_percentage_uses_decimal34_half_even_at_rounding_boundary():
         QuotaWindowKind.COMMERCIAL_QUOTA,
         "account",
         "boundary",
-        None,
+        "codex-app-server-v2",
         QuotaAvailability.KNOWN,
         "codex-app-server-v2",
         QuotaQuantity(limit, QuotaMetricKind.COMMERCIAL_QUOTA, "percentage_points"),
@@ -267,7 +267,7 @@ def test_tooltip_unit_comes_only_from_consistent_quantity_evidence():
         "used-only",
         None,
         QuotaAvailability.KNOWN,
-        None,
+        "codex-app-server-v2",
         used=QuotaQuantity(Decimal("7"), QuotaMetricKind.COMMERCIAL_QUOTA, "widgets"),
     )
     missing_limit = QuotaWindowView(
@@ -276,7 +276,7 @@ def test_tooltip_unit_comes_only_from_consistent_quantity_evidence():
         "missing-limit",
         None,
         QuotaAvailability.KNOWN,
-        None,
+        "codex-app-server-v2",
         used=QuotaQuantity(Decimal("3"), QuotaMetricKind.COMMERCIAL_QUOTA, "widgets"),
         remaining=QuotaQuantity(Decimal("7"), QuotaMetricKind.COMMERCIAL_QUOTA, "widgets"),
     )
@@ -325,7 +325,7 @@ def test_tooltip_quotes_identity_delimiters_and_backslashes():
     provider = project_v2_document(projection)["providers"][0]
 
     assert 'scope="team;west"; period="five=hour"' in provider["tooltip_text"]
-    assert 'unit="requests\\\\hour"; source_id=null;' in provider["tooltip_text"]
+    assert 'unit="requests\\\\hour"; source_id="codex-app-server-v2";' in provider["tooltip_text"]
     assert 'Quota "team;west" / "five=hour": 75% remaining' in provider["alternate_text"]
     assert "scope=team;west;" not in provider["tooltip_text"]
     assert "period=five=hour;" not in provider["tooltip_text"]
@@ -345,6 +345,26 @@ def test_presentation_is_bounded_and_sources_are_reviewed_before_emission():
     encoded = project_v2_bytes(V2ProjectionInput(document))
     assert b"private-secret-source" not in encoded and b"workspace-id-secret" not in encoded
     assert json.loads(encoded)["providers"][0]["source_id"] is None
+
+
+def test_projection_normalizes_root_and_window_sources_per_provider_and_drops_untrusted_quantities():
+    document = _document(
+        _snapshot(ProviderKey.CODEX, [_window("weekly", source=None)], source="opencode-go-api"),
+        _snapshot(ProviderKey.OPENCODE_GO, [_window("weekly", source="codex-app-server-v2")], source="codex-app-server-v2"),
+    )
+    for view in document.providers:
+        object.__setattr__(view.snapshot.windows[0], "availability", "malformed")
+        object.__setattr__(view.snapshot.windows[0], "limit", object())
+        object.__setattr__(view.snapshot.windows[0], "reset_at", object())
+
+    value = project_v2_document(V2ProjectionInput(document))
+
+    for provider in value["providers"]:
+        assert provider["source_id"] is None
+        window = provider["windows"][0]
+        assert window["source_id"] is None
+        assert window["availability"] == "unavailable"
+        assert all(window[field] is None for field in ("limit", "used", "remaining", "reset_at"))
 
 
 def test_summary_truncation_preserves_the_complete_qualifier_and_tooltip_lines():
@@ -367,16 +387,16 @@ def test_unknown_evidence_fails_closed_without_echoing_the_rejected_value():
 @pytest.mark.parametrize(("adjustment", "candidate_size"), (("boundary_65535", 65_535), ("boundary_65536", 65_536), ("oversize", 65_696)))
 def test_document_byte_boundaries_are_allowed_or_replaced_whole(adjustment, candidate_size):
     if adjustment == "boundary_65535":
-        document = _near_boundary_document(37)
+        document = _near_boundary_document(43)
     elif adjustment == "boundary_65536":
-        document = _near_boundary_document(38)
+        document = _near_boundary_document(44)
     else:
         document = _large_document(64)
     if adjustment == "oversize":
         for provider in document.providers:
             for window in provider.snapshot.windows:
                 object.__setattr__(window, "plan_id", "p" * 64)
-                object.__setattr__(window, "scope", "s" * 64)
+                object.__setattr__(window, "scope", "é" * 64)
     raw = json.dumps(
         project_v2_document(V2ProjectionInput(document)),
         ensure_ascii=False,
@@ -415,9 +435,9 @@ def test_document_byte_boundaries_are_allowed_or_replaced_whole(adjustment, cand
 
 
 def test_serialized_windows_follow_all_normative_sort_dimensions():
-    windows = [_window("a"), _window("b", "plus", "codex-app-server-v2"), _window("a", source="opencode-go-dashboard", scope="b"), _window("a", source="codex-app-server-v2", kind=QuotaWindowKind.TECHNICAL_RATE_LIMIT), _window("z", "plus", "opencode-go-dashboard", scope="z", kind=QuotaWindowKind.OTHER)]
+    windows = [_window("a"), _window("b", "plus", "codex-app-server-v2"), _window("a", source="codex-app-server-v2", scope="b"), _window("a", source="codex-app-server-v2", kind=QuotaWindowKind.TECHNICAL_RATE_LIMIT), _window("z", "plus", "codex-app-server-v2", scope="z", kind=QuotaWindowKind.OTHER)]
     value = json.loads(project_v2_bytes(V2ProjectionInput(_document(_snapshot(ProviderKey.CODEX, windows), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))))
-    assert [(w["kind"], w["scope"], w["period"], w["plan_id"], w["source_id"]) for w in value["providers"][0]["windows"]] == [("commercial_quota", "account", "a", None, None), ("commercial_quota", "account", "b", "plus", "codex-app-server-v2"), ("commercial_quota", "b", "a", None, "opencode-go-dashboard"), ("technical_rate_limit", "account", "a", None, "codex-app-server-v2"), ("other", "z", "z", "plus", "opencode-go-dashboard")]
+    assert [(w["kind"], w["scope"], w["period"], w["plan_id"], w["source_id"]) for w in value["providers"][0]["windows"]] == [("commercial_quota", "account", "a", None, "codex-app-server-v2"), ("commercial_quota", "account", "b", "plus", "codex-app-server-v2"), ("commercial_quota", "b", "a", None, "codex-app-server-v2"), ("technical_rate_limit", "account", "a", None, "codex-app-server-v2"), ("other", "z", "z", "plus", "codex-app-server-v2")]
 
 
 def test_presentation_is_identical_for_equivalent_window_permutations():
