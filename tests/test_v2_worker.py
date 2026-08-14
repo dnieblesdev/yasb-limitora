@@ -1,5 +1,6 @@
 import io
 import json
+import pickle
 import queue
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -24,18 +25,18 @@ from yasb_limitora.model import (
     SnapshotFreshness,
 )
 from yasb_limitora.v2_deadline import DeadlineContext
-from yasb_limitora.v2_worker import V2ExecutionOrchestrator, WorkerRecord, cleanup_complete
+from yasb_limitora.v2_guard import GuardError
+from yasb_limitora.v2_worker import OpenCodeWorkerProcess, V2ExecutionOrchestrator, WorkerRecord, cleanup_complete
+from yasb_limitora.limitora_api import OpenCodeReadResult, OpenCodeRequest
 
 
 class Lease:
     def __init__(self, events, close=True):
         self.events, self.close_ok, self.owned = events, close, True
     def close(self):
-        self.events.append("close-mutex")
-        return self.close_ok
+        self.events.append("close-mutex"); self.owned = not self.close_ok; return self.close_ok
     def release(self):
-        self.events.append("release-mutex")
-        return True
+        self.events.append("release-mutex"); self.owned = False; return True
 
 
 class Guard:
@@ -47,25 +48,39 @@ def context():
     return DeadlineContext(t0_ns=0, deadline_ns=10_000_000_000, reserve_ns=250_000_000, clock_ns=lambda: 0)
 
 
+def test_opencode_request_is_the_only_secret_bearing_spawn_carrier():
+    request = OpenCodeRequest("sentinel-api-key", 7.0)
+    payload = pickle.dumps(request)
+    assert b"sentinel-api-key" in payload and "sentinel-api-key" not in repr(request) and "sentinel-api-key" not in str(request)
+    assert "sentinel-api-key" not in repr(OpenCodeReadResult(ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))) and b"sentinel-api-key" not in pickle.dumps(OpenCodeReadResult(ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
 def test_cleanup_complete_requires_all_worker_evidence():
-    record = WorkerRecord(object(), object(), reaped=True, exit_code=0, job_active_zero=True, handles_closed=True)
+    record = WorkerRecord(object(), object(), reaped=True, exit_code=0, job_active_zero=True, job_closed=True, process_closed=True)
     assert cleanup_complete([record])
-    record.handles_closed = False
+    record.process_closed = False
     assert not cleanup_complete([record])
-
-
+    job = type("Job", (), {"active_processes": 0, "state": "assigned", "calls": 0, "close_with_deadline": lambda self, _: setattr(self, "calls", self.calls + 1)})()
+    record = WorkerRecord(object(), job, reaped=True, exit_code=0, job_active_zero=True, process_closed=True)
+    worker = type("Worker", (), {"record": record, "run_with_deadline": lambda self, request, deadline: (job.close_with_deadline(deadline) or ProviderView(ProviderKey.OPENCODE_GO, ProviderState.SUCCESS))})()
+    events = []; lease = Lease(events); acquired = []
+    SerialGuard = type("SerialGuard", (), {"acquire": lambda self, path, deadline: (_ for _ in ()).throw(GuardError("guard_wait_timeout")) if acquired else (acquired.append(True) or lease)})
+    config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": True}})
+    orchestrator = V2ExecutionOrchestrator(guard_factory=SerialGuard, opencode_factory=lambda: worker)
+    result = orchestrator.run(config, {"LIMITORA_OPENCODE_API_KEY": "key"}, context(), "config")
+    assert job.calls == 2 and not record.job_closed and record.process_closed and not cleanup_complete([record]) and result.document_error.code.value == "cleanup_failed" and events == [] and lease.owned
+    later = orchestrator.run(config, {"LIMITORA_OPENCODE_API_KEY": "key"}, context(), "config")
+    assert later.document_error.code.value == "guard_wait_timeout"
+    job.state = "closed"; record.job_closed = True
+    assert cleanup_complete([record])
 def test_cleanup_complete_requires_opencode_and_codex_quiescence():
     records = [
-        WorkerRecord(object(), object(), reaped=True, exit_code=0, job_active_zero=True, handles_closed=True),
-        WorkerRecord(object(), object(), reaped=True, exit_code=0, job_active_zero=True, handles_closed=True),
+        WorkerRecord(object(), object(), reaped=True, exit_code=0, job_active_zero=True, job_closed=True, process_closed=True),
+        WorkerRecord(object(), object(), reaped=True, exit_code=0, job_active_zero=True, job_closed=True, process_closed=True),
     ]
     supervisor = type("Supervisor", (), {"_state": "closed", "_pending": None, "_prepared": None, "_helper": None, "_gate": None, "_data": None})()
     helper = type("Helper", (), {"_pending_supervisor": None, "_active": False, "_retrying": False, "_last_supervisor": supervisor})()
     assert cleanup_complete(records, supervisors=(supervisor,), helpers=(helper,))
     supervisor._pending = object()
     assert not cleanup_complete(records, supervisors=(supervisor,), helpers=(helper,))
-
-
 def test_opencode_authorizes_job_before_releasing_provider_start():
     events = []
 
@@ -79,6 +94,7 @@ def test_opencode_authorizes_job_before_releasing_provider_start():
         def start(self): events.append("process-start")
         def join(self, timeout=None): events.append("process-join")
         def is_alive(self): return False
+        def close(self): events.append("process-close"); raise OSError("close failed")
 
     class Context:
         def Queue(self): return queue.Queue()
@@ -92,27 +108,23 @@ def test_opencode_authorizes_job_before_releasing_provider_start():
         def close_with_deadline(self, context): events.append("job-close"); self.state = "closed"
 
     worker = __import__("yasb_limitora.v2_worker", fromlist=["OpenCodeWorkerProcess"]).OpenCodeWorkerProcess(
-        reader=lambda workspace, environment: (_ for _ in ()).throw(AssertionError("provider ran")),
+        reader=lambda request: (_ for _ in ()).throw(AssertionError("provider ran")),
         process_factory=lambda **kwargs: Process(kwargs["target"], kwargs["args"]),
         job_factory=Job,
         context_factory=lambda _name: Context(),
     )
-    worker.run_with_deadline("workspace", {}, context())
-    assert events[:3] == ["process-start", "job-assign", "provider-release"]
-
-
+    worker.run_with_deadline(OpenCodeRequest("secret", 7), context())
+    assert events[:3] == ["process-start", "job-assign", "provider-release"] and events.index("process-close") > events.index("job-close") and worker.record is not None and worker.record.reaped and worker.record.job_closed and not worker.record.process_closed
 def test_prestart_deadline_exhaustion_marks_opencode_not_run_without_spawning():
     expired = DeadlineContext(t0_ns=0, deadline_ns=0, reserve_ns=0, clock_ns=lambda: 0)
     worker = __import__("yasb_limitora.v2_worker", fromlist=["OpenCodeWorkerProcess"]).OpenCodeWorkerProcess(
         process_factory=lambda **kwargs: (_ for _ in ()).throw(AssertionError("provider spawned")),
     )
 
-    result = worker.run_with_deadline("workspace", {}, expired)
+    result = worker.run_with_deadline(OpenCodeRequest("secret", 7), expired)
 
     assert result.outcome is ProviderOutcome.NOT_RUN
     assert result.not_run_reason == "deadline_exhausted"
-
-
 def test_prestart_deadline_exhaustion_retries_pending_codex_cleanup():
     closed = []
 
@@ -140,6 +152,19 @@ def test_prestart_deadline_exhaustion_retries_pending_codex_cleanup():
     assert executor._pending_supervisor is None
 
 
+def test_codex_exhaustion_skips_opencode_request_construction_and_returns_not_run():
+    clock = [0]; Codex = type("Codex", (), {"run_with_deadline": lambda self, runner, deadline: (clock.__setitem__(0, 2_000) or ProviderView(ProviderKey.CODEX, ProviderState.SUCCESS))}); config = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {"enabled": True}}); context = DeadlineContext(0, 1_000, 0, lambda: clock[0])
+    document = V2ExecutionOrchestrator(guard_factory=lambda: Guard(Lease([])), codex_executor=Codex(), opencode_factory=lambda: pytest.fail("OpenCode worker constructed after deadline exhaustion")).run(config, {"LIMITORA_OPENCODE_API_KEY": "key"}, context, r"C:\\config.json")
+    assert (document.providers[1].outcome, document.providers[1].not_run_reason) == (ProviderOutcome.NOT_RUN, "deadline_exhausted")
+def test_opencode_budget_sampling_handles_clock_expiry_race():
+    clock = iter((0, 0, 1)); requests = []; Worker = type("Worker", (), {"record": None, "run_with_deadline": lambda self, request, context: (requests.append(request) or ProviderView(ProviderKey.OPENCODE_GO, ProviderState.SUCCESS))}); config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": True}})
+    document = V2ExecutionOrchestrator(guard_factory=lambda: Guard(Lease([])), opencode_factory=Worker).run(config, {"LIMITORA_OPENCODE_API_KEY": "key"}, DeadlineContext(0, 1, 0, lambda: next(clock)), "config")
+    assert document.providers[1].state is ProviderState.SUCCESS
+    assert requests and requests[0].timeout_seconds > 0
+def test_opencode_start_failure_closes_unstarted_process_and_queue_handles():
+    events = []; Queue = type("Queue", (), {"cancel_join_thread": lambda self: events.append("queue-cancel"), "close": lambda self: events.append("queue-close")}); Process = type("Process", (), {"pid": 42, "exitcode": None, "start": lambda self: (events.append("process-start") or (_ for _ in ()).throw(RuntimeError("start failed"))), "is_alive": lambda self: (_ for _ in ()).throw(AssertionError("unstarted process queried")), "join": lambda self, timeout=None: (_ for _ in ()).throw(AssertionError("unstarted process joined")), "close": lambda self: events.append("process-close")})
+    Context = type("Context", (), {"Queue": lambda self: Queue(), "Event": lambda self: type("Event", (), {})()}); worker = OpenCodeWorkerProcess(process_factory=lambda **kwargs: Process(), context_factory=lambda _name: Context()); result = worker.run_with_deadline(OpenCodeRequest("secret", 7), context())
+    assert result.error.code is SafeErrorCode.PROVIDER_ERROR and events == ["process-start", "process-close", "queue-cancel", "queue-close"] and worker.record is not None and worker.record.reaped and worker.record.process_closed and not worker.record.started and worker.record.exit_code is None
 def test_started_opencode_overrun_remains_provider_timeout():
     class Process:
         pid, exitcode = 42, None
@@ -156,6 +181,10 @@ def test_started_opencode_overrun_remains_provider_timeout():
         def is_alive(self):
             return self.alive
 
+        def terminate(self):
+            self.alive = False
+        def close(self):
+            self.closed = True
     class Job:
         active_processes = 0
         state = "assigned"
@@ -172,11 +201,12 @@ def test_started_opencode_overrun_remains_provider_timeout():
         context_factory=lambda _name: type("Context", (), {"Queue": lambda self: queue.Queue(), "Event": lambda self: type("Event", (), {"set": lambda self: None})()})(),
     )
 
-    result = worker.run_with_deadline("workspace", {}, context())
+    result = worker.run_with_deadline(OpenCodeRequest("secret", 7), context())
 
     assert result.outcome is ProviderOutcome.EXECUTION_ERROR
     assert result.error is not None
     assert result.error.code is SafeErrorCode.TIMEOUT
+    assert worker.record is not None and worker.record.reaped and worker.record.job_closed and worker.record.process_closed
 
 
 def test_orchestrator_preserves_outcomes_when_mutex_cleanup_fails():
