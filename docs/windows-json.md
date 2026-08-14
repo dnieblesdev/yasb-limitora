@@ -3,32 +3,39 @@
 `yasb-limitora` provides an executable Windows-only machine-JSON boundary for
 Codex and OpenCode Go. The official 0.2 consumer is YASB's existing
 `CustomWidget`; this repository does not implement a native YASB widget or
-popover. This page documents the frozen v1 runtime and v2 configuration behavior. The normative v2 contract
-is [`specifications/json-v2.md`](specifications/json-v2.md).
+popover. This page documents the frozen v1 runtime, v2 configuration behavior,
+and the OpenCode Go Bearer-key delivery boundary. The normative v2 contract is
+[`specifications/json-v2.md`](specifications/json-v2.md).
 
 ## Quick path
 
 1. Use native Windows 10 or 11. WSL is not the production runtime or proof environment.
-2. Install Python and the pinned runtime:
+2. Install Python and the checkout runtime from the repository root. The
+   `yasb-limitora` package is not published to PyPI:
 
    ```powershell
    py -m pip install --upgrade pip
-   py -m pip install "limitora==0.1.0"
-   py -m pip install "yasb-limitora[opencode-go]"
+   py -m pip install -e .
    ```
 
-   For a checkout, replace the last command with:
-
-   ```powershell
-   py -m pip install -e ".[opencode-go]"
-   ```
-
-3. Create a local JSON configuration file. Do not put cookies, tokens, or other
+3. Create a local JSON configuration file. Do not put keys, tokens, or other
    credentials in it.
-4. Set `LIMITORA_AUTH_COOKIE` only in the process environment when OpenCode Go
-   is enabled.
+4. For OpenCode Go, follow [the `.env` flow](#opencode-go-key-flow).
 5. Run the module or installed console entry point and parse stdout as one JSON
    document.
+
+### Copy-ready OpenCode flow
+
+Create or select the separate Limitora JSON configuration before starting YASB:
+use `%LOCALAPPDATA%\yasb-limitora\config.json`, or set `YASB_LIMITORA_CONFIG` to an explicit startup path. Enable OpenCode Go and keep the file key-free:
+
+```json
+{"opencode_go": {"enabled": true, "timeout_seconds": 7}}
+```
+
+Create the startup-loaded `.env` with `LIMITORA_OPENCODE_API_KEY=<key>`, then merge
+`limitora_r9_opencode_manual` from `examples/customwidget/customwidget.yaml` into YASB's
+`widgets:` map and register it in a YASB bar. Its literal command is `yasb-limitora --output-version 2`; its label/tooltip read `providers[1]`. Keep `limitora_r9` Codex-only on `providers[0]` and follow the `.env` reload/manual acceptance steps before treating this as a real provider check.
 
 ## Runtime support boundary
 
@@ -56,16 +63,21 @@ local JSON with these provider fields:
   },
   "opencode_go": {
     "enabled": true,
-    "workspace_id": "your-workspace-id",
     "timeout_seconds": 7
   }
 }
 ```
 
-The Codex runner must be an absolute Windows path. `workspace_id` is local
-configuration and is never projected into machine JSON or diagnostics. Missing
-or disabled provider configuration produces `unavailable`; malformed local
+The Codex runner must be an absolute Windows path. OpenCode Go has no workspace,
+cookie, dashboard, or endpoint setting in this consumer. A disabled provider is
+represented as `not_run` with `not_run_reason: disabled` in v2; malformed local
 configuration produces `configuration_invalid` and exit code `2`.
+
+For manual OpenCode acceptance, use the Limitora JSON at
+`%LOCALAPPDATA%\yasb-limitora\config.json`, or set `YASB_LIMITORA_CONFIG` to an
+explicit JSON path. That file must set `"opencode_go": {"enabled": true}`.
+`YASB_CONFIG_HOME` controls only YASB's YAML and `.env` directory; it does not
+select the Limitora JSON.
 
 ### v2 configuration resolution
 
@@ -87,48 +99,98 @@ V1 remains frozen: no selector and explicit v1 selectors continue to ignore
 `YASB_LIMITORA_CONFIG` and `LOCALAPPDATA`, preserve the existing bytes and
 streams, and do not use or create a default configuration file.
 
-### Environment-only `authCookie`
+### OpenCode Go key flow
 
-`authCookie` is represented by the environment variable
-`LIMITORA_AUTH_COOKIE`; it is not a JSON field, command-line argument, or
-output field. Set it for the process that runs the CLI, for example:
+The supported operator flow is one startup-loaded YASB `.env` file:
 
-```powershell
-$env:LIMITORA_AUTH_COOKIE = "<set-from-your-secret-store>"
-yasb-limitora --config .\limitora.json
+```dotenv
+LIMITORA_OPENCODE_API_KEY=<key>
 ```
 
-The value remains memory-only in this package. Do not use `setx` for a shared
-machine unless that is the intended Windows secret-handling policy, because it
-persists the value outside the current process.
+Store that line in `%USERPROFILE%\.config\yasb\.env`, or `%YASB_CONFIG_HOME%\.env` when that OS variable was set before startup. `YASB_CONFIG_HOME` is only YASB's YAML/.env location, not Limitora JSON; an existing OS environment value wins over `.env`. The key is read only from the effective environment, and YASB's CustomWidget subprocess inherits it without changing the command.
+
+After creating/changing `.env`, run `yasbc reload`; it starts a fresh YASB process and reloads `.env`. If YASB is not running, use the manual restart/start fallback. Keep the file user-private; never copy its contents into YAML, JSON, `run_cmd`, argv, stdout, stderr, logs, fixtures, dumps, or bug reports.
+
+### Bounded OpenCode outcomes
+
+The following public errors are intentionally short and stable. They contain
+only `code` and `phase`; raw responses, exception text, paths, and credentials
+are never exposed.
+
+| Code | Cause | Operator action |
+|---|---|---|
+| `credential_invalid` | The attempted key is invalid, revoked, or unauthorized. | Check the approved key source, replace it there, then run `yasbc reload` or use the manual restart/start fallback. |
+| `provider_timeout` | The provider request exceeded its bounded timeout or remaining document deadline. | Check provider reachability and use a timeout within the documented bound; retry on the next refresh. |
+| `provider_rate_limited` | OpenCode returned a provider-level rate-limit response (HTTP 429). | Wait and retry; do not interpret it as a per-window quota result. |
+| `provider_failed` | OpenCode failed without a more specific bounded classification. | Retry and inspect only the bounded public state and code. |
+| `provider_unavailable` | OpenCode was attempted but no supported provider observation was available. | Check the installation/provider availability and retry; inspect only the bounded public state. |
+| `invalid_provider_data` | A provider response failed validation. | Retry and report only the bounded error; do not expose the response. |
+| `unknown_provider_state` | A future or unrecognized provider state was received. | Treat it as failed closed and wait for a compatible provider adapter. |
+
+A missing or empty `LIMITORA_OPENCODE_API_KEY` is **not** an invalid-credential
+error: in v2, OpenCode alone is `not_run` with `not_run_reason: disabled`, and
+no request is attempted. It is neither public state `unavailable` nor error
+`provider_unavailable`. `unavailable` is a state inside a returned snapshot;
+`provider_unavailable` is an attempted-provider execution error. Likewise,
+`invalid_data` is a public state, while `invalid_provider_data` is a sanitized
+validation error. Codex and OpenCode outcomes are independent, so one provider's
+error never erases the other provider's valid result.
+
+The complete v2 provider-state vocabulary is `available`, `partial`,
+`unavailable`, `unauthorized`, `rate_limited`, `transient_error`, and
+`invalid_data`. The complete public error vocabulary is
+`invocation_invalid`, `configuration_invalid`, `guard_acquisition_failed`,
+`guard_wait_timeout`, `deadline_exhausted`, `credential_invalid`,
+`provider_timeout`, `provider_rate_limited`, `provider_unavailable`,
+`provider_failed`, `ipc_failed`, `cleanup_failed`, `invalid_provider_data`,
+`unknown_provider_state`, and `internal_error`.
+
+### Numeric-window contract
+
+For OpenCode `available` or `partial` snapshots, the public contract has exactly the commercial periods `five_hour`, `monthly`, and `weekly`. A validated numeric window with source `opencode-go-api` remains known; missing or invalid fixed slots, including ambiguous duplicates, become unavailable with null numeric values. Unavailable is reserved for those fixed-slot cases.
+Unrecognized extra commercial periods are discarded; no zero or substitute value is invented. Rate-limited snapshots preserve only technical rate-limit windows. Limitora #55 was implemented and released in v0.3.0 as historical upstream context; #133 remains the downstream follow-up and is outside the #130/0.2 migration until separately approved and verified. This consumer exposes only the current provider-level bounded error.
 
 ## Running and streams
 
-Both forms invoke the same `yasb_limitora.cli:main` entry point:
+### v1 commands (frozen)
 
 ```powershell
 py -m yasb_limitora --config .\limitora.json
 yasb-limitora --config .\limitora.json
 ```
 
+V1 remains frozen: its envelope has integer `version: 1`, states `loading`,
+`success`, `unavailable`, and `safe_error`; exit codes `0`, `1`, and `2` mean no
+safe error, provider `safe_error`, and unsupported/malformed runtime respectively.
+
+### v2 commands
+
+Both forms invoke the same `yasb_limitora.cli:main` entry point:
+
+```powershell
+py -m yasb_limitora --output-version 2 --config .\limitora.json
+yasb-limitora --output-version 2 --config .\limitora.json
+```
+
 Stdout contains exactly one UTF-8 JSON document and its terminating newline.
-The envelope has integer `version: 1` and providers in the fixed order
+For v2, the envelope has integer `version: 2` and providers in the fixed order
 `codex`, then `opencode_go`. Sanitized diagnostics, when needed, go to stderr;
 credentials, workspace IDs, private provider payloads, raw exceptions, and
 runner details are not emitted.
 
-Exit codes are:
+The v2 document uses `execution_state` values `complete`, `partial`, `not_run`, and
+`execution_error`; providers use `snapshot`, `undetected`, `not_run`, or
+`execution_error`, with validated snapshot status in `public_state`. Document and
+provider fields remain independent, preserving each provider error in its own slot.
+
+V2 exit code `1` covers these bounded execution errors, including
+`guard_acquisition_failed`, `guard_wait_timeout`, and `deadline_exhausted`:
 
 | Code | Meaning |
 |---:|---|
-| `0` | The document contains no `safe_error`. |
-| `1` | A provider runtime, timeout, or internal failure was projected as `safe_error`. |
+| `0` | No document or provider `execution_error` was projected. |
+| `1` | A provider runtime, timeout, cleanup, or internal failure was projected as `execution_error`; this includes `guard_acquisition_failed`, `guard_wait_timeout`, and `deadline_exhausted`. |
 | `2` | The runtime is unsupported, or local invocation/configuration was malformed. Unsupported-platform rejection uses the exact stderr contract above and no JSON stdout. |
-
-The only provider states are `loading`, `success`, `unavailable`, and
-`safe_error`. The one-shot CLI normally returns completed `success`,
-`unavailable`, or `safe_error` views; `loading` remains part of the closed
-contract for future consumers.
 
 ## Availability and fail-safe behavior
 
@@ -161,20 +223,57 @@ the updated environment. A fully qualified executable may be used locally as a
 diagnostic or workaround when investigating PATH inheritance; machine-specific
 paths must not be published in configuration, documentation, or issue logs.
 
+## Manual native YASB acceptance
+
+R10 generic YASB CustomWidget acceptance is complete. This is the remaining real
+OpenCode provider acceptance for R11/#130: a **manual acceptance procedure, not
+automated E2E**. Run it only with an existing real Windows YASB installation and
+authorized test environment; do not install/embed YASB, invent a key, or make an
+unauthorized request. Otherwise the provider gate remains externally pending.
+
+Using the copy-ready example in `examples/customwidget/`:
+
+1. Create/select the dedicated Limitora JSON with
+   `"opencode_go": {"enabled": true}`. Temporarily add
+   `limitora_r9_opencode_manual` to YASB's `widgets:` config and bar list. It uses
+   `providers[1]`; keep `limitora_r9` on `providers[0]` and label it Codex-only.
+2. Put the approved test key only in `.env`, run `yasbc reload` to start a fresh
+   process and reload it (or manually restart/start if YASB is not running), then
+   observe the temporary OpenCode label/tooltip and safe quota data.
+3. Disable the key from **both** sources: remove the
+   `LIMITORA_OPENCODE_API_KEY` line from `.env` and clear/unset any
+   `LIMITORA_OPENCODE_API_KEY` value in the current/inherited OS environment,
+   including persistent User/Machine definitions. Do not print it. Reload (or manually restart/start), verify only OpenCode is
+   `not_run` with `not_run_reason: disabled`, and restore it only to an approved
+   source if needed; restore it securely and never put it in YAML, JSON, `run_cmd`, argv, output, logs, or
+   reports.
+4. Exercise authorized invalid/revoked-key, provider failure, timeout, rate-limit,
+   and unavailable-provider cases; verify each bounded code/action without raw
+   response. Exercise current/partial windows: valid values remain, invalid or
+   ambiguous fixed periods are unavailable/null, extras are discarded, and no
+   zero is invented.
+5. Review YAML, `run_cmd`, argv, JSON, stdout, stderr, logs, fixtures, and dumps
+   for secret absence. Record only redacted pass/fail observations; never attach
+   `.env`, a secret, raw response, or environment-specific path.
+
+The acceptance result must state the existing YASB version/environment, remain
+explicitly manual, and remove/revert the temporary widget from both the YASB bar
+list and `widgets:` config after acceptance.
+
 ## Verified limitations and troubleshooting
 
 - Native Job Object and descendant cleanup require native Windows. Linux and
   WSL may run hermetic protocol tests, but they are not native proof.
 - A Codex runner must be an existing absolute path accepted by Limitora's public
   Codex adapter. Relative paths are invalid configuration.
-- OpenCode Go requires the `opencode-go` installation extra and a non-empty
-  `LIMITORA_AUTH_COOKIE`; without both, its state is `unavailable`.
-- Configuration files reject credential-like keys. Put no cookie or token in
-  JSON, argv, logs, or artifacts.
+- OpenCode Go requires the `opencode-go` installation extra. In v2, a missing
+  key leaves only OpenCode `not_run` with `not_run_reason: disabled`, not
+  `unavailable`; configuration files reject credential-like keys.
+- Put no key or token in JSON, YAML, argv, logs, fixtures, dumps, or artifacts.
 - If native containment is unavailable or the process is already in a Job that
-  cannot accept a nested Job, expect `safe_error` rather than unisolated
-  execution. Inspect only the sanitized stderr diagnostic and the safe JSON
-  error code.
+  cannot accept a nested Job, expect a v2 `execution_error` rather than
+  unisolated execution. In frozen v1, the corresponding result is `safe_error`.
+  Inspect only the sanitized stderr diagnostic and bounded JSON error code.
 - The native proof is explicitly selected by
   [`.github/workflows/windows-proof.yml`](../.github/workflows/windows-proof.yml)
   on `windows-latest`; a skipped test is not proof.
