@@ -10,9 +10,11 @@ explicitly rejected.
 |----------|----------|
 | YASB CustomWidget v2.0.5 source | Use `CustomWidget` with JSON return data, `label`, `label_alt`, tooltip text, static CSS, periodic refresh, and manual/callback refresh. |
 | YASB CustomWidget worker | `stop()` stops result publication but does not terminate the running `Popen`; process cleanup belongs to the CLI boundary and must be bounded. |
-| Limitora public API 0.1.0 | Preserve `available`, `partial`, `unavailable`, `unauthorized`, `rate_limited`, `transient_error`, and `invalid_data` exactly. |
+| Limitora public API 0.2.0 Bearer contract | Preserve `available`, `partial`, `unavailable`, `unauthorized`, `rate_limited`, `transient_error`, and `invalid_data` exactly. |
 | Limitora domain model | Preserve variable quota windows, availability, source metadata, plan identifiers, reset timestamps, and Decimal `limit`/`used`/`remaining` quantities. |
 | Limitora comparability | Window identity is `(kind, scope, period)`; compatibility additionally requires `plan_id` and `unit`, plus a sanitized non-null source match for planless commercial quota. |
+| OpenCode 0.2 window contract | `available` and `partial` snapshots use one fixed commercial slot for each `five_hour`, `monthly`, and `weekly` period; `rate_limited` carries technical windows only and no per-window commercial provenance. |
+| Limitora #55 / yasb-limitora #133 | Limitora's v0.3.0 per-window rate-limit signal is upstream context only; this consumer remains on the 0.2 contract and does not consume it until #133. |
 | Existing YASB-side runtime | v1 is a fixed `codex`, then `opencode_go` envelope and must remain byte-for-byte stable. |
 | Existing Codex IPC | Control payloads are bounded at 16 KiB and response payloads at 64 KiB; v2 must not silently enlarge those limits. |
 
