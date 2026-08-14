@@ -428,6 +428,25 @@ def test_pr2b_schema_and_spec_declare_provider_bound_api_sources():
     with pytest.raises(AssertionError): _assert_provider(invalid)
 
 
+def test_pr2c_schema_declares_exact_opencode_fixed_windows_and_rate_limit_filter():
+    schema = _schema()
+    opencode_rules = schema["$defs"]["opencodeProvider"]["allOf"]
+    fixed_rule = next(rule for rule in opencode_rules if rule.get("if", {}).get("properties", {}).get("public_state", {}).get("enum") == ["available", "partial"])
+    fixed = fixed_rule["then"]["properties"]["windows"]
+    assert fixed["items"]["if"]["properties"]["kind"] == {"const": "commercial_quota"}
+    assert fixed["items"]["then"]["properties"]["period"] == {"enum": ["five_hour", "monthly", "weekly"]}
+    assert [(r["contains"]["properties"]["period"]["const"], r["minContains"], r["maxContains"]) for r in fixed["allOf"]] == [(period, 1, 1) for period in ("five_hour", "monthly", "weekly")]
+    rate_rule = next(rule for rule in opencode_rules if rule.get("if", {}).get("properties", {}).get("public_state") == {"const": "rate_limited"})
+    assert rate_rule["then"]["properties"]["windows"]["items"]["properties"]["kind"] == {"const": "technical_rate_limit"}
+
+
+def test_pr2c_commercial_fixture_quantities_use_metric_not_unit():
+    for name in ("complete", "partial", "stale", "multiline-unicode", "missing-data", "provider-unavailable"):
+        document = json.loads((ROOT / "examples/customwidget/fixtures" / f"{name}.json").read_text(encoding="utf-8"))
+        for provider in document["providers"]:
+            for window in provider["windows"]:
+                for quantity in (window[field] for field in ("limit", "used", "remaining") if window["kind"] == "commercial_quota" and window[field] is not None):
+                    assert quantity["metric"] == "commercial_quota" and quantity["unit"] == "percentage_points"
 def test_r6_tooltip_identity_escaping_rule_is_normative():
     text = SPEC.read_text(encoding="utf-8")
 

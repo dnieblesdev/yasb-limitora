@@ -27,6 +27,7 @@ from .model import (
     V2SafeErrorCode,
     SnapshotFreshness,
     CODEX_SOURCE_ID,
+    MAX_QUOTA_WINDOWS,
     OPENCODE_SOURCE_ID,
 )
 
@@ -35,6 +36,7 @@ _KIND_ORDER = {
     QuotaWindowKind.TECHNICAL_RATE_LIMIT: 1,
     QuotaWindowKind.OTHER: 2,
 }
+_OPENCODE_FIXED_PERIODS = ("five_hour", "monthly", "weekly")
 _FAILURES = {
     "invocation_invalid": ("configuration", "invocation_invalid"),
     "configuration_invalid": ("configuration", "invalid_configuration"),
@@ -45,6 +47,8 @@ _FAILURES = {
 }
 _MAX_DOCUMENT_BYTES = 65_536
 _MAX_TOOLTIP_SCALARS = 4_096
+
+class _TooManyWindows(ValueError): pass
 _NOT_RUN_TEXT = {
     "disabled": "provider disabled",
     "invalid_configuration": "configuration invalid",
@@ -132,6 +136,53 @@ def _window(window: object, provider: ProviderKey = ProviderKey.CODEX) -> dict[s
         "remaining": None if not trusted or window.remaining is None else _quantity(window.remaining),
         "reset_at": None if not trusted or window.reset_at is None else _timestamp(window.reset_at),
     }
+
+
+def _opencode_placeholder(period: str, scope: str = "account") -> dict[str, Any]:
+    return {"kind": QuotaWindowKind.COMMERCIAL_QUOTA.value, "scope": scope, "period": period, "plan_id": None, "availability": QuotaAvailability.UNAVAILABLE.value, "source_id": None, "limit": None, "used": None, "remaining": None, "reset_at": None}
+
+
+def _opencode_windows(snapshot: ProviderSnapshotView) -> list[dict[str, Any]]:
+    if snapshot.public_state is PublicProviderState.RATE_LIMITED:
+        return [
+            _window(window, ProviderKey.OPENCODE_GO)
+            for window in snapshot.windows
+            if isinstance(window, QuotaWindowView) and window.kind is QuotaWindowKind.TECHNICAL_RATE_LIMIT
+        ]
+    if snapshot.public_state not in (PublicProviderState.AVAILABLE, PublicProviderState.PARTIAL):
+        return [_window(window, ProviderKey.OPENCODE_GO) for window in snapshot.windows]
+
+    candidates = {period: [] for period in _OPENCODE_FIXED_PERIODS}
+    preserved: list[dict[str, Any]] = []
+    for raw in snapshot.windows:
+        if not isinstance(raw, QuotaWindowView):
+            raise ValueError("invalid v2 window")
+        kind = _enum(QuotaWindowKind, raw.kind, "invalid v2 window kind")
+        if kind is QuotaWindowKind.COMMERCIAL_QUOTA:
+            try:
+                period = _identity(raw.period, "invalid v2 period")
+            except ValueError:
+                continue
+            if period in candidates:
+                candidates[period].append(raw)
+            continue
+        preserved.append(_window(raw, ProviderKey.OPENCODE_GO))
+
+    fixed: list[dict[str, Any]] = []
+    for period in _OPENCODE_FIXED_PERIODS:
+        matches = candidates[period]
+        if len(matches) != 1:
+            fixed.append(_opencode_placeholder(period))
+            continue
+        candidate = matches[0]
+        try:
+            normalized = _window(candidate, ProviderKey.OPENCODE_GO)
+        except (TypeError, ValueError):
+            normalized = _opencode_placeholder(period)
+        if normalized["availability"] != QuotaAvailability.KNOWN.value or normalized["source_id"] != OPENCODE_SOURCE_ID:
+            normalized = _opencode_placeholder(period, normalized["scope"])
+        fixed.append(normalized)
+    return preserved + fixed
 def _window_sort_key(window: dict[str, Any]) -> tuple[object, ...]:
     return (
         _KIND_ORDER[QuotaWindowKind(window["kind"])],
@@ -324,8 +375,14 @@ def _provider(view: ProviderView, enabled: frozenset[ProviderKey], tooltip_limit
             data_at=_timestamp(snapshot.data_at),
             source_id=_source(snapshot.source_id, provider),
         )
-        windows = [_window(window, provider) for window in snapshot.windows]
+        windows = (
+            _opencode_windows(snapshot)
+            if provider is ProviderKey.OPENCODE_GO
+            else [_window(window, provider) for window in snapshot.windows]
+        )
         item["windows"] = sorted(windows, key=_window_sort_key)
+        if len(item["windows"]) > MAX_QUOTA_WINDOWS:
+            raise _TooManyWindows("too many v2 windows")
     elif outcome is ProviderOutcome.UNDETECTED:
         if view.snapshot is not None or view.error is not None:
             raise ValueError("invalid v2 undetected outcome")
@@ -411,7 +468,10 @@ def _encode(document: dict[str, Any]) -> bytes:
 def project_v2_bytes(input: V2ProjectionInput) -> bytes:
     """Return one compact UTF-8 v2 document followed by exactly one LF."""
 
-    encoded = _encode(project_v2_document(input))
+    try:
+        encoded = _encode(project_v2_document(input))
+    except _TooManyWindows:
+        return project_v2_failure_bytes("internal_error")
     if len(encoded) <= _MAX_DOCUMENT_BYTES:
         return encoded
 
