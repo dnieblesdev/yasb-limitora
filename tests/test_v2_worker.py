@@ -9,6 +9,7 @@ import pytest
 
 from yasb_limitora.cli import main
 from yasb_limitora.config import LocalConfig
+import yasb_limitora.limitora_api as limitora_api, yasb_limitora.v2_worker as v2_worker
 from yasb_limitora.model import (
     ProviderKey,
     ProviderOutcome,
@@ -53,6 +54,87 @@ def test_opencode_request_is_the_only_secret_bearing_spawn_carrier():
     payload = pickle.dumps(request)
     assert b"sentinel-api-key" in payload and "sentinel-api-key" not in repr(request) and "sentinel-api-key" not in str(request)
     assert "sentinel-api-key" not in repr(OpenCodeReadResult(ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))) and b"sentinel-api-key" not in pickle.dumps(OpenCodeReadResult(ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
+def test_private_result_queue_and_v2_record_retention():
+    result = OpenCodeReadResult(ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE), limitora_api.OpenCodeFailureEvidence.RATE_LIMITED)
+    queued, output = [], type("Output", (), {"put": lambda self, value: queued.append(value)})()
+    v2_worker._opencode_bootstrap(lambda request: result, OpenCodeRequest("sentinel-api-key", 7), output)
+    assert queued == [result] and "sentinel-api-key" not in repr(queued[0])
+    worker = type("Worker", (), {"record": None, "last_result": result, "run_with_deadline": lambda self, request, deadline: result.view})()
+    config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": True}})
+    orchestrator = V2ExecutionOrchestrator(guard_factory=lambda: Guard(Lease([])), opencode_factory=lambda: worker)
+    document = orchestrator.run(config, {"LIMITORA_OPENCODE_API_KEY": "key"}, context(), "config")
+    assert document.providers[1] is result.view and orchestrator.last_record.opencode_evidence is result.evidence
+
+
+def test_reused_orchestrator_retains_only_current_opencode_evidence():
+    view = ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)
+    results = [
+        OpenCodeReadResult(view, limitora_api.OpenCodeFailureEvidence.RATE_LIMITED),
+        OpenCodeReadResult(view, limitora_api.OpenCodeFailureEvidence.TIMEOUT),
+        OpenCodeReadResult(view),
+    ]
+
+    class Worker:
+        record = None
+
+        def __init__(self, result):
+            self.result = result
+            self.last_result = None
+
+        def run_with_deadline(self, request, deadline):
+            self.last_result = self.result
+            return self.result.view
+
+    workers = [Worker(result) for result in results]
+    config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": True}})
+    orchestrator = V2ExecutionOrchestrator(
+        guard_factory=lambda: Guard(Lease([])),
+        opencode_factory=lambda: workers.pop(0),
+    )
+
+    for expected in (results[0], results[1], results[2]):
+        orchestrator.run(config, {"LIMITORA_OPENCODE_API_KEY": "key"}, context(), "config")
+        assert orchestrator.last_record.opencode_evidence is expected.evidence
+
+    assert len(orchestrator.workers) == 3
+
+
+def test_disabled_or_codex_only_run_clears_previous_opencode_evidence():
+    result = OpenCodeReadResult(
+        ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE),
+        limitora_api.OpenCodeFailureEvidence.RATE_LIMITED,
+    )
+    worker = type(
+        "Worker",
+        (),
+        {
+            "record": None,
+            "last_result": result,
+            "run_with_deadline": lambda self, request, deadline: result.view,
+        },
+    )
+    open_config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": True}})
+    disabled_config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": False}})
+    codex_config = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}})
+    codex_view = ProviderView(ProviderKey.CODEX, ProviderState.SUCCESS)
+    codex = type("Codex", (), {"run_with_deadline": lambda self, runner, deadline: codex_view})()
+    orchestrator = V2ExecutionOrchestrator(
+        guard_factory=lambda: Guard(Lease([])),
+        codex_executor=codex,
+        opencode_factory=lambda: worker(),
+    )
+
+    orchestrator.run(open_config, {"LIMITORA_OPENCODE_API_KEY": "key"}, context(), "config")
+    assert orchestrator.last_record.opencode_evidence is result.evidence
+
+    orchestrator.run(disabled_config, {}, context(), "config")
+    assert orchestrator.last_record is None
+
+    orchestrator.run(codex_config, {}, context(), "config")
+    assert orchestrator.last_record.opencode_evidence is None
+    assert len(orchestrator.workers) == 1
+
+
 def test_cleanup_complete_requires_all_worker_evidence():
     record = WorkerRecord(object(), object(), reaped=True, exit_code=0, job_active_zero=True, job_closed=True, process_closed=True)
     assert cleanup_complete([record])
@@ -207,6 +289,7 @@ def test_started_opencode_overrun_remains_provider_timeout():
     assert result.error is not None
     assert result.error.code is SafeErrorCode.TIMEOUT
     assert worker.record is not None and worker.record.reaped and worker.record.job_closed and worker.record.process_closed
+    assert worker.last_result is not None and worker.last_result.evidence.value == "timeout"
 
 
 def test_orchestrator_preserves_outcomes_when_mutex_cleanup_fails():

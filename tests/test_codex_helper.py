@@ -177,10 +177,10 @@ def test_opencode_adapter_uses_keyword_bearer_api_and_suppresses_root_and_window
     assert "bearer-sentinel" not in repr(result)
 
 
-@pytest.mark.parametrize("message", ["OpenCode Go request timed out", "OpenCode Go request budget expired"])
-def test_opencode_adapter_maps_timeout_to_public_timeout_without_private_details(monkeypatch, message):
+@pytest.mark.parametrize("kind,message,evidence", ((limitora.ProviderErrorKind.UNAUTHORIZED, "invalid bearer", "credential_invalid"), (limitora.ProviderErrorKind.RATE_LIMITED, "provider busy", "rate_limited"), (limitora.ProviderErrorKind.TRANSPORT, "OpenCode Go request timed out", "timeout"), (limitora.ProviderErrorKind.SOURCE_UNAVAILABLE, "provider unavailable", "unavailable")))
+def test_opencode_adapter_maps_released_errors_to_private_evidence_without_new_public_codes(monkeypatch, kind, message, evidence):
     failure = limitora.ProviderError(
-        limitora.ProviderErrorKind.TRANSPORT,
+        kind,
         limitora.ProviderId("opencode-go"),
         message,
         retryable=True,
@@ -189,8 +189,13 @@ def test_opencode_adapter_maps_timeout_to_public_timeout_without_private_details
     monkeypatch.setattr("yasb_limitora.limitora_api.activate_provider", lambda config: client)
     result = read_opencode_go(OpenCodeRequest("bearer-sentinel", 7.0))
     assert result.view.error is not None
-    assert result.view.error.code is SafeErrorCode.TIMEOUT
-    assert message not in repr(result)
+    assert result.view.error.code is (
+        SafeErrorCode.TIMEOUT
+        if evidence == "timeout"
+        else SafeErrorCode.PROVIDER_ERROR
+    )
+    assert result.evidence.value == evidence and message not in repr(result)
+    assert "bearer-sentinel" not in repr(result)
 
 
 def test_adapter_retains_stale_and_empty_snapshots_as_snapshots():
