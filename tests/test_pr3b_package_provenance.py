@@ -152,6 +152,19 @@ def test_public_signatures_are_exact(monkeypatch, tmp_path, capsys, source):
     assert capsys.readouterr().err.startswith("package verification failed: contract_mismatch:")
 
 
+@pytest.mark.parametrize("replacement", [
+    ("enabled=True", "enabled=1"),
+    ("timeout=timedelta(seconds=10)", "timeout=10"),
+    ("timeout=timedelta(seconds=10)", "timeout=timedelta(seconds=11)"),
+    ("clock=None", "clock=0"),
+], ids=["bool-is-not-int", "timedelta-is-not-int", "timedelta-value", "none-is-not-value"])
+def test_signature_defaults_require_exact_type_and_value(monkeypatch, tmp_path, capsys, replacement):
+    root = tmp_path / "site"
+    _package(root, GOOD_MODULE.replace(*replacement))
+    assert _run(monkeypatch, _verifier(), _distribution(root), root) == 1
+    assert capsys.readouterr().err.startswith("package verification failed: contract_mismatch:")
+
+
 def test_diagnostics_are_bounded_and_path_free(monkeypatch, capsys):
     module = _verifier()
     monkeypatch.setattr(module.metadata, "distribution", lambda name: (_ for _ in ()).throw(OSError(r"C:\private\published-package\path")))

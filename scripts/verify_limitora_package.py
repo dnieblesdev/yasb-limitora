@@ -109,10 +109,27 @@ def _validate_signatures(module: object) -> None:
         ("enabled", inspect.Parameter.KEYWORD_ONLY, True),
         ("clock", inspect.Parameter.KEYWORD_ONLY, None),
     )
-    config = inspect.signature(getattr(module, "OpenCodeGoConfig")).parameters.values()
-    activate = inspect.signature(getattr(module, "activate_provider")).parameters.values()
-    _require(tuple((p.name, p.kind, p.default) for p in config) == expected_config)
-    _require(tuple((p.name, p.kind, p.default) for p in activate) == expected_activate)
+    config = tuple(inspect.signature(getattr(module, "OpenCodeGoConfig")).parameters.values())
+    activate = tuple(inspect.signature(getattr(module, "activate_provider")).parameters.values())
+    def matches(actual, expected) -> bool:
+        if expected is None:
+            return actual is None
+        return type(actual) is type(expected) and actual == expected
+
+    _require(
+        len(config) == len(expected_config)
+        and all(
+            actual.name == name and actual.kind is kind and matches(actual.default, default)
+            for actual, (name, kind, default) in zip(config, expected_config)
+        )
+    )
+    _require(
+        len(activate) == len(expected_activate)
+        and all(
+            actual.name == name and actual.kind is kind and matches(actual.default, default)
+            for actual, (name, kind, default) in zip(activate, expected_activate)
+        )
+    )
 
 
 def _run_verification() -> int:
