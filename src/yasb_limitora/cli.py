@@ -231,14 +231,18 @@ def main(
         err.flush()
         return 2
     else:
+        opencode_evidence = None
         try:
             if version == 2 and coordinator is None and _read_config is _LEGACY_READ_CONFIG:
-                document = V2ExecutionOrchestrator().run(
+                orchestrator = V2ExecutionOrchestrator()
+                document = orchestrator.run(
                     config,
                     effective_environment,
                     DeadlineContext.from_seconds(config.deadline_seconds, t0_ns=t0_ns),
                     resolved_v2_path or "",
                 )
+                if orchestrator.last_record is not None:
+                    opencode_evidence = orchestrator.last_record.opencode_evidence
             else:
                 active_coordinator = coordinator if coordinator is not None else RuntimeCoordinator()
                 document = active_coordinator.run(config, effective_environment)
@@ -267,7 +271,7 @@ def main(
                     )
                     if enabled_flag
                 )
-                data = project_v2_bytes(V2ProjectionInput(document, enabled))
+                data = project_v2_bytes(V2ProjectionInput(document, enabled, opencode_evidence))
             except Exception:  # noqa: BLE001 - v2 projection failures are safe
                 data, exit_code, diagnostic = project_v2_failure_bytes("internal_error"), 1, "runtime_error"
         else:

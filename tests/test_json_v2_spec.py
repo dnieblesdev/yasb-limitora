@@ -367,7 +367,7 @@ def test_r6_fallback_mappings_and_exclusions_are_normative():
         "`timeout -> provider_timeout`",
         "`invalid_provider_data -> invalid_provider_data`",
         "`unknown_provider_state -> unknown_provider_state`",
-        "every other published\nsafe-error code -> `provider_failed`",
+        "the aggregate remains `provider_failed`",
         "Missing evidence remains missing: no\nsynthetic value, zero, reset, identity, or raw error",
         "Partial snapshots preserve `state=partial`; stale snapshots preserve",
         "R6 changes no existing v2 fields,\nschema, model, object-key order",
@@ -383,6 +383,22 @@ def test_r6_fallback_mappings_and_exclusions_are_normative():
     assert examples[7]["providers"][0]["tooltip_text"] == "Quota not run: invocation invalid"
     assert examples[9]["providers"][0]["tooltip_text"] == "Quota not run: document aborted"
     assert examples[4]["providers"][0]["tooltip_text"] == "Quota error"
+
+
+def test_pr2a_schema_and_spec_declare_bounded_provider_errors_without_source_activation():
+    schema = _schema()
+    assert schema["$defs"]["sourceId"]["enum"] == ["codex-app-server-v2", "opencode-go-dashboard", None]
+    assert {
+        "credential_invalid",
+        "provider_timeout",
+        "provider_rate_limited",
+        "provider_unavailable",
+    } <= set(schema["$defs"]["executionError"]["properties"]["code"]["enum"])
+    text = SPEC.read_text(encoding="utf-8")
+    assert "`credential_invalid`" in text
+    assert "`provider_rate_limited`" in text
+    assert "`provider_unavailable`" in text
+    assert "the aggregate remains `provider_failed`" in text
 
 
 def test_r6_tooltip_identity_escaping_rule_is_normative():

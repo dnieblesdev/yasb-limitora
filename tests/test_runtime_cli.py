@@ -12,7 +12,7 @@ from yasb_limitora.cli import main
 from yasb_limitora.codex_helper import CodexHelperExecutor, _payload
 from yasb_limitora.config import LocalConfig
 from yasb_limitora.coordinator import RuntimeCoordinator
-from yasb_limitora.limitora_api import OpenCodeReadResult, OpenCodeRequest, read_opencode_go
+from yasb_limitora.limitora_api import OpenCodeFailureEvidence, OpenCodeReadResult, OpenCodeRequest, read_opencode_go
 from yasb_limitora.model import (
     DocumentView,
     ProviderKey,
@@ -271,6 +271,63 @@ def test_v2_cli_missing_opencode_credentials_is_clean_not_run(monkeypatch, tmp_p
     assert document["execution_error"] is None
     assert all(provider["outcome"] == "not_run" for provider in document["providers"])
     assert all(provider["not_run_reason"] == "disabled" for provider in document["providers"])
+
+
+@pytest.mark.parametrize(
+    ("evidence", "expected"),
+    (
+        (OpenCodeFailureEvidence.CREDENTIAL_INVALID, "credential_invalid"),
+        (OpenCodeFailureEvidence.RATE_LIMITED, "provider_rate_limited"),
+    ),
+)
+def test_v2_cli_consumes_private_opencode_evidence_sidecar(evidence, expected, monkeypatch, tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"codex": {}, "opencode_go": {"enabled": True}}), encoding="utf-8")
+
+    class Lease:
+        def release(self):
+            return True
+
+        def close(self):
+            return True
+
+    class Guard:
+        def acquire(self, path, context):
+            return Lease()
+
+    class Worker:
+        record = None
+
+        def __init__(self):
+            self.last_result = None
+
+        def run_with_deadline(self, request, context):
+            view = ProviderView(
+                ProviderKey.OPENCODE_GO,
+                ProviderState.SAFE_ERROR,
+                SafeError(SafeErrorCode.PROVIDER_ERROR),
+                outcome=ProviderOutcome.EXECUTION_ERROR,
+            )
+            self.last_result = OpenCodeReadResult(view, evidence)
+            return view
+
+    orchestrator = V2ExecutionOrchestrator(guard_factory=Guard, opencode_factory=Worker)
+    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
+    stdout, stderr = io.BytesIO(), io.StringIO()
+
+    code = main(
+        ("--output-version", "2", "--config", str(path)),
+        environment={"LIMITORA_OPENCODE_API_KEY": "private-key"},
+        stdout=stdout,
+        stderr=stderr,
+        platform_is_windows=lambda: True,
+    )
+
+    document = json.loads(stdout.getvalue())
+    assert code == 1
+    assert stderr.getvalue() == "yasb-limitora: runtime_error\n"
+    assert document["providers"][1]["execution_error"] == {"code": expected, "phase": "provider"}
+    assert document["execution_error"] == {"code": "provider_failed", "phase": "provider"}
 
 
 def test_v2_configuration_failure_starts_no_provider(monkeypatch):

@@ -214,7 +214,7 @@ An execution error has exactly `code` and `phase`:
 
 | Field | Closed values |
 |-------|---------------|
-| `code` | `invocation_invalid`, `configuration_invalid`, `guard_acquisition_failed`, `guard_wait_timeout`, `deadline_exhausted`, `provider_timeout`, `provider_failed`, `ipc_failed`, `cleanup_failed`, `invalid_provider_data`, `unknown_provider_state`, `internal_error` |
+| `code` | `invocation_invalid`, `configuration_invalid`, `guard_acquisition_failed`, `guard_wait_timeout`, `deadline_exhausted`, `credential_invalid`, `provider_timeout`, `provider_rate_limited`, `provider_unavailable`, `provider_failed`, `ipc_failed`, `cleanup_failed`, `invalid_provider_data`, `unknown_provider_state`, `internal_error` |
 | `phase` | `configuration`, `guard_wait`, `provider`, `ipc`, `cleanup`, `document` |
 
 An execution error MUST NOT contain a message, exception text, path, provider
@@ -229,7 +229,7 @@ The code-to-phase mapping is exact:
 | `invocation_invalid`, `configuration_invalid` | `configuration` |
 | `guard_acquisition_failed`, `guard_wait_timeout` | `guard_wait` |
 | `deadline_exhausted`, `internal_error` | `document` |
-| `provider_timeout`, `provider_failed`, `invalid_provider_data`, `unknown_provider_state` | `provider` |
+| `credential_invalid`, `provider_timeout`, `provider_rate_limited`, `provider_unavailable`, `provider_failed`, `invalid_provider_data`, `unknown_provider_state` | `provider` |
 | `ipc_failed` | `ipc` |
 | `cleanup_failed` | `cleanup` |
 
@@ -580,8 +580,10 @@ the trio; `not_run` uses `Quota not run` in compact/alternate and
 invalid`, `invocation_invalid -> invocation invalid`, and `document_aborted ->
 document aborted`. Safe-error mappings are `timeout -> provider_timeout`,
 `invalid_provider_data -> invalid_provider_data`,
-`unknown_provider_state -> unknown_provider_state`, and every other published
-safe-error code -> `provider_failed`. Raw reasons and errors MUST NOT appear.
+`unknown_provider_state -> unknown_provider_state`. PR2A sidecar mappings are
+`credential_invalid -> credential_invalid`, `timeout -> provider_timeout`,
+`rate_limited -> provider_rate_limited`, and `unavailable -> provider_unavailable`;
+the aggregate remains `provider_failed`. Raw reasons and errors MUST NOT appear.
 
 `execution_error.code: cleanup_failed` MUST remain independently visible while
 each provider's recorded presentation remains truthful; a valid snapshot is

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_EVEN, localcontext
 from typing import Any
 from unicodedata import normalize
 
+from .limitora_api import OpenCodeFailureEvidence
 from .model import (
     PROVIDER_ORDER,
     SAFE_SOURCE_IDS,
@@ -57,6 +58,7 @@ class V2ProjectionInput:
 
     document: DocumentView
     enabled_providers: frozenset[ProviderKey] = frozenset()
+    opencode_evidence: object | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.document, DocumentView):
@@ -66,6 +68,8 @@ class V2ProjectionInput:
         except (TypeError, ValueError):
             raise ValueError("invalid enabled provider set") from None
         object.__setattr__(self, "enabled_providers", enabled)
+        if self.opencode_evidence is not None and not isinstance(self.opencode_evidence, OpenCodeFailureEvidence):
+            raise ValueError("invalid OpenCode evidence")
 def _enum(enum_type: type[Any], value: object, message: str) -> Any:
     if not isinstance(value, enum_type):
         raise ValueError(message)
@@ -133,8 +137,18 @@ def _window_sort_key(window: dict[str, Any]) -> tuple[object, ...]:
         window["source_id"] is not None,
         window["source_id"] or "",
     )
-def _error(code: SafeErrorCode) -> dict[str, str]:
+def _error(code: SafeErrorCode, evidence: object | None = None) -> dict[str, str]:
     code = _enum(SafeErrorCode, code, "invalid v2 error code")
+    if evidence is not None:
+        if not isinstance(evidence, OpenCodeFailureEvidence):
+            raise ValueError("invalid OpenCode evidence")
+        mapped = {
+            OpenCodeFailureEvidence.CREDENTIAL_INVALID: "credential_invalid",
+            OpenCodeFailureEvidence.TIMEOUT: "provider_timeout",
+            OpenCodeFailureEvidence.RATE_LIMITED: "provider_rate_limited",
+            OpenCodeFailureEvidence.UNAVAILABLE: "provider_unavailable",
+        }[evidence]
+        return {"code": mapped, "phase": "provider"}
     mapped = {
         SafeErrorCode.TIMEOUT: "provider_timeout",
         SafeErrorCode.INVALID_PROVIDER_DATA: "invalid_provider_data",
@@ -265,7 +279,7 @@ def _presentation(
             break
         tooltip = candidate
     return {"most_depleted_window": depleted, "compact_text": compact, "alternate_text": alternate, "tooltip_text": tooltip}
-def _provider(view: ProviderView, enabled: frozenset[ProviderKey], tooltip_limit: int) -> tuple[dict[str, Any], str]:
+def _provider(view: ProviderView, enabled: frozenset[ProviderKey], tooltip_limit: int, opencode_evidence: object | None = None) -> tuple[dict[str, Any], str]:
     provider = _enum(ProviderKey, view.provider, "invalid v2 provider")
     state = _enum(ProviderState, view.state, "invalid v2 provider state")
     outcome = view.outcome
@@ -317,7 +331,7 @@ def _provider(view: ProviderView, enabled: frozenset[ProviderKey], tooltip_limit
     else:
         if view.snapshot is not None or view.error is None:
             raise ValueError("invalid v2 execution-error outcome")
-        item["execution_error"] = _error(view.error.code)
+        item["execution_error"] = _error(view.error.code, opencode_evidence if provider is ProviderKey.OPENCODE_GO else None)
     item.update(_presentation(outcome.value, item["windows"], item["public_state"], item["freshness"], item["not_run_reason"], tooltip_limit))
     return item, outcome.value
 
@@ -330,7 +344,17 @@ def _project_v2_document(input: V2ProjectionInput, tooltip_limit: int) -> dict[s
     views = {view.provider: view for view in input.document.providers}
     if tuple(views) != PROVIDER_ORDER or len(views) != len(PROVIDER_ORDER):
         raise ValueError("document providers are not canonical")
-    providers, outcomes = zip(*(_provider(views[provider], input.enabled_providers, tooltip_limit) for provider in PROVIDER_ORDER))
+    providers, outcomes = zip(
+        *(
+            _provider(
+                views[provider],
+                input.enabled_providers,
+                tooltip_limit,
+                input.opencode_evidence if provider is ProviderKey.OPENCODE_GO else None,
+            )
+            for provider in PROVIDER_ORDER
+        )
+    )
     successful = {ProviderOutcome.SNAPSHOT.value, ProviderOutcome.UNDETECTED.value}
     document_error = input.document.document_error
     if document_error is not None and document_error.code is V2SafeErrorCode.CLEANUP_FAILED:

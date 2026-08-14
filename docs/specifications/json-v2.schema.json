@@ -413,7 +413,7 @@
       "required": ["code", "phase"],
       "properties": {
         "code": {
-          "enum": ["invocation_invalid", "configuration_invalid", "guard_acquisition_failed", "guard_wait_timeout", "deadline_exhausted", "provider_timeout", "provider_failed", "ipc_failed", "cleanup_failed", "invalid_provider_data", "unknown_provider_state", "internal_error"]
+          "enum": ["invocation_invalid", "configuration_invalid", "guard_acquisition_failed", "guard_wait_timeout", "deadline_exhausted", "credential_invalid", "provider_timeout", "provider_rate_limited", "provider_unavailable", "provider_failed", "ipc_failed", "cleanup_failed", "invalid_provider_data", "unknown_provider_state", "internal_error"]
         },
         "phase": {"enum": ["configuration", "guard_wait", "provider", "ipc", "cleanup", "document"]}
       },
@@ -431,7 +431,7 @@
           "then": {"properties": {"phase": {"const": "document"}}}
         },
         {
-          "if": {"required": ["code"], "properties": {"code": {"enum": ["provider_timeout", "provider_failed", "invalid_provider_data", "unknown_provider_state"]}}},
+          "if": {"required": ["code"], "properties": {"code": {"enum": ["credential_invalid", "provider_timeout", "provider_rate_limited", "provider_unavailable", "provider_failed", "invalid_provider_data", "unknown_provider_state"]}}},
           "then": {"properties": {"phase": {"const": "provider"}}}
         },
         {
