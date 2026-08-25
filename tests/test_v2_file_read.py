@@ -177,3 +177,313 @@ def test_windows_spawn_passes_only_public_environment_to_create_process(monkeypa
     public_keys = vars(v2_path)["_PUBLIC_CHILD_ENV_KEYS"]
     assert environment["PATH"] == public_path
     assert "LIMITORA_TEST_SECRET" not in environment and set(environment) <= public_keys | {"__PYVENV_LAUNCHER__"}
+
+
+@pytest.mark.parametrize("operation", ("read", "call"))
+def test_bounded_private_job_and_process_cleanup_are_retained_and_retried(monkeypatch, operation):
+    from yasb_limitora import v2_path
+
+    close_attempts = []
+    process_close_attempts = []
+
+    class Job:
+        def assign_process(self, pid, *, allow_nested=False):
+            assert allow_nested is True
+        def close_with_deadline(self, context):
+            close_attempts.append(len(close_attempts) + 1)
+            if len(close_attempts) == 1:
+                raise RuntimeError("private Job cleanup")
+
+    class Endpoint:
+        def close(self):
+            pass
+        def poll(self):
+            return True
+        def recv(self):
+            return True, b"{}"
+
+    class Output(Endpoint):
+        def get_nowait(self):
+            return True, b"{}"
+        def get(self, timeout=None):
+            return True, b"{}"
+        def cancel_join_thread(self):
+            pass
+
+    class Event:
+        def set(self):
+            pass
+        def close(self):
+            pass
+
+    class Process:
+        pid = 42
+        exitcode = 0
+        def start(self):
+            pass
+        def join(self, timeout=None):
+            pass
+        def is_alive(self):
+            return False
+        def close(self):
+            process_close_attempts.append(len(process_close_attempts) + 1)
+            if len(process_close_attempts) == 1:
+                raise RuntimeError("private process cleanup")
+
+    class Context:
+        def Queue(self):
+            return Output()
+        def Event(self):
+            return Event()
+        def Pipe(self, duplex=False):
+            return Endpoint(), Endpoint()
+        def Process(self, target, args):
+            return Process()
+
+    jobs = []
+    module = type("WindowsJobModule", (), {"WindowsJobBoundary": lambda: jobs.append(Job()) or jobs[-1]})
+    monkeypatch.setattr(v2_path.os, "name", "nt")
+    monkeypatch.setattr(v2_path.multiprocessing, "get_all_start_methods", lambda: ["spawn"])
+    monkeypatch.setattr(v2_path.multiprocessing, "get_context", lambda method: Context())
+    monkeypatch.setitem(v2_path.__dict__, "__import__", lambda *args, **kwargs: module)
+
+    if operation == "read":
+        invoke = lambda: v2_path._bounded_file_read("C:\\config.json", _context())
+    else:
+        invoke = lambda: v2_path._bounded_file_call(lambda: None, (), _context())
+    try:
+        with pytest.raises(V2FileError):
+            invoke()
+        assert close_attempts == [1] and len(v2_path._PENDING_JOB_OWNERS) == 1
+        assert process_close_attempts == [1] and len(v2_path._PENDING_PROCESS_OWNERS) == 1
+        assert invoke() == b"{}"
+        assert close_attempts == [1, 2, 3]
+        assert process_close_attempts == [1, 2, 3]
+        assert not v2_path._PENDING_JOB_OWNERS and not v2_path._PENDING_PROCESS_OWNERS
+    finally:
+        v2_path._PENDING_JOB_OWNERS.clear()
+        v2_path._PENDING_PROCESS_OWNERS.clear()
+
+
+def test_bounded_file_call_authorizes_child_after_private_job_assignment(monkeypatch):
+    from yasb_limitora import v2_path
+
+    events = []
+
+    class Endpoint:
+        def close(self):
+            events.append("endpoint-close")
+        def poll(self):
+            return True
+        def recv(self):
+            return True, b"value"
+        def send(self, value):
+            events.append("send")
+
+    class Event:
+        def set(self):
+            events.append("authorize")
+        def wait(self):
+            events.append("child-wait")
+        def close(self):
+            events.append("event-close")
+
+    class Process:
+        pid = 42
+        exitcode = 0
+        def __init__(self, target, args):
+            self.target, self.args = target, args
+        def start(self):
+            events.append("process-start")
+        def join(self, timeout=None):
+            events.append("process-join")
+            self.target(*self.args)
+        def is_alive(self):
+            return False
+        def close(self):
+            events.append("process-close")
+
+    class Context:
+        def Pipe(self, duplex=False):
+            return Endpoint(), Endpoint()
+        def Event(self):
+            return Event()
+        def Process(self, target, args):
+            return Process(target, args)
+
+    class Job:
+        def assign_process(self, pid, *, allow_nested=False):
+            assert allow_nested is True
+            events.append("job-assign")
+        def close_with_deadline(self, context):
+            events.append("job-close")
+
+    module = type("WindowsJobModule", (), {"WindowsJobBoundary": Job})
+    monkeypatch.setattr(v2_path.os, "name", "nt")
+    monkeypatch.setattr(v2_path.multiprocessing, "get_all_start_methods", lambda: ["spawn"])
+    monkeypatch.setattr(v2_path.multiprocessing, "get_context", lambda method: Context())
+    monkeypatch.setitem(v2_path.__dict__, "__import__", lambda *args, **kwargs: module)
+
+    callback = lambda: events.append("callback") or b"value"
+
+    assert v2_path._bounded_file_call(callback, (), _context()) == b"value"
+    assert events.index("job-assign") < events.index("authorize") < events.index("child-wait") < events.index("callback")
+
+
+def test_bounded_file_call_ipc_cleanup_failure_is_retained_and_retried(monkeypatch):
+    from yasb_limitora import v2_path
+
+    receiver_failure = [True]
+
+    class Endpoint:
+        def __init__(self, receiver=False):
+            self.receiver = receiver
+        def close(self):
+            if self.receiver and receiver_failure[0]:
+                receiver_failure[0] = False
+                raise RuntimeError("receiver cleanup failed")
+        def poll(self):
+            return True
+        def recv(self):
+            return True, b"value"
+
+    class Event:
+        def set(self):
+            pass
+        def wait(self):
+            pass
+        def close(self):
+            pass
+
+    class Process:
+        pid = 42
+        def __init__(self, target, args):
+            pass
+        def start(self):
+            pass
+        def join(self, timeout=None):
+            pass
+        def is_alive(self):
+            return False
+        def close(self):
+            pass
+
+    class Context:
+        def Pipe(self, duplex=False):
+            return Endpoint(receiver=True), Endpoint()
+        def Event(self):
+            return Event()
+        def Process(self, target, args):
+            return Process(target, args)
+
+    class Job:
+        def assign_process(self, pid, *, allow_nested=False):
+            assert allow_nested is True
+        def close_with_deadline(self, context):
+            pass
+
+    module = type("WindowsJobModule", (), {"WindowsJobBoundary": Job})
+    monkeypatch.setattr(v2_path.os, "name", "nt")
+    monkeypatch.setattr(v2_path.multiprocessing, "get_all_start_methods", lambda: ["spawn"])
+    monkeypatch.setattr(v2_path.multiprocessing, "get_context", lambda method: Context())
+    monkeypatch.setitem(v2_path.__dict__, "__import__", lambda *args, **kwargs: module)
+
+    try:
+        with pytest.raises(V2FileError):
+            v2_path._bounded_file_call(lambda: b"value", (), _context())
+        assert len(v2_path._PENDING_IPC_OWNERS) == 1
+        assert v2_path._bounded_file_call(lambda: b"value", (), _context()) == b"value"
+        assert not v2_path._PENDING_IPC_OWNERS
+    finally:
+        v2_path._PENDING_IPC_OWNERS.clear()
+
+
+def test_bounded_file_call_rechecks_deadline_before_authorization(monkeypatch):
+    from yasb_limitora import v2_path
+
+    events = []
+
+    class ExpiringContext:
+        def __init__(self):
+            self.calls = 0
+        def usable_ns(self):
+            self.calls += 1
+            return 1_000_000 if self.calls == 1 else 0
+        def remaining_ns(self):
+            return 1_000_000
+        def cleanup_ns(self):
+            return 1_000_000
+
+    class Endpoint:
+        def close(self):
+            events.append("endpoint-close")
+        def poll(self):
+            return False
+
+    class Event:
+        def set(self):
+            events.append("authorize")
+        def wait(self):
+            pass
+        def close(self):
+            events.append("event-close")
+
+    class Process:
+        pid = 42
+        def __init__(self, target, args):
+            pass
+        def start(self):
+            events.append("process-start")
+        def join(self, timeout=None):
+            events.append("process-join")
+        def is_alive(self):
+            return False
+        def close(self):
+            events.append("process-close")
+
+    class Context:
+        def Pipe(self, duplex=False):
+            return Endpoint(), Endpoint()
+        def Event(self):
+            return Event()
+        def Process(self, target, args):
+            return Process(target, args)
+
+    class Job:
+        def assign_process(self, pid, *, allow_nested=False):
+            events.append("job-assign")
+        def close_with_deadline(self, context):
+            events.append("job-close")
+
+    module = type("WindowsJobModule", (), {"WindowsJobBoundary": Job})
+    monkeypatch.setattr(v2_path.os, "name", "nt")
+    monkeypatch.setattr(v2_path.multiprocessing, "get_all_start_methods", lambda: ["spawn"])
+    monkeypatch.setattr(v2_path.multiprocessing, "get_context", lambda method: Context())
+    monkeypatch.setitem(v2_path.__dict__, "__import__", lambda *args, **kwargs: module)
+
+    with pytest.raises(V2DeadlineError):
+        v2_path._bounded_file_call(lambda: b"value", (), ExpiringContext())
+
+    assert "job-assign" in events and "authorize" not in events
+    assert "job-close" in events and "process-close" in events and "event-close" in events
+
+
+def test_spawn_environment_contains_only_public_sentinels(monkeypatch):
+    from yasb_limitora import v2_path
+
+    source = {
+        "PATH": "public-sentinel",
+        "LIMITORA_OPENCODE_API_KEY": "secret-sentinel",
+        "OPENAI_API_KEY": "other-secret-sentinel",
+    }
+    monkeypatch.setattr(v2_path.os, "environ", source)
+    observed = {}
+
+    with v2_path._spawn_environment(v2_path._public_child_environment(source)):
+        observed.update({
+            "path_present": "PATH" in v2_path.os.environ,
+            "opencode_present": "LIMITORA_OPENCODE_API_KEY" in v2_path.os.environ,
+            "openai_present": "OPENAI_API_KEY" in v2_path.os.environ,
+        })
+
+    assert observed == {"path_present": True, "opencode_present": False, "openai_present": False}

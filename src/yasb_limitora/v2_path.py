@@ -9,6 +9,8 @@ import os
 import queue
 import stat
 import sys
+import threading
+from contextlib import contextmanager
 from typing import Any, cast
 
 from .v2_deadline import DeadlineContext
@@ -40,6 +42,7 @@ _PUBLIC_CHILD_ENV_KEYS = frozenset(
         "USERDOMAIN", "USERNAME", "USERPROFILE", "WINDIR",
     }
 )
+_SPAWN_ENVIRONMENT_LOCK = threading.RLock()
 _MULTIPROCESSING_CONTEXT: Any = cast(Any, vars(multiprocessing)["context"])
 _PRIVATE_SYS: Any = cast(Any, sys)
 _PENDING_JOB_OWNERS: list[object] = []
@@ -239,6 +242,22 @@ def _public_child_environment(source) -> dict[str, str]:
         and isinstance(value, str)
         and key.upper() in _PUBLIC_CHILD_ENV_KEYS
     }
+
+
+@contextmanager
+def _spawn_environment(environment):
+    """Make the already-built child environment visible before spawn/import."""
+    with _SPAWN_ENVIRONMENT_LOCK:
+        original = dict(os.environ)
+        os.environ.clear()
+        os.environ.update(environment)
+        try:
+            yield
+        finally:
+            os.environ.clear()
+            os.environ.update(original)
+
+
 def _windows_spawn_popen(process_obj: object) -> Any:
     """Use CreateProcess with a private, already-filtered environment."""
     stdlib = cast(Any, __import__("multiprocessing.popen_spawn_win32", fromlist=["*"]))
@@ -363,37 +382,46 @@ def _file_read_child(path: str, authorized, output) -> None:
         descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
         metadata = os.fstat(descriptor)
         if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > MAX_CONFIG_BYTES:
-            output.put((False, None))
+            _queue_put(output, (False, None))
             return
         data = os.read(descriptor, CONFIG_READ_PROBE_BYTES)
-        output.put((isinstance(data, bytes) and len(data) <= MAX_CONFIG_BYTES, data))
+        _queue_put(output, (isinstance(data, bytes) and len(data) <= MAX_CONFIG_BYTES, data))
     except Exception:
-        output.put((False, None))
+        _queue_put(output, (False, None))
     finally:
         if descriptor is not None:
             try:
                 os.close(descriptor)
             except Exception:
                 pass
-        output.close()
+        _close_ipc_endpoint(output)
 
 
 def _bounded_file_read(path: str, context) -> bytes:
     _usable_or_fail(context)
+    if not _retry_pending_process_owners(context) or not _retry_pending_job_owners(context) or not _retry_pending_ipc_owners(context):
+        raise V2FileError("configuration read failed")
     output = None
+    authorized = None
     process = None
     job = None
     process_started = False
+    process_close_attempted = False
+    job_close_attempted = False
+    cleanup_failed = False
+    failure: V2FileError | V2DeadlineError | None = None
     try:
         method = "fork" if "fork" in multiprocessing.get_all_start_methods() else "spawn"
         process_context = multiprocessing.get_context(method)
         output = process_context.Queue()
         authorized = process_context.Event()
         process = _child_process(process_context, _file_read_child, (path, authorized, output))
-        process.start()
+        _start_quiet_child(process)
+        process_started = True
         if os.name == "nt":
             job = __import__("yasb_limitora.isolation.windows_job", fromlist=["WindowsJobBoundary"]).WindowsJobBoundary()
-            job.assign_process(process.pid)
+            job.assign_process(process.pid, allow_nested=True)
+        _usable_or_fail(context)
         authorized.set()
         process.join(min(context.usable_ns() / 1_000_000_000, 0.1))
         if process.is_alive():
@@ -401,10 +429,8 @@ def _bounded_file_read(path: str, context) -> bytes:
                 success, data = output.get(timeout=context.usable_ns() / 1_000_000_000)
             except queue.Empty:
                 if job is not None:
-                    job.close_with_deadline(context)
-                else:
-                    process.terminate()
-                    process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
+                    job_close_attempted = True
+                    cleanup_failed = not _close_job_owner(job, context)
                 raise V2DeadlineError("configuration deadline exhausted")
             process.join(max(0.0, context.usable_ns() / 1_000_000_000))
         else:
@@ -412,27 +438,35 @@ def _bounded_file_read(path: str, context) -> bytes:
         if process.is_alive():
             raise V2FileError("configuration read failed")
         if job is not None:
-            job.close_with_deadline(context)
+            job_close_attempted = True
+            cleanup_failed = not _close_job_owner(job, context)
         _usable_or_fail(context)
         if not success or not isinstance(data, bytes):
             raise V2FileError("configuration read failed")
-        return data
-    except V2FileError:
-        raise
+    except V2FileError as error:
+        failure = error
     except Exception:
-        raise V2FileError("configuration read failed") from None
+        failure = V2FileError("configuration read failed")
     finally:
-        if process is not None and process.is_alive():
-            try:
-                process.terminate()
-                process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
-            except Exception:
-                pass
+        if job is not None and not job_close_attempted:
+            job_close_attempted = True
+            cleanup_failed = not _close_job_owner(job, context) or cleanup_failed
+        if process is not None and not process_close_attempted:
+            process_close_attempted = True
+            cleanup_failed = not _close_process_owner(process, context, process_started) or cleanup_failed
         if output is not None:
-            _close_output(output, context)
+            cleanup_failed = not _close_output(output, context) or cleanup_failed
+        if authorized is not None:
+            cleanup_failed = not _close_ipc_endpoint(authorized, context) or cleanup_failed
+    if cleanup_failed:
+        raise V2FileError("configuration read failed")
+    if failure is not None:
+        raise failure
+    return data
 
 
 def _bounded_file_call(function, args, context):
+    """Run an injectable potentially-blocking file primitive behind a deadline."""
     _usable_or_fail(context)
     if not _retry_pending_process_owners(context) or not _retry_pending_job_owners(context) or not _retry_pending_ipc_owners(context):
         raise V2FileError("configuration read failed")
@@ -509,6 +543,9 @@ def read_v2_config(
     """Read one regular local file with a bounded extra-byte probe."""
 
     try:
+        _usable_or_fail(context)
+        if not _retry_pending_process_owners(context) or not _retry_pending_job_owners(context) or not _retry_pending_ipc_owners(context):
+            raise V2FileError("configuration read failed")
         source_path = os.fspath(path) if isinstance(path, os.PathLike) else path
         canonical = canonicalize_v2_path(source_path)
         if stat_fn is os.stat and open_fn is os.open and read_fn is os.read and close_fn is os.close:
