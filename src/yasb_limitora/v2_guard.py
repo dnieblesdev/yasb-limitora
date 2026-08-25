@@ -39,6 +39,15 @@ class GuardError(RuntimeError):
         super().__init__(code)
 
 
+def _valid_sid_bytes(value: object) -> bool:
+    return (
+        isinstance(value, bytes)
+        and 8 <= len(value) <= 68
+        and value[0] == 1
+        and len(value) == 8 + 4 * value[1]
+    )
+
+
 class _NativeWin32:
     def __init__(self) -> None:
         if os.name != "nt":
@@ -107,7 +116,10 @@ def _default_sid_bytes() -> bytes:
         length = get_length(user.Sid)
         if not length:
             raise GuardError("guard_acquisition_failed")
-        return ctypes.string_at(user.Sid, length)
+        value = ctypes.string_at(user.Sid, length)
+        if not _valid_sid_bytes(value):
+            raise GuardError("guard_acquisition_failed")
+        return value
     finally:
         kernel32.CloseHandle(token)
 
@@ -127,10 +139,13 @@ class GuardLease:
     handle: object
     name: str
     owned: bool = True
+    closed: bool = False
 
     def release(self) -> bool:
         if not self.owned:
             return True
+        if self.closed:
+            return False
         try:
             result = bool(self.api.ReleaseMutex(self.handle))
         except Exception:
@@ -140,10 +155,19 @@ class GuardLease:
         return result
 
     def close(self) -> bool:
+        if self.closed:
+            return True
+        # Never close a handle while this lease still records mutex ownership.
+        # A failed release remains retryable on the same native handle.
+        if self.owned:
+            return False
         try:
-            return bool(self.api.CloseHandle(self.handle))
+            result = bool(self.api.CloseHandle(self.handle))
         except Exception:
             return False
+        if result:
+            self.closed = True
+        return result
 
 
 class V2Guard:
@@ -161,19 +185,36 @@ class V2Guard:
         api: object | None = None,
         sid_provider: Callable[[], bytes] = _default_sid_bytes,
         hash_fn: Callable[[bytes], object] = hashlib.sha256,
+        name_prefix: str = r"Global\yasb-limitora-v2-guard-",
     ) -> None:
         self._api = _NativeWin32() if api is None else api
         self._sid_provider = sid_provider
         self._hash_fn = hash_fn
+        self._name_prefix = name_prefix
 
     def name_for(self, path: object) -> str:
         try:
             sid = self._sid_provider()
-            if not isinstance(sid, bytes) or not sid:
+            if not _valid_sid_bytes(sid):
                 raise ValueError
             canonical = canonicalize_v2_path(path).casefold()
             payload = sid + b"\0" + canonical.encode("utf-8")
-            return r"Global\yasb-limitora-v2-guard-" + _digest(self._hash_fn, payload)
+            return self._name_prefix + _digest(self._hash_fn, payload)
+        except GuardError:
+            raise
+        except Exception:
+            raise GuardError("guard_acquisition_failed") from None
+
+    def acquire_key(self, key: bytes, context: DeadlineContext) -> GuardLease:
+        """Acquire a mutex for an opaque non-path identity."""
+        try:
+            if not isinstance(key, bytes) or not key:
+                raise GuardError("guard_acquisition_failed")
+            sid = self._sid_provider()
+            if not _valid_sid_bytes(sid):
+                raise GuardError("guard_acquisition_failed")
+            name = self._name_prefix + _digest(self._hash_fn, sid + b"\0" + key)
+            return self._acquire_name(name, context)
         except GuardError:
             raise
         except Exception:
@@ -181,7 +222,15 @@ class V2Guard:
 
     def acquire(self, path: object, context: DeadlineContext) -> GuardLease:
         try:
-            name = self.name_for(path)
+            return self._acquire_name(self.name_for(path), context)
+        except GuardError:
+            raise
+        except Exception:
+            raise GuardError("guard_acquisition_failed") from None
+
+    def _acquire_name(self, name: str, context: DeadlineContext) -> GuardLease:
+        handle = None
+        try:
             handle = self._api.CreateMutexW(None, False, name)
             if not handle:
                 raise GuardError("guard_acquisition_failed")
@@ -192,12 +241,15 @@ class V2Guard:
             if result in (WAIT_OBJECT_0, WAIT_ABANDONED):
                 return GuardLease(self._api, handle, name)
             self._safe_close(handle)
+            handle = None
             if result == WAIT_TIMEOUT:
                 raise GuardError("guard_wait_timeout")
             raise GuardError("guard_acquisition_failed")
         except GuardError:
             raise
         except Exception:
+            if handle:
+                self._safe_close(handle)
             raise GuardError("guard_acquisition_failed") from None
 
     def _safe_close(self, handle: object) -> None:

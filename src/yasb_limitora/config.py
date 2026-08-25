@@ -1,10 +1,12 @@
 """Immutable, local-only configuration contracts for provider execution."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableSet
 from dataclasses import dataclass
 import math
 import ntpath
 import re
+
+from .model import ProviderKey
 
 
 class ConfigError(ValueError):
@@ -33,10 +35,19 @@ def _reject_credential_keys(value: object) -> None:
         for nested in value:
             _reject_credential_keys(nested)
 
+
+def _reject_nested_provider_credentials(value: object) -> None:
+    if isinstance(value, Mapping):
+        for nested in value.values():
+            if isinstance(nested, (Mapping, list, tuple)):
+                _reject_credential_keys(nested)
+    elif isinstance(value, (list, tuple)):
+        _reject_credential_keys(value)
+
+
 def _mapping(value: object) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise ConfigError("provider configuration must be an object")
-    _reject_credential_keys(value)
     return value
 
 def _fields(value: Mapping[str, object], allowed: set[str]) -> None:
@@ -156,6 +167,7 @@ class LocalConfig:
 
     @classmethod
     def from_mapping(cls, value: object) -> "LocalConfig":
+        _reject_credential_keys(value)
         fields = _mapping(value)
         _fields(fields, {"codex", "opencode_go"})
         return cls(
@@ -164,12 +176,40 @@ class LocalConfig:
         )
 
     @classmethod
-    def from_v2_mapping(cls, value: object) -> "LocalConfig":
+    def from_v2_mapping(
+        cls,
+        value: object,
+        provider_errors: MutableSet[ProviderKey] | None = None,
+    ) -> "LocalConfig":
         fields = _mapping(value)
         _fields(fields, {"deadline_seconds", "codex", "opencode_go"})
+        for key, nested in fields.items():
+            if key in {"codex", "opencode_go"}:
+                _reject_nested_provider_credentials(nested)
+            else:
+                _reject_credential_keys(nested)
+        if any(isinstance(key, str) and _CREDENTIAL_KEY.search(key) for key in fields):
+            raise ConfigError("credential-like configuration is not accepted")
+
+        try:
+            codex = CodexConfig.from_v2_mapping(fields.get("codex", {}))
+        except ConfigError:
+            if provider_errors is None:
+                raise
+            provider_errors.add(ProviderKey.CODEX)
+            codex = CodexConfig()
+
+        try:
+            opencode_go = OpenCodeGoConfig.from_v2_mapping(fields.get("opencode_go", {}))
+        except ConfigError:
+            if provider_errors is None:
+                raise
+            provider_errors.add(ProviderKey.OPENCODE_GO)
+            opencode_go = OpenCodeGoConfig()
+
         return cls(
-            codex=CodexConfig.from_v2_mapping(fields.get("codex", {})),
-            opencode_go=OpenCodeGoConfig.from_v2_mapping(fields.get("opencode_go", {})),
+            codex=codex,
+            opencode_go=opencode_go,
             deadline_seconds=fields.get("deadline_seconds", DEFAULT_DEADLINE_SECONDS),
         )
 
