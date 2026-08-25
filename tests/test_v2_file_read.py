@@ -100,3 +100,80 @@ def test_v2_config_read_kills_a_blocking_injected_read_within_remaining_budget(t
     context = DeadlineContext(t0_ns=0, deadline_ns=100_000_000, reserve_ns=20_000_000, clock_ns=lambda: 0)
     with pytest.raises(V2FileError):
         read_v2_config(path, context, read_fn=blocking_read)
+
+
+def test_bounded_file_call_closes_both_pipe_endpoints_when_start_fails(monkeypatch):
+    from yasb_limitora import v2_path
+
+    events = []
+
+    class Endpoint:
+        def __init__(self, name):
+            self.name = name
+
+        def close(self):
+            events.append(self.name)
+
+    observed = []
+
+    class Process:
+        def start(self):
+            observed.append(dict(os.environ))
+            raise OSError("private process start detail")
+
+        def is_alive(self):
+            return False
+
+        def close(self):
+            events.append("process")
+
+    class Event:
+        def close(self):
+            pass
+
+    class Context:
+        def Pipe(self, duplex=False):
+            return Endpoint("receiver"), Endpoint("sender")
+
+        def Event(self):
+            return Event()
+
+        def Process(self, target, args):
+            return Process()
+
+    monkeypatch.setenv("LIMITORA_TEST_SECRET", "must-not-leak")
+    monkeypatch.setenv("SYSTEMROOT", "public-sentinel")
+    expected = dict(os.environ)
+    monkeypatch.setattr(v2_path.multiprocessing, "get_all_start_methods", lambda: ["spawn"])
+    monkeypatch.setattr(v2_path.multiprocessing, "get_context", lambda method: Context())
+
+    with pytest.raises(V2FileError) as error:
+        v2_path._bounded_file_call(lambda: None, (), _context())
+
+    assert str(error.value) == "configuration read failed"
+    assert events == ["process", "receiver", "sender"]
+    assert observed == [expected] and dict(os.environ) == expected
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native Windows CreateProcess seam")
+def test_windows_spawn_passes_only_public_environment_to_create_process(monkeypatch):
+    from multiprocessing import popen_spawn_win32
+
+    from yasb_limitora import v2_path
+    captured = {}
+    winapi = vars(popen_spawn_win32)["_winapi"]
+    real_create_process = winapi.CreateProcess
+
+    def capture_create_process(application, command, *args):
+        captured["environment"] = args[4]
+        return real_create_process(application, command, *args)
+
+    public_path = os.environ["PATH"] + ";public-sentinel"
+    monkeypatch.setenv("PATH", public_path)
+    monkeypatch.setenv("LIMITORA_TEST_SECRET", "must-not-leak")
+    monkeypatch.setattr(winapi, "CreateProcess", capture_create_process)
+    assert v2_path._bounded_file_call(bytes, (b"ok",), _context()) == b"ok"
+    environment = captured["environment"]
+    public_keys = vars(v2_path)["_PUBLIC_CHILD_ENV_KEYS"]
+    assert environment["PATH"] == public_path
+    assert "LIMITORA_TEST_SECRET" not in environment and set(environment) <= public_keys | {"__PYVENV_LAUNCHER__"}
