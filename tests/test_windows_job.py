@@ -73,6 +73,23 @@ def test_access_mask_and_containment_order_before_authorization() -> None:
     assert api.calls.index("assign") < api.calls.index(("in_job", "job")) < api.calls.index("query")
     job.authorize()
     assert job.state is JobState.AUTHORIZED
+
+
+def test_nested_assignment_is_explicitly_opt_in_and_post_checked() -> None:
+    rejected_api = FakeApi(nested=True)
+    rejected = boundary(rejected_api)
+    with pytest.raises(JobError) as error:
+        rejected.assign_process(42)
+    assert error.value.code is JobErrorCode.NESTED_JOB
+    assert "terminate_process" not in rejected_api.calls
+
+    allowed_api = FakeApi(nested=True)
+    allowed = boundary(allowed_api)
+    allowed.assign_process(42, allow_nested=True)
+    assert "assign" in allowed_api.calls
+    assert ("in_job", "job") in allowed_api.calls
+    assert allowed_api.calls.count("query") >= 1
+    allowed.close(1.0)
 @pytest.mark.parametrize("flags, code", [
     ({"assign_fail": True}, JobErrorCode.ASSIGNMENT_FAILED),
     ({"post_check_fail": True}, JobErrorCode.ASSIGNMENT_FAILED),
@@ -140,13 +157,9 @@ def test_partial_setup_uses_process_termination_before_assignment_and_redacts_os
     api = FakeApi(limit_error=True)
     with pytest.raises(JobError) as error: boundary(api)
     assert error.value.code is JobErrorCode.INTERNAL_ERROR and api.closed == ["job"] and "999999" not in str(error.value) and "secret" not in str(error.value)
-def test_unassigned_partial_failure_terminates_retained_process_and_waits() -> None:
+def test_unassigned_partial_failure_closes_target_handle_without_terminating_target() -> None:
     api = FakeApi(assign_fail=True, terminate_process_fail=True)
     job = boundary(api)
     with pytest.raises(JobError): job.assign_process(1)
-    assert api.calls.index("terminate_process") < api.calls.index("terminate")
-    assert {call[1] for call in api.calls if isinstance(call, tuple) and call[0] == "wait"} == {"process"}
-    assert job.state is JobState.BROKEN and job.process == "process"
-    api.flags["terminate_process_fail"] = False
-    job.close(1.0)
-    assert job.state is JobState.CLOSED and api.closed.count("process") == 1
+    assert "terminate_process" not in api.calls
+    assert job.state is JobState.CLOSED and job.process is None and api.closed == ["process", "job"]

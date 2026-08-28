@@ -29,14 +29,14 @@ def _verifier():
 
 
 def _distribution(root, *, requires=None, duplicate=False, extra="opencode-go"):
-    files = ["limitora/__init__.py", "limitora-0.2.0.dist-info/WHEEL"]
+    files = ["limitora/__init__.py", "limitora-0.3.1.dist-info/WHEEL"]
     if duplicate:
         files.append("limitora/__init__.py")
-    dist_info = root / "limitora-0.2.0.dist-info"
+    dist_info = root / "limitora-0.3.1.dist-info"
     dist_info.mkdir(exist_ok=True)
     (dist_info / "WHEEL").write_text("Wheel-Version: 1.0\n", encoding="utf-8")
     return SimpleNamespace(
-        version="0.2.0",
+        version="0.3.1",
         metadata=SimpleNamespace(get_all=lambda name: [extra] if name == "Provides-Extra" else []),
         requires=requires or ['httpx<1,>=0.27; extra == "opencode-go"'], files=files,
         locate_file=lambda name: root / str(name),
@@ -74,7 +74,7 @@ def test_wheel_provenance_passes(monkeypatch, tmp_path, capsys):
     result = _run(monkeypatch, _verifier(), _distribution(root), root)
     assert result == 0
     output = json.loads(capsys.readouterr().out)
-    assert output == {"extra": "opencode-go", "package": "limitora", "signatures": True, "version": "0.2.0"}
+    assert output == {"extra": "opencode-go", "package": "limitora", "signatures": True, "version": "0.3.1"}
 
 
 def test_origin_must_match_prevalidated_distribution_file(monkeypatch, tmp_path, capsys):
@@ -126,9 +126,9 @@ def test_editable_provenance_is_rejected(monkeypatch, tmp_path, capsys):
     root = tmp_path / "editable-site"
     _package(root)
     distribution = _distribution(root)
-    dist_info = root / "limitora-0.2.0.dist-info"
+    dist_info = root / "limitora-0.3.1.dist-info"
     (dist_info / "direct_url.json").write_text('{"dir_info":{"editable":true}}', encoding="utf-8")
-    distribution.files = [*distribution.files, "limitora-0.2.0.dist-info/direct_url.json"]
+    distribution.files = [*distribution.files, "limitora-0.3.1.dist-info/direct_url.json"]
     assert _run(monkeypatch, _verifier(), distribution, root) == 1
     assert capsys.readouterr().err.startswith("package verification failed: module_provenance_invalid:")
 
@@ -176,7 +176,7 @@ def test_diagnostics_are_bounded_and_path_free(monkeypatch, capsys):
 
 def test_workflow_installs_published_extra_before_editable_proofs():
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert 'python -m pip install --only-binary=:all: "limitora[opencode-go]==0.2.0"' in text
+    assert 'python -m pip install --only-binary=:all: "limitora[opencode-go]==0.3.1"' in text
     assert 'python -m pip install -e ".[test]"' in text
     assert "python -I scripts/verify_limitora_package.py" in text
     assert text.index("verify_limitora_package.py") < text.index('python -m pip install -e ".[test]"')
@@ -200,10 +200,10 @@ def test_cli_rejects_non_isolated_invocation(tmp_path):
 
 def test_isolated_cli_ignores_forged_dist_info_from_cwd(tmp_path):
     _package(tmp_path, GOOD_MODULE.replace("enabled=True", "enabled=False"))
-    dist_info = tmp_path / "limitora-0.2.0.dist-info"
+    dist_info = tmp_path / "limitora-0.3.1.dist-info"
     dist_info.mkdir()
     (dist_info / "METADATA").write_text(
-        "Metadata-Version: 2.1\nName: limitora\nVersion: 0.2.0\n"
+        "Metadata-Version: 2.1\nName: limitora\nVersion: 0.3.1\n"
         "Provides-Extra: opencode-go\nRequires-Dist: httpx<1,>=0.27; extra == \"opencode-go\"\n",
         encoding="utf-8",
     )
