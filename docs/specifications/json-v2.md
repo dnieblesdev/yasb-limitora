@@ -18,6 +18,16 @@ environment, configuration, provider, native-process, or clock activity.
 Hermetic test injection does not offer non-Windows compatibility or replace the
 separate R10 automated native proof and maintainer manual YASB acceptance.
 
+The shared cache refresh contract is intentionally minimal. A Windows
+cross-process mutex protects only short cache-key state inspection, marker
+transitions, and the atomic publication decision. It MUST NOT span provider
+execution or cleanup.
+Each key's marker contains exactly `generation`, `owner_pid`, `owner_token`, and
+`started_at`; `owner_token` is a non-reusable process-creation identity. One live
+owner is serviced by bounded waiter retries. A dead or mismatched owner is
+reclaimed with a higher generation, and a producer MUST verify its exact claim
+before publication. Unknown account identity MUST fail closed for cache reuse.
+
 ## 1. Normative Language
 
 The terms **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** are
@@ -817,7 +827,10 @@ The guard rules are:
   `guard_wait_timeout`, and all providers `not_run` with
   `guard_wait_timeout`. It MUST NOT emit provider failure states.
 - The owner MUST attempt release in a `finally` path. Release failure becomes
-  sanitized document `cleanup_failed` and prevents a success result.
+  sanitized document `cleanup_failed` and prevents a success result. The
+  provider lease is finalized only after both release and close succeed. A
+  failed release or close remains owned/non-finalized and is retried at the
+  start of the next bounded invocation; a retry failure remains `cleanup_failed`.
 
 One absolute monotonic wall-clock deadline starts at CLI entry as `T0`, before
 configuration path resolution/read/parse, and covers configuration I/O, guard
@@ -839,6 +852,21 @@ provider `not_run_reason: deadline_exhausted`.
 Cleanup means bounded eventual termination within the absolute deadline. It
 does not mean instantaneous process death when YASB closes CustomWidget. The
 current CustomWidget `stop()` behavior is not a process-termination primitive.
+
+The shared quota cache is an optional, non-authoritative output artifact, not a
+second execution boundary. It uses a per-config/fingerprint filename and
+strictly validated schema-2 bytes. Publication occurs only after the provider
+guard has been released and closed and a clean provider result has been
+projected. It uses an atomic same-directory replace with a bounded temporary
+file; a failure is non-fatal and only the current operation's temporary file
+may be cleaned up. Uncoordinated cache reads and fallback never acquire a
+mutex; coordinated refresh inspection may hold the per-key mutex only for the
+short cache/marker state transition. After a guard wait timeout, the runtime
+performs one bounded read of the atomically
+replaced cache file and keeps `guard_wait_timeout` when the entry is absent,
+corrupt, expired, or incompatible. Provider errors, timeouts, cleanup-failed,
+and all-disabled results do not publish; an older valid entry is not deleted by
+a failed publication.
 
 ## 14. YASB Validation
 

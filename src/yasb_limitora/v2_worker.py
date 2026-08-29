@@ -324,6 +324,33 @@ class V2ExecutionOrchestrator:
         self.last_record = V2ExecutionRecord(document, evidence)
         return document
 
+    def run_refresh_attempt(
+        self,
+        config: LocalConfig,
+        environment: Mapping[str, str],
+        context: DeadlineContext,
+        config_path: str,
+    ):
+        """Run one normal v2 attempt and prepare its public cache bytes."""
+        from .projection_v2 import V2ProjectionInput, project_v2_bytes
+        from .v2_cache import SingleFlightResult
+
+        document = self.run(config, environment, context, config_path)
+        evidence = self.last_record.opencode_evidence if self.last_record is not None else None
+        enabled = frozenset(
+            provider
+            for provider, enabled_flag in (
+                (ProviderKey.CODEX, config.codex.enabled),
+                (ProviderKey.OPENCODE_GO, config.opencode_go.enabled),
+            )
+            if enabled_flag
+        )
+        try:
+            public_bytes = project_v2_bytes(V2ProjectionInput(document, enabled, evidence))
+        except Exception:  # noqa: BLE001 - projection failure must not expose provider details
+            public_bytes = None
+        return SingleFlightResult(value=document, cached_public_bytes=public_bytes, produced=True)
+
     @staticmethod
     def _document(views: dict[ProviderKey, ProviderView], error: V2SafeErrorCode | None = None) -> DocumentView:
         return DocumentView.ordered(views[ProviderKey.CODEX], views[ProviderKey.OPENCODE_GO], SafeError(error) if error else None)

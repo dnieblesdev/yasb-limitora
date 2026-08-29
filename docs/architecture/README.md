@@ -65,11 +65,30 @@ only its remaining budget, with cleanup budget reserved. A cleanup guarantee
 means bounded eventual termination within that deadline; it does not claim that
 YASB's CustomWidget can instantly kill a subprocess when the widget closes.
 
-The cross-process execution guard is a bounded mutex guard, not `single-flight`
-and not request coalescing. Its scope is the Windows user plus the canonical
-effective configuration path. Abandoned acquisition is safe ownership; wait,
-creation, release, and deadline failures are sanitized document/provider
-outcomes as defined by R2.
+The shared refresh coordinator uses a Windows cross-process mutex only for short
+cache-key state transitions and publication authority. It is not held across a
+Codex/OpenCode call or provider cleanup. Each cache key has one bounded marker
+containing only a generation, owner PID, non-reusable process-creation token, and
+start time. A live owner is waited on with bounded cache/marker retries; a dead
+or mismatched owner is reclaimed by incrementing the generation. An unknown
+owner or unreadable marker fails closed and is never reclaimed. Publication is
+allowed only when the producer still owns the exact generation, so a stale
+producer cannot overwrite a newer result. Coordination failures never start an
+uncoordinated producer or rewrite a valid provider result.
+
+The v2 runtime also uses a shared quota cache below the default local Limitora
+directory. It stores only a schema-2 envelope containing `cached_at`, a
+digest-only effective account/config/path fingerprint, and the already
+projected public JSON v2 document. Cache reads and writes are atomic, size- and
+deadline-bounded, canonical, and fail closed. A fresh cache hit is returned
+without a provider call. On a miss, one producer runs with fresh provider
+resources while live waiters retry the cache and marker; waiters never launch a
+duplicate Codex refresh. Provider cleanup, release, and close finish before
+publication, and no cache coordination lease is retained across a provider
+call. Cache I/O, mutex, ACL, path, and cleanup failures cannot change a valid
+provider result. Provider errors, timeouts, cleanup failures, and all-disabled
+runs are never published. Unknown Windows account identity fails closed rather
+than permitting cross-account cache reuse.
 
 ## CustomWidget limits
 
