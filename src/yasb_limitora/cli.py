@@ -127,7 +127,7 @@ def _reject_json_constant(value: str) -> None:
     raise ConfigError("non-finite configuration number")
 
 
-def _load_v2_explicit(path: str, context: DeadlineContext | None = None) -> LocalConfig:
+def _load_v2_explicit(path: str, context: DeadlineContext | None = None) -> tuple[LocalConfig, frozenset[ProviderKey]]:
     try:
         if _read_config is not _LEGACY_READ_CONFIG:
             raw = _read_config(path)
@@ -140,15 +140,16 @@ def _load_v2_explicit(path: str, context: DeadlineContext | None = None) -> Loca
         raise
     except Exception as error:  # noqa: BLE001 - path and parser details never cross the boundary
         raise ConfigError("invalid local configuration") from error
-    return LocalConfig.from_v2_mapping(value)
+    provider_errors: set[ProviderKey] = set()
+    return LocalConfig.from_v2_mapping(value, provider_errors=provider_errors), frozenset(provider_errors)
 
 
 def _load_path(path: str | None) -> LocalConfig:
     return LocalConfig() if path is None else _load_explicit(path)
 
 
-def _load_v2_path(path: str | None, context: DeadlineContext | None = None) -> LocalConfig:
-    return LocalConfig() if path is None else _load_v2_explicit(path, context)
+def _load_v2_path(path: str | None, context: DeadlineContext | None = None) -> tuple[LocalConfig, frozenset[ProviderKey]]:
+    return (LocalConfig(), frozenset()) if path is None else _load_v2_explicit(path, context)
 
 
 def _resolve_config_path(argv: Sequence[str], environment: Mapping[str, str]) -> str:
@@ -205,6 +206,10 @@ def main(
         err.flush()
         return 2
     args = tuple(sys.argv[1:] if argv is None else argv)
+    from .codex_helper import _INTERNAL_HELPER_FLAG, _has_internal_helper_environment, _run_internal_helper
+
+    if args == (_INTERNAL_HELPER_FLAG,) and _has_internal_helper_environment():
+        return _run_internal_helper()
     effective_environment = os.environ if environment is None else environment
     t0_ns = time.monotonic_ns()
     try:
@@ -216,14 +221,15 @@ def main(
         return 2
     try:
         resolved_v2_path = None
-        config = (
-            _load_v2_path(
+        if version == 2:
+            config, provider_errors = _load_v2_path(
                 (resolved_v2_path := _resolve_config_path(load_args, effective_environment)),
                 DeadlineContext.from_seconds(1, t0_ns=t0_ns),
             )
-            if version == 2
-            else _load(load_args)
-        )
+        else:
+            config, provider_errors = _load(load_args), frozenset()
+        if version == 2 and coordinator is not None and provider_errors:
+            raise ConfigError("provider configuration invalid")
     except InvocationError:
         if version == 2:
             data, diagnostic = project_v2_failure_bytes("invocation_invalid"), "invocation_invalid"
@@ -274,6 +280,7 @@ def main(
                                     effective_environment,
                                     attempt_context,
                                     resolved_v2_path or "",
+                                    **({"provider_errors": provider_errors} if provider_errors else {}),
                                 ),
                             )
                         except Exception:  # noqa: BLE001 - cache coordination must fail closed
@@ -295,6 +302,7 @@ def main(
                         effective_environment,
                         runtime_context,
                         resolved_v2_path or "",
+                        **({"provider_errors": provider_errors} if provider_errors else {}),
                     )
                 if orchestrator.last_record is not None:
                     opencode_evidence = orchestrator.last_record.opencode_evidence
@@ -324,13 +332,13 @@ def main(
                         else "runtime_error" if exit_code else ""
                     )
                     enabled = frozenset(
-                        provider
-                        for provider, enabled_flag in (
-                            (ProviderKey.CODEX, config.codex.enabled),
-                            (ProviderKey.OPENCODE_GO, config.opencode_go.enabled),
+                            provider
+                            for provider, enabled_flag in (
+                                (ProviderKey.CODEX, config.codex.enabled or ProviderKey.CODEX in provider_errors),
+                                (ProviderKey.OPENCODE_GO, config.opencode_go.enabled or ProviderKey.OPENCODE_GO in provider_errors),
+                            )
+                            if enabled_flag
                         )
-                        if enabled_flag
-                    )
                     data = project_v2_bytes(V2ProjectionInput(document, enabled, opencode_evidence))
                 except Exception:  # noqa: BLE001 - v2 projection failures are safe
                     data, exit_code, diagnostic = project_v2_failure_bytes("internal_error"), 1, "runtime_error"

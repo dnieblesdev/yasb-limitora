@@ -761,7 +761,7 @@ class _CodexSupervisor:
             job = self._job_factory(_Kernel32Api.load() if _os.name == "nt" else None)
             job_entry = transaction.add(job.close)
             helper = _HelperProcessResources(process_owner)
-            helper.attach_job(job)
+            helper.attach_job(job, allow_nested=True)
             transaction.release(process_entry)
             transaction.release(job_entry)
             helper_entry = transaction.add(helper.close)

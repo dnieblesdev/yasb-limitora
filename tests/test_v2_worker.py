@@ -66,6 +66,80 @@ def test_private_result_queue_and_v2_record_retention():
     assert document.providers[1] is result.view and orchestrator.last_record.opencode_evidence is result.evidence
 
 
+def test_opencode_child_start_receives_only_public_environment(monkeypatch):
+    environment = {
+        "PATH": "public-path",
+        "LIMITORA_OPENCODE_API_KEY": "opencode-secret",
+        "OPENAI_API_KEY": "openai-secret",
+        "AWS_SECRET_ACCESS_KEY": "aws-secret",
+    }
+    monkeypatch.setattr(v2_worker.os, "environ", environment)
+    observed = []
+
+    class Process:
+        pid, exitcode = 42, 0
+        def __init__(self, target, args):
+            pass
+        def start(self):
+            observed.append(dict(v2_worker.os.environ))
+        def join(self, timeout=None):
+            pass
+        def is_alive(self):
+            return False
+        def close(self):
+            pass
+
+    class Job:
+        active_processes = 0
+        state = "assigned"
+        def assign_process(self, pid, *, allow_nested=False):
+            assert allow_nested is True
+        def close_with_deadline(self, deadline):
+            self.state = "closed"
+
+    class SpawnContext:
+        def Queue(self):
+            return queue.Queue()
+        def Event(self):
+            return type("Event", (), {"set": lambda self: None, "close": lambda self: None})()
+
+    OpenCodeWorkerProcess(
+        process_factory=lambda **kwargs: Process(kwargs["target"], kwargs["args"]),
+        job_factory=Job,
+        context_factory=lambda _: SpawnContext(),
+    ).run_with_deadline(OpenCodeRequest("request-secret", 7), context())
+
+    assert observed == [{"PATH": "public-path"}]
+    assert v2_worker.os.environ is environment
+    assert environment["LIMITORA_OPENCODE_API_KEY"] == "opencode-secret"
+
+
+def test_provider_configuration_error_skips_only_invalid_provider():
+    launches = []
+    config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": True}})
+
+    class Worker:
+        record = None
+        last_result = None
+        def run_with_deadline(self, request, deadline):
+            launches.append(ProviderKey.OPENCODE_GO)
+            return ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED)
+
+    document = V2ExecutionOrchestrator(
+        guard_factory=lambda: Guard(Lease([])),
+        opencode_factory=Worker,
+    ).run(
+        config,
+        {"LIMITORA_OPENCODE_API_KEY": "key"},
+        context(),
+        "config",
+        provider_errors={ProviderKey.CODEX},
+    )
+
+    assert launches == [ProviderKey.OPENCODE_GO]
+    assert document.providers[0].error.code is SafeErrorCode.CONFIGURATION_INVALID
+
+
 def test_reused_orchestrator_retains_only_current_opencode_evidence():
     view = ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)
     results = [
@@ -128,7 +202,7 @@ def test_disabled_or_codex_only_run_clears_previous_opencode_evidence():
     assert orchestrator.last_record.opencode_evidence is result.evidence
 
     orchestrator.run(disabled_config, {}, context(), "config")
-    assert orchestrator.last_record is None
+    assert orchestrator.last_record is not None and orchestrator.last_record.opencode_evidence is None
 
     orchestrator.run(codex_config, {}, context(), "config")
     assert orchestrator.last_record.opencode_evidence is None
@@ -150,7 +224,7 @@ def test_cleanup_complete_requires_all_worker_evidence():
     result = orchestrator.run(config, {"LIMITORA_OPENCODE_API_KEY": "key"}, context(), "config")
     assert job.calls == 2 and not record.job_closed and record.process_closed and not cleanup_complete([record]) and result.document_error.code.value == "cleanup_failed" and events == [] and lease.owned
     later = orchestrator.run(config, {"LIMITORA_OPENCODE_API_KEY": "key"}, context(), "config")
-    assert later.document_error.code.value == "guard_wait_timeout"
+    assert later.document_error.code.value == "cleanup_failed"
     job.state = "closed"; record.job_closed = True
     assert cleanup_complete([record])
 def test_cleanup_complete_requires_opencode_and_codex_quiescence():
@@ -186,7 +260,9 @@ def test_opencode_authorizes_job_before_releasing_provider_start():
     class Job:
         active_processes = 0
         state = "assigned"
-        def assign_process(self, pid): events.append("job-assign")
+        def assign_process(self, pid, *, allow_nested=False):
+            assert allow_nested is True
+            events.append("job-assign")
         def close_with_deadline(self, context): events.append("job-close"); self.state = "closed"
 
     worker = __import__("yasb_limitora.v2_worker", fromlist=["OpenCodeWorkerProcess"]).OpenCodeWorkerProcess(
@@ -271,7 +347,8 @@ def test_started_opencode_overrun_remains_provider_timeout():
         active_processes = 0
         state = "assigned"
 
-        def assign_process(self, pid):
+        def assign_process(self, pid, *, allow_nested=False):
+            assert allow_nested is True
             pass
 
         def close_with_deadline(self, context):
@@ -321,6 +398,47 @@ def test_orchestrator_preserves_outcomes_when_mutex_cleanup_fails():
     assert document.providers[0] == expected
     assert document.providers[1].outcome is ProviderOutcome.NOT_RUN
     assert events == ["release-mutex", "close-mutex"]
+
+
+def test_retries_only_lease_close_after_release_succeeds():
+    class FirstLease:
+        __slots__ = ("release_calls", "close_calls", "owned", "closed")
+
+        def __init__(self):
+            self.release_calls = 0
+            self.close_calls = 0
+            self.owned = True
+            self.closed = False
+
+        def release(self):
+            self.release_calls += 1
+            if self.release_calls > 1:
+                raise AssertionError("released lease must not be released again")
+            self.owned = False
+            return True
+
+        def close(self):
+            self.close_calls += 1
+            self.closed = self.close_calls == 2
+            return self.closed
+
+    first = FirstLease()
+    later = Lease([])
+    leases = iter((first, later))
+    config = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}})
+    executor = type(
+        "Executor",
+        (),
+        {"run_with_deadline": lambda self, runner, deadline: ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED)},
+    )()
+    orchestrator = V2ExecutionOrchestrator(guard_factory=lambda: Guard(next(leases)), codex_executor=executor)
+
+    first_document = orchestrator.run(config, {}, context(), "config")
+    second_document = orchestrator.run(config, {}, context(), "config")
+
+    assert first_document.document_error.code.value == "cleanup_failed"
+    assert second_document.document_error is None
+    assert (first.release_calls, first.close_calls) == (1, 2)
 
 
 def test_unexpected_provider_exception_is_not_relabelled_as_guard_failure():

@@ -32,7 +32,7 @@ class Process:
 class Job:
     def __init__(self, events: list[str], **flags: object) -> None:
         self.events, self.flags, self.assigned = events, flags, False
-    def assign_borrowed_handle(self, handle): self.events.append(("assign", handle)); self.assigned = True
+    def assign_borrowed_handle(self, handle, *, allow_nested=False): self.events.append(("assign", handle)); self.assigned = True
     def close(self, timeout):
         self.events.append("job")
         if self.flags.get("fail_once"):
