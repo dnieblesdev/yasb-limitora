@@ -273,6 +273,55 @@ def test_opencode_authorizes_job_before_releasing_provider_start():
     )
     worker.run_with_deadline(OpenCodeRequest("secret", 7), context())
     assert events[:3] == ["process-start", "job-assign", "provider-release"] and events.index("process-close") > events.index("job-close") and worker.record is not None and worker.record.reaped and worker.record.job_closed and not worker.record.process_closed
+def test_opencode_invalid_process_pid_fails_closed_before_job_assignment():
+    events = []
+
+    class Process:
+        pid, exitcode = None, 0
+
+        def __init__(self, target, args):
+            pass
+
+        def start(self):
+            events.append("process-start")
+
+        def is_alive(self):
+            return False
+
+        def close(self):
+            events.append("process-close")
+
+    class Job:
+        active_processes = 0
+        state = "assigned"
+
+        def assign_process(self, pid, *, allow_nested=False):
+            pytest.fail(f"invalid pid assigned: {pid!r}")
+
+        def close_with_deadline(self, deadline):
+            events.append("job-close")
+            self.state = "closed"
+
+    class Context:
+        def Queue(self):
+            return queue.Queue()
+
+        def Event(self):
+            return type("Event", (), {"close": lambda self: None})()
+
+    worker = OpenCodeWorkerProcess(
+        process_factory=lambda **kwargs: Process(kwargs["target"], kwargs["args"]),
+        job_factory=Job,
+        context_factory=lambda _: Context(),
+    )
+
+    result = worker.run_with_deadline(OpenCodeRequest("secret", 7), context())
+
+    assert result.error is not None and result.error.code is SafeErrorCode.PROVIDER_ERROR
+    assert events == ["process-start", "job-close", "process-close"]
+    assert worker.record is not None and worker.record.reaped and worker.record.job_closed and worker.record.process_closed
+
+
 def test_prestart_deadline_exhaustion_marks_opencode_not_run_without_spawning():
     expired = DeadlineContext(t0_ns=0, deadline_ns=0, reserve_ns=0, clock_ns=lambda: 0)
     worker = __import__("yasb_limitora.v2_worker", fromlist=["OpenCodeWorkerProcess"]).OpenCodeWorkerProcess(

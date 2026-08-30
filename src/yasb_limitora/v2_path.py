@@ -42,6 +42,9 @@ _PUBLIC_CHILD_ENV_KEYS = frozenset(
         "USERDOMAIN", "USERNAME", "USERPROFILE", "WINDIR",
     }
 )
+_PYINSTALLER_CHILD_ENV_KEYS = frozenset(
+    {"_PYI_ARCHIVE_FILE", "_PYI_APPLICATION_HOME_DIR", "_PYI_PARENT_PROCESS_LEVEL"}
+)
 _SPAWN_ENVIRONMENT_LOCK = threading.RLock()
 _MULTIPROCESSING_CONTEXT: Any = cast(Any, vars(multiprocessing)["context"])
 _PRIVATE_SYS: Any = cast(Any, sys)
@@ -70,7 +73,7 @@ def _retry_pending_job_owners(context) -> bool:
 def _retain_process_owner(process: object, started: bool) -> None:
     if not any(candidate is process for candidate, _ in _PENDING_PROCESS_OWNERS):
         _PENDING_PROCESS_OWNERS.append((process, started))
-def _close_process_owner(process: object, context, started: bool) -> bool:
+def _close_process_owner(process: Any, context, started: bool) -> bool:
     try:
         if started and not _terminate_child(process, context):
             raise RuntimeError
@@ -164,7 +167,7 @@ def _usable_or_fail(context: DeadlineContext) -> None:
         raise V2DeadlineError("configuration deadline exhausted")
 
 
-def _close_output(output: object, context: DeadlineContext, *, retain: bool = True) -> bool:
+def _close_output(output: Any, context: DeadlineContext, *, retain: bool = True) -> bool:
     ok = True
     try:
         output.close()
@@ -244,6 +247,25 @@ def _public_child_environment(source) -> dict[str, str]:
     }
 
 
+def _private_child_environment(source) -> dict[str, str]:
+    environment = _public_child_environment(source)
+    if getattr(_PRIVATE_SYS, "frozen", False):
+        environment.update(
+            {
+                key: value
+                for key, value in source.items()
+                if key in _PYINSTALLER_CHILD_ENV_KEYS and isinstance(value, str)
+            }
+        )
+    return environment
+
+
+def _windows_spawn_executable(python_exe: str, *, replace_with_base: bool, base_executable: str) -> str:
+    if getattr(_PRIVATE_SYS, "frozen", False) or not replace_with_base:
+        return python_exe
+    return base_executable
+
+
 @contextmanager
 def _spawn_environment(environment):
     """Make the already-built child environment visible before spawn/import."""
@@ -271,8 +293,11 @@ def _windows_spawn_popen(process_obj: object) -> Any:
             cmd = " ".join('"%s"' % item for item in cmd)
             python_exe = stdlib.spawn.get_executable()
             environment = dict(private_process._child_environment)
-            if stdlib.WINENV and stdlib._path_eq(python_exe, sys.executable):
-                python_exe = _PRIVATE_SYS._base_executable
+            replace_with_base = stdlib.WINENV and stdlib._path_eq(python_exe, sys.executable)
+            python_exe = _windows_spawn_executable(
+                python_exe, replace_with_base=replace_with_base, base_executable=_PRIVATE_SYS._base_executable
+            )
+            if replace_with_base and not getattr(_PRIVATE_SYS, "frozen", False):
                 environment["__PYVENV_LAUNCHER__"] = sys.executable
             with open(wfd, "wb", closefd=True) as to_child:
                 try:
@@ -308,7 +333,7 @@ def _is_genuine_windows_spawn_context(process_context: object) -> bool:
 def _child_process(process_context: Any, target: Any, args: Any) -> Any:
     if _is_genuine_windows_spawn_context(process_context):
         process = cast(Any, _WindowsSpawnProcess(target=target, args=args))
-        process._child_environment = _public_child_environment(os.environ)
+        process._child_environment = _private_child_environment(os.environ)
         return process
     return process_context.Process(target=target, args=args)
 
@@ -333,14 +358,14 @@ def _start_quiet_child(process: Any) -> None:
                 pass
 
 
-def _queue_put(output: object, value: object) -> None:
+def _queue_put(output: Any, value: object) -> None:
     try:
         output.put(value)
     except Exception:
         pass
 
 
-def _terminate_child(process: object, context: DeadlineContext) -> bool:
+def _terminate_child(process: Any, context: DeadlineContext) -> bool:
     """Stop a timed-out child and confirm it is no longer alive."""
     try:
         if not process.is_alive():
@@ -410,6 +435,8 @@ def _bounded_file_read(path: str, context) -> bytes:
     job_close_attempted = False
     cleanup_failed = False
     failure: V2FileError | V2DeadlineError | None = None
+    success = False
+    data: object = None
     try:
         method = "fork" if "fork" in multiprocessing.get_all_start_methods() else "spawn"
         process_context = multiprocessing.get_context(method)
@@ -441,7 +468,7 @@ def _bounded_file_read(path: str, context) -> bytes:
             job_close_attempted = True
             cleanup_failed = not _close_job_owner(job, context)
         _usable_or_fail(context)
-        if not success or not isinstance(data, bytes):
+        if not success:
             raise V2FileError("configuration read failed")
     except V2FileError as error:
         failure = error
@@ -460,6 +487,8 @@ def _bounded_file_read(path: str, context) -> bytes:
         raise V2FileError("configuration read failed")
     if failure is not None:
         raise failure
+    if not isinstance(data, bytes):
+        raise V2FileError("configuration read failed")
     return data
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 import ntpath
 import os
 import re
@@ -242,6 +243,7 @@ def main(
         err.write("yasb-limitora: unsupported_platform\n")
         err.flush()
         return 2
+    multiprocessing.freeze_support()
     args = tuple(sys.argv[1:] if argv is None else argv)
     if args == (_INTERNAL_HELPER_FLAG,) and _has_internal_helper_environment():
         return _run_internal_helper()

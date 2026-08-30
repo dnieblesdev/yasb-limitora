@@ -29,6 +29,59 @@ def _disabled_document():
     )
 
 
+def test_windows_freeze_support_claims_terminal_child_before_cli_dispatch(monkeypatch):
+    events = []
+
+    class FreezeSupportClaimed(Exception):
+        pass
+
+    def terminal_freeze_support():
+        events.append("freeze_support")
+        raise FreezeSupportClaimed
+
+    def unexpected(stage):
+        events.append(stage)
+        raise AssertionError(f"{stage} ran after terminal freeze_support")
+
+    monkeypatch.setattr(cli.multiprocessing, "freeze_support", terminal_freeze_support)
+    monkeypatch.setattr(cli, "_output_version", lambda argv: unexpected("output_version"))
+    monkeypatch.setattr(cli, "_resolve_config_path", lambda argv, environment: unexpected("config_resolution"))
+    monkeypatch.setattr(cli, "RuntimeCoordinator", lambda: unexpected("coordinator"))
+
+    with pytest.raises(FreezeSupportClaimed):
+        main(
+            ("--output-version", "2"),
+            stdout=io.BytesIO(),
+            stderr=io.StringIO(),
+            platform_is_windows=lambda: True,
+        )
+
+    assert events == ["freeze_support"]
+
+
+def test_non_windows_platform_gate_precedes_freeze_support(monkeypatch):
+    events = []
+
+    def unexpected_freeze_support():
+        events.append("freeze_support")
+        raise AssertionError("freeze_support ran on an unsupported platform")
+
+    monkeypatch.setattr(cli.multiprocessing, "freeze_support", unexpected_freeze_support)
+    stdout, stderr = io.BytesIO(), io.StringIO()
+
+    code = main(
+        ("--output-version", "2"),
+        stdout=stdout,
+        stderr=stderr,
+        platform_is_windows=lambda: False,
+    )
+
+    assert code == 2
+    assert stdout.getvalue() == b""
+    assert stderr.getvalue() == "yasb-limitora: unsupported_platform\n"
+    assert events == []
+
+
 def _disabled_config_path(tmp_path):
     path = tmp_path / "config.json"
     path.write_text(json.dumps({"codex": {}, "opencode_go": {}}), encoding="utf-8")
