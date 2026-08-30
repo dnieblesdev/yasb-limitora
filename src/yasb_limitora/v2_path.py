@@ -9,8 +9,6 @@ import os
 import queue
 import stat
 import sys
-import threading
-from contextlib import contextmanager
 from typing import Any, cast
 
 from .v2_deadline import DeadlineContext
@@ -45,7 +43,6 @@ _PUBLIC_CHILD_ENV_KEYS = frozenset(
 _PYINSTALLER_CHILD_ENV_KEYS = frozenset(
     {"_PYI_ARCHIVE_FILE", "_PYI_APPLICATION_HOME_DIR", "_PYI_PARENT_PROCESS_LEVEL"}
 )
-_SPAWN_ENVIRONMENT_LOCK = threading.RLock()
 _MULTIPROCESSING_CONTEXT: Any = cast(Any, vars(multiprocessing)["context"])
 _PRIVATE_SYS: Any = cast(Any, sys)
 _PENDING_JOB_OWNERS: list[object] = []
@@ -266,20 +263,6 @@ def _windows_spawn_executable(python_exe: str, *, replace_with_base: bool, base_
     return base_executable
 
 
-@contextmanager
-def _spawn_environment(environment):
-    """Make the already-built child environment visible before spawn/import."""
-    with _SPAWN_ENVIRONMENT_LOCK:
-        original = dict(os.environ)
-        os.environ.clear()
-        os.environ.update(environment)
-        try:
-            yield
-        finally:
-            os.environ.clear()
-            os.environ.update(original)
-
-
 def _windows_spawn_popen(process_obj: object) -> Any:
     """Use CreateProcess with a private, already-filtered environment."""
     stdlib = cast(Any, __import__("multiprocessing.popen_spawn_win32", fromlist=["*"]))
@@ -330,7 +313,9 @@ def _is_genuine_windows_spawn_context(process_context: object) -> bool:
     return os.name == "nt" and isinstance(process_context, _MULTIPROCESSING_CONTEXT.SpawnContext)
 
 
-def _child_process(process_context: Any, target: Any, args: Any) -> Any:
+def _child_process(process_context: Any, target: Any, args: Any, process_factory: Any = None) -> Any:
+    if process_factory is not None:
+        return process_factory(target=target, args=args)
     if _is_genuine_windows_spawn_context(process_context):
         process = cast(Any, _WindowsSpawnProcess(target=target, args=args))
         process._child_environment = _private_child_environment(os.environ)

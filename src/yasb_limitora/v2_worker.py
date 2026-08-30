@@ -13,7 +13,7 @@ from .model import DocumentView, ProviderKey, ProviderOutcome, ProviderState, Pr
 from .v2_deadline import DeadlineContext
 from .v2_guard import GuardError, GuardLease, V2Guard
 from .isolation.windows_job import WindowsJobBoundary
-from .v2_path import _public_child_environment, _spawn_environment, _start_quiet_child
+from .v2_path import _child_process, _start_quiet_child
 
 
 def _safe_error(provider: ProviderKey, code: SafeErrorCode) -> ProviderView:
@@ -114,18 +114,19 @@ class OpenCodeWorkerProcess:
             self.last_result = OpenCodeReadResult(view, OpenCodeFailureEvidence.UNAVAILABLE)
             return view
         try:
-            child_environment = _public_child_environment(os.environ)
-            with _spawn_environment(child_environment):
-                process_context = self.context_factory("spawn")
-                queue = process_context.Queue()
-                record = self.record = WorkerRecord(None, None, queue_closed=False, queue=queue, authorized_closed=False)
-                authorized = process_context.Event()
-                record.authorized = authorized
-                process = (self.process_factory or process_context.Process)(
-                    target=_opencode_bootstrap, args=(self.reader, request, queue, authorized)
-                )
-                record.worker = process
-                _start_quiet_child(process)
+            process_context = self.context_factory("spawn")
+            queue = process_context.Queue()
+            record = self.record = WorkerRecord(None, None, queue_closed=False, queue=queue, authorized_closed=False)
+            authorized = process_context.Event()
+            record.authorized = authorized
+            process = _child_process(
+                process_context,
+                _opencode_bootstrap,
+                (self.reader, request, queue, authorized),
+                self.process_factory,
+            )
+            record.worker = process
+            _start_quiet_child(process)
             record.started = True
             job = self.job_factory() if self.job_factory is not None else WindowsJobBoundary()
             record.job = job
