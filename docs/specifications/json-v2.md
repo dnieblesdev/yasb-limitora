@@ -314,7 +314,9 @@ failures. Provider fields not shown as variable MUST follow section 4.5.
 | Document condition | `execution_state` | Top-level error | Allowed provider outcomes | Required provider reason/error |
 |--------------------|-------------------|----------------|----------------------------|--------------------------------|
 | All selected providers disabled | `not_run` | `null` | Every provider `not_run` | Every `not_run_reason: disabled` |
-| Valid v2 invocation, configuration missing/malformed | `execution_error` | `configuration_invalid/configuration` | Every provider `not_run` | `not_run_reason: invalid_configuration` |
+| Valid v2 invocation, document/global configuration missing/malformed | `execution_error` | `configuration_invalid/configuration` | Every provider `not_run` | `not_run_reason: invalid_configuration` |
+| One provider object is invalid and a peer is usable | `partial` | `null` | One `execution_error`, one `snapshot`/`undetected` | Invalid provider has `provider_failed/provider`; usable peer keeps its own outcome |
+| One provider object is invalid and no provider is usable | `execution_error` | `provider_failed/provider` | One `execution_error`, one `not_run` or `execution_error` | Invalid provider has `provider_failed/provider`; peers retain their own truthful outcome |
 | Valid v2 selection, invalid flag combination | `execution_error` | `invocation_invalid/configuration` | Every provider `not_run` | `not_run_reason: invocation_invalid` |
 | Guard wait expires | `not_run` | `guard_wait_timeout/guard_wait` | Every provider `not_run` | `not_run_reason: guard_wait_timeout` |
 | All provider calls are prevented by the absolute deadline | `not_run` | `deadline_exhausted/document` | Every provider `not_run` | At least one `deadline_exhausted`; other unattempted providers may be `disabled` |
@@ -545,28 +547,31 @@ qualifier order is normative. An ineligible snapshot therefore says
 Partial snapshots preserve `state=partial`; stale snapshots preserve
 `freshness=stale` in every form, including when no eligible basis exists.
 
-`tooltip_text` begins exactly with
-`State: <public_state>\nFreshness: <freshness>\n`. With an eligible window the
-next line is `Quota: <percentage>% remaining`; otherwise the next lines are
-`Quota: percentage unavailable\nNo eligible percentage basis`. A snapshot then
-appends its windows in section 9 order, using complete lines in this exact
-form:
+`tooltip_text` begins exactly with the provider display name, followed by
+`State: <display_state> · <display_freshness>\nLowest quota: <value>\n`. The
+display state and freshness are capitalized English labels. `<value>` is
+`<percentage>% remaining` when an eligible window exists and `Quota unavailable`
+otherwise. A snapshot then appends every window in section 9 order using a
+human-readable period label:
 
 ```text
-Window: kind=<kind>; scope=<scope>; period=<period>; plan_id=<JSON string|null>; unit=<unit>; source_id=<JSON string|null>; result=<percentage>% remaining|percentage unavailable|availability=<availability>
+<period>: <percentage>% remaining [· resets <local date/time>]
+<period>: Quota unavailable
 ```
 
-`plan_id` and `source_id` in that line always use JSON string syntax; missing
-identities use the literal `null`. For `scope`, `period`, and `unit`, a safe
-identity is rendered as its existing raw text. An identity containing `;`, `=`,
-or backslash is instead rendered as a JSON string using the same
-Unicode-preserving escaping as canonical JSON (for example,
-`scope="team;west"` and `period="five\\nhour"`). This conditional form keeps
-normal-case tooltip bytes unchanged while making every `key=value;` boundary
-unambiguous; it does not alter the underlying identity or invent a replacement
-value. The same escaped representation is used for those identities in
-`alternate_text` so its bounded presentation uses the same identity form. A known
-`reset_at` appends `Reset: <timestamp>` immediately after its window line.
+Known periods use `5-hour`, `Monthly`, and `Weekly`; other periods are rendered
+by replacing underscores with spaces and capitalizing the first letter. OpenCode
+renders each valid reset inline, including when that window's percentage is
+unavailable. Codex renders valid reset times as `Resets: <local date/time>`
+lines after its window lines, also independent of percentage availability.
+The canonical `reset_at` value remains UTC in JSON. For tooltip presentation, the
+aware timestamp is converted with the machine's local timezone and formatted
+with the process locale's `%x %X` date/time format, without changing global
+locale state. Fractional seconds are omitted. If locale formatting is
+unavailable, the stable `YYYY-MM-DD HH:MM:SS` fallback is used. Internal
+identities such as kind, scope, plan ID, unit, and source ID are never included
+in the tooltip. Missing reset evidence is omitted, and unavailable or unknown
+windows remain `Quota unavailable` rather than becoming zero.
 Tooltip lines are appended whole, in order, only while the complete result
 remains within 4096 Unicode scalars. Missing evidence remains missing: no
 synthetic value, zero, reset, identity, or raw error is allowed.
@@ -717,7 +722,12 @@ configuration key. It MUST NOT be supplied in JSON or CLI arguments and MUST NOT
 v2 JSON, diagnostics, or other output. Credential-like keys are rejected recursively.
 Provider defaults are applied before validation of dependent rules: an enabled
 Codex with omitted `runner` is invalid, while an omitted/disabled provider is a
-legal `not_run` provider.
+legal `not_run` provider. A malformed provider object is provider-scoped: that
+provider is not launched and is projected as `provider_failed/provider`; any
+valid peer remains eligible to run. Top-level grammar, path, JSON decoding, and
+deadline errors remain document/global configuration failures. Provider-scoped
+configuration errors bypass the v2 cache so stale data cannot replace the error
+or change provider order/markers.
 
 ### 12.3 v1 explicit-config compatibility
 
@@ -794,8 +804,9 @@ other combination is legal.
 | v1 safe runtime error | Exact v1 JSON plus LF | `yasb-limitora: runtime_error\n` | 1 |
 | v1 invocation/config error | Exact v1 safe-error JSON plus LF | `yasb-limitora: invocation_invalid\n` or `yasb-limitora: configuration_invalid\n` | 2 |
 | v2 successful snapshot/undetected/disabled result | Canonical v2 JSON plus LF | Empty | 0 |
-| v2 provider/document execution failure | Canonical v2 safe envelope plus LF | `yasb-limitora: runtime_error\n` | 1 |
-| v2 guard wait expiry | Canonical v2 `not_run` document plus LF | `yasb-limitora: guard_wait_timeout\n` | 1 |
+| v2 mixed usable result plus provider-scoped failure | Canonical v2 JSON plus LF | Empty | 0 |
+| v2 provider-owned failure with no usable provider | Canonical v2 safe envelope plus LF | `yasb-limitora: runtime_error\n` | 1 |
+| v2 global/document execution failure, including guard or deadline expiry | Canonical v2 safe envelope or `not_run` document plus LF | Safe diagnostic for the global failure | 2 |
 | v2 invocation/configuration error | Canonical v2 safe envelope plus LF | `yasb-limitora: invocation_invalid\n` or `yasb-limitora: configuration_invalid\n` | 2 |
 
 Stdout MUST contain only one JSON document and its final LF. Stderr MUST never
@@ -830,7 +841,8 @@ The guard rules are:
   sanitized document `cleanup_failed` and prevents a success result. The
   provider lease is finalized only after both release and close succeed. A
   failed release or close remains owned/non-finalized and is retried at the
-  start of the next bounded invocation; a retry failure remains `cleanup_failed`.
+  start of the next bounded invocation; a retry failure remains
+  `cleanup_failed` and cannot start another provider attempt.
 
 One absolute monotonic wall-clock deadline starts at CLI entry as `T0`, before
 configuration path resolution/read/parse, and covers configuration I/O, guard

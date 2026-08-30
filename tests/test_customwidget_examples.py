@@ -63,14 +63,14 @@ WINDOW_TOOLTIP_SUFFIXES = {
 }
 RUNTIME_METADATA = {
     "guard-timeout": {
-        "exit_code": 1,
+        "exit_code": 2,
         "stderr": b"yasb-limitora: guard_wait_timeout" + bytes([0x0A]),
         "document": {"code": "guard_wait_timeout", "phase": "guard_wait"},
         "reason": "guard_wait_timeout",
         "tooltip": "Quota not run: guard wait timeout",
     },
     "deadline-not-run": {
-        "exit_code": 1,
+        "exit_code": 2,
         "stderr": b"yasb-limitora: runtime_error" + bytes([0x0A]),
         "document": {"code": "deadline_exhausted", "phase": "document"},
         "reason": "deadline_exhausted",
@@ -130,12 +130,18 @@ def _assert_provider(provider, expected, percentage, display_state=None, tooltip
     if percentage is not None:
         assert provider["compact_text"] == f"Quota {percentage}% remaining; state={display_state}; freshness={freshness}"
         assert provider["alternate_text"] == f"Quota account / {provider['most_depleted_window']['period']}: {percentage}% remaining; state={display_state}; freshness={freshness}"
-        assert provider["tooltip_text"].startswith(f"State: {display_state}\nFreshness: {freshness}\nQuota: {percentage}% remaining")
+        provider_name = "Codex" if provider["provider"] == "codex" else "OpenCode Go"
+        state_label = display_state.replace("_", " ").capitalize()
+        freshness_label = freshness.replace("_", " ").capitalize()
+        assert provider["tooltip_text"].startswith(f"{provider_name}\nState: {state_label} · {freshness_label}\nLowest quota: {percentage}% remaining")
         assert provider["most_depleted_window"]["remaining_percentage"] == str(percentage)
     elif outcome == "snapshot":
         assert provider["compact_text"] == f"Quota percentage unavailable; state={display_state}; freshness={freshness}"
         assert provider["alternate_text"] == provider["compact_text"]
-        assert provider["tooltip_text"].startswith(f"State: {display_state}\nFreshness: {freshness}\nQuota: percentage unavailable\nNo eligible percentage basis")
+        provider_name = "Codex" if provider["provider"] == "codex" else "OpenCode Go"
+        state_label = display_state.replace("_", " ").capitalize()
+        freshness_label = freshness.replace("_", " ").capitalize()
+        assert provider["tooltip_text"].startswith(f"{provider_name}\nState: {state_label} · {freshness_label}\nLowest quota: Quota unavailable")
         assert provider["most_depleted_window"] is None
     elif outcome == "undetected":
         assert provider["compact_text"] == provider["alternate_text"] == provider["tooltip_text"] == "Quota not detected"
@@ -205,7 +211,7 @@ class CustomWidgetExamplesTests(unittest.TestCase):
     def test_guard_and_deadline_runtime_metadata_is_separate_from_fixtures(self):
         for name, expected in RUNTIME_METADATA.items():
             value = _json_document(FIXTURES / f"{name}.json")
-            assert expected["exit_code"] == 1
+            assert expected["exit_code"] == 2
             expected_stderr = (
                 b"yasb-limitora: guard_wait_timeout" + bytes([0x0A])
                 if name == "guard-timeout"
@@ -270,7 +276,7 @@ class CustomWidgetExamplesTests(unittest.TestCase):
             assert provider["most_depleted_window"] is None
             assert provider["compact_text"] == "Quota percentage unavailable; state=partial; freshness=stale"
             assert provider["alternate_text"] == provider["compact_text"]
-            assert "No eligible percentage basis" in provider["tooltip_text"]
+            assert "Lowest quota: Quota unavailable" in provider["tooltip_text"]
 
 
 if __name__ == "__main__":

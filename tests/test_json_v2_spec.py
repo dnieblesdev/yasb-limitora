@@ -451,12 +451,10 @@ def test_r6_tooltip_identity_escaping_rule_is_normative():
     text = SPEC.read_text(encoding="utf-8")
 
     for fragment in (
-        "identity is rendered as its existing raw text. An identity containing `;`, `=`,",
-        "or backslash is instead rendered as a JSON string using the same",
-        "Unicode-preserving escaping as canonical JSON",
-        "making every `key=value;` boundary\nunambiguous",
-        "same escaped representation is used for those identities in",
-        "does not alter the underlying identity or invent a replacement\nvalue",
+        "Known periods use `5-hour`, `Monthly`, and `Weekly`",
+        "The canonical `reset_at` value remains UTC in JSON. For tooltip presentation",
+        "Internal\nidentities such as kind, scope, plan ID, unit, and source ID",
+        "windows remain `Quota unavailable` rather than becoming zero",
     ):
         assert fragment in text
 

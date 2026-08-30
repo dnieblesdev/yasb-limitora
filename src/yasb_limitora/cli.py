@@ -10,11 +10,12 @@ import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import TextIO
+from typing import Any, TextIO, cast
 
+from .codex_helper import _INTERNAL_HELPER_FLAG, _has_internal_helper_environment, _run_internal_helper
 from .config import ConfigError, LocalConfig
 from .coordinator import RuntimeCoordinator
-from .model import DocumentView, ProviderKey, ProviderState, ProviderView, SafeError, SafeErrorCode, V2SafeErrorCode
+from .model import DocumentView, ProviderKey, ProviderOutcome, ProviderState, ProviderView, SafeError, SafeErrorCode, V2SafeErrorCode
 from .projection import project_bytes
 from .projection_v2 import V2ProjectionInput, project_v2_bytes, project_v2_failure_bytes, project_v2_not_run_bytes
 from .v2_cache import V2QuotaCache
@@ -69,13 +70,13 @@ def _output_version(argv: Sequence[str]) -> tuple[int | None, tuple[str, ...]]:
             value = argv[index + 1]
             if value not in {"1", "2"}:
                 raise InvocationError
-            version = int(value)
+            version = 1 if value == "1" else 2
             index += 2
             continue
         if argument.startswith("--output-version="):
             if version is not None or argument[17:] not in {"1", "2"}:
                 raise InvocationError
-            version = int(argument[17:])
+            version = 1 if argument[17:] == "1" else 2
             index += 1
             continue
         remaining.append(argument)
@@ -168,6 +169,42 @@ def _v2_cache_eligible(config: LocalConfig, environment: Mapping[str, str]) -> b
     )
 
 
+def _v2_provider_error_overlay(document: DocumentView, provider_errors: frozenset[ProviderKey]) -> DocumentView:
+    if not provider_errors:
+        return document
+    providers = tuple(
+        ProviderView(
+            view.provider,
+            ProviderState.SAFE_ERROR,
+            SafeError(SafeErrorCode.PROVIDER_ERROR),
+            display_label=view.display_label,
+            outcome=ProviderOutcome.EXECUTION_ERROR,
+        )
+        if view.provider in provider_errors
+        else view
+        for view in document.providers
+    )
+    return DocumentView(providers, document.document_error)
+
+
+def _v2_exit_code(document: DocumentView, enabled: frozenset[ProviderKey]) -> int:
+    if document.document_error is not None:
+        return 2
+    if not any(view.state is ProviderState.SAFE_ERROR for view in document.providers):
+        return 0
+    usable_outcomes = {ProviderOutcome.SNAPSHOT, ProviderOutcome.UNDETECTED}
+    has_usable_provider = any(
+        view.outcome in usable_outcomes
+        or (
+            view.outcome is None
+            and view.state is ProviderState.UNAVAILABLE
+            and view.provider in enabled
+        )
+        for view in document.providers
+    )
+    return 0 if has_usable_provider else 1
+
+
 def _v2_cache_failure(code: str | None) -> bytes:
     if code in {"guard_wait_timeout", "deadline_exhausted"}:
         return project_v2_not_run_bytes(code)
@@ -181,7 +218,7 @@ def _load(argv: Sequence[str]) -> LocalConfig:
 
 
 def _write(stream: object, data: bytes) -> None:
-    target = getattr(stream, "buffer", stream)
+    target = cast(Any, getattr(stream, "buffer", stream))
     try:
         target.write(data)
     except TypeError:
@@ -206,8 +243,6 @@ def main(
         err.flush()
         return 2
     args = tuple(sys.argv[1:] if argv is None else argv)
-    from .codex_helper import _INTERNAL_HELPER_FLAG, _has_internal_helper_environment, _run_internal_helper
-
     if args == (_INTERNAL_HELPER_FLAG,) and _has_internal_helper_environment():
         return _run_internal_helper()
     effective_environment = os.environ if environment is None else environment
@@ -228,8 +263,6 @@ def main(
             )
         else:
             config, provider_errors = _load(load_args), frozenset()
-        if version == 2 and coordinator is not None and provider_errors:
-            raise ConfigError("provider configuration invalid")
     except InvocationError:
         if version == 2:
             data, diagnostic = project_v2_failure_bytes("invocation_invalid"), "invocation_invalid"
@@ -245,7 +278,7 @@ def main(
             _write(out, data)
             err.write(f"yasb-limitora: {diagnostic}\n")
             err.flush()
-            return 1
+            return 2
         raise
     except ConfigError:
         if version == 2:
@@ -257,6 +290,7 @@ def main(
         err.flush()
         return 2
     else:
+        document: DocumentView | None = None
         opencode_evidence = None
         cached_data = None
         coordination_data = None
@@ -266,7 +300,7 @@ def main(
                 orchestrator = V2ExecutionOrchestrator()
                 runtime_context = DeadlineContext.from_seconds(config.deadline_seconds, t0_ns=t0_ns)
                 result = None
-                if _v2_cache_eligible(config, effective_environment):
+                if not provider_errors and _v2_cache_eligible(config, effective_environment):
                     try:
                         cache = V2QuotaCache(config, effective_environment, resolved_v2_path or "")
                     except Exception:  # noqa: BLE001 - cache setup is optional infrastructure
@@ -285,7 +319,9 @@ def main(
                             )
                         except Exception:  # noqa: BLE001 - cache coordination must fail closed
                             result = None
-                            coordination_data = _v2_cache_failure("deadline_exhausted" if runtime_context.usable_ns() <= 0 else "internal_error")
+                            coordination_data = _v2_cache_failure(
+                                "deadline_exhausted" if runtime_context.usable_ns() <= 0 else "internal_error"
+                            )
                         if result is not None:
                             if result.cached_public_bytes is not None:
                                 cached_data = result.cached_public_bytes
@@ -293,9 +329,16 @@ def main(
                                 coordination_data = _v2_cache_failure("deadline_exhausted")
                             elif result.coordination_failed:
                                 coordination_data = _v2_cache_failure(result.coordination_error)
-                                coordination_diagnostic = "guard_wait_timeout" if result.coordination_error == "guard_wait_timeout" else "runtime_error"
+                                coordination_diagnostic = (
+                                    "guard_wait_timeout"
+                                    if result.coordination_error == "guard_wait_timeout"
+                                    else "runtime_error"
+                                )
                             else:
-                                document = result.value
+                                value = result.value
+                                if not isinstance(value, DocumentView):
+                                    raise TypeError("v2 cache did not return a document")
+                                document = value
                 if cached_data is None and coordination_data is None and result is None:
                     document = orchestrator.run(
                         config,
@@ -317,35 +360,42 @@ def main(
             _write(out, data)
             err.write("yasb-limitora: runtime_error\n")
             err.flush()
-            return 1
+            return 2 if version == 2 else 1
         if version == 2:
             if cached_data is not None:
                 data, exit_code, diagnostic = cached_data, 0, ""
             elif coordination_data is not None:
-                data, exit_code, diagnostic = coordination_data, 1, coordination_diagnostic or "runtime_error"
+                data, exit_code, diagnostic = coordination_data, 2, coordination_diagnostic or "runtime_error"
             else:
                 try:
-                    exit_code = 1 if document.document_error is not None or any(view.state is ProviderState.SAFE_ERROR for view in document.providers) else 0
+                    if not isinstance(document, DocumentView):
+                        raise TypeError("v2 runtime did not return a document")
+                    enabled = frozenset(
+                        provider
+                        for provider, enabled_flag in (
+                            (ProviderKey.CODEX, config.codex.enabled or ProviderKey.CODEX in provider_errors),
+                            (ProviderKey.OPENCODE_GO, config.opencode_go.enabled or ProviderKey.OPENCODE_GO in provider_errors),
+                        )
+                        if enabled_flag
+                    )
+                    document = _v2_provider_error_overlay(document, provider_errors)
+                    exit_code = _v2_exit_code(document, enabled)
                     diagnostic = (
                         "guard_wait_timeout"
-                        if document.document_error is not None and document.document_error.code is V2SafeErrorCode.GUARD_WAIT_TIMEOUT
+                        if document.document_error is not None
+                        and document.document_error.code is V2SafeErrorCode.GUARD_WAIT_TIMEOUT
                         else "runtime_error" if exit_code else ""
                     )
-                    enabled = frozenset(
-                            provider
-                            for provider, enabled_flag in (
-                                (ProviderKey.CODEX, config.codex.enabled or ProviderKey.CODEX in provider_errors),
-                                (ProviderKey.OPENCODE_GO, config.opencode_go.enabled or ProviderKey.OPENCODE_GO in provider_errors),
-                            )
-                            if enabled_flag
-                        )
                     data = project_v2_bytes(V2ProjectionInput(document, enabled, opencode_evidence))
                 except Exception:  # noqa: BLE001 - v2 projection failures are safe
-                    data, exit_code, diagnostic = project_v2_failure_bytes("internal_error"), 1, "runtime_error"
+                    data, exit_code, diagnostic = project_v2_failure_bytes("internal_error"), 2, "runtime_error"
         else:
-            exit_code = 1 if any(view.state is ProviderState.SAFE_ERROR for view in document.providers) else 0
-            diagnostic = "runtime_error" if exit_code else ""
-            data = project_bytes(document)
+            if not isinstance(document, DocumentView):
+                data, exit_code, diagnostic = project_bytes(_failure(SafeErrorCode.INTERNAL_ERROR)), 1, "runtime_error"
+            else:
+                exit_code = 1 if any(view.state is ProviderState.SAFE_ERROR for view in document.providers) else 0
+                diagnostic = "runtime_error" if exit_code else ""
+                data = project_bytes(document)
     _write(out, data)
     if diagnostic:
         err.write(f"yasb-limitora: {diagnostic}\n")

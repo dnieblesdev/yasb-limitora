@@ -67,7 +67,7 @@ in-progress state that CustomWidget cannot render or cancel.
 | Sanitized configuration and process execution | Credentials, tokens, sessions, or duplicated provider logic |
 
 Only Codex and OpenCode Go are current 0.2 provider inputs because they are the
-public provider sources verified in Limitora 0.2.0. Claude and Gemini are not
+public provider sources verified in Limitora 0.3.1. Claude and Gemini are not
 roadmap work for this contract.
 
 ## Installation and v1 runtime
@@ -79,7 +79,7 @@ py -m pip install -e .
 ```
 
 `yasb-limitora` is not published to PyPI; run `py -m pip install -e .` from the
-checkout root (the checkout pins `limitora[opencode-go]==0.2.0`). See
+checkout root (the checkout pins `limitora[opencode-go]==0.3.1`). See
 [`docs/windows-json.md`](docs/windows-json.md) for `.env`, reload, precedence,
 security, bounded-error, and manual YASB procedures. Frozen v1 keeps missing/empty
 OpenCode-key `unavailable`, independent Codex/document execution, and all-disabled
