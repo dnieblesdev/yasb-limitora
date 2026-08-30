@@ -15,13 +15,13 @@ from yasb_limitora import (
     SafeErrorCode,
     project_bytes,
 )
-from yasb_limitora.config import DEFAULT_TIMEOUT_SECONDS
+from yasb_limitora.config import DEFAULT_TIMEOUT_SECONDS, MAX_CODEX_TIMEOUT_SECONDS
 
 
 def test_config_is_immutable_and_repr_redacts_private_values() -> None:
     config = LocalConfig.from_mapping({
-        "codex": {"enabled": True, "runner": r"C:\Tools\codex.exe", "workspace_id": "private-workspace"},
-        "opencode_go": {"enabled": True, "workspace_id": "other-private"},
+        "codex": {"enabled": True, "runner": r"C:\Tools\codex.exe"},
+        "opencode_go": {"enabled": True},
     })
     assert config.codex.timeout_seconds == DEFAULT_TIMEOUT_SECONDS
     assert "private-workspace" not in repr(config)
@@ -38,6 +38,7 @@ def test_config_accepts_only_fully_qualified_windows_runners(runner: str) -> Non
 @pytest.mark.parametrize("value", [
     {"authCookie": "secret"}, {"codex": {"api_key": "secret"}},
     {"opencode_go": {"token": "secret"}},
+    {"opencode_go": {"api_key": "secret"}},
     {"codex": {"runner": r"\Tools\codex.exe", "enabled": True}},
     {"codex": {"runner": r"C:Tools\codex.exe", "enabled": True}},
 ])
@@ -47,11 +48,18 @@ def test_config_rejects_credentials_and_non_absolute_runners(value: dict[str, ob
     assert "secret" not in str(error.value)
 
 
-@pytest.mark.parametrize("timeout", [0, -1, math.nan, math.inf, 10**10000, "bad", None], ids=["zero", "negative", "nan", "inf", "oversized", "text", "none"])
+@pytest.mark.parametrize("timeout", [0, -1, 10.1, math.nan, math.inf, 10**10000, "bad", None], ids=["zero", "negative", "oversized", "nan", "inf", "huge", "text", "none"])
 def test_timeout_errors_are_finite_deterministic_and_safe(timeout: object) -> None:
     with pytest.raises(ConfigError) as error:
         OpenCodeGoConfig(timeout_seconds=timeout)
     assert str(error.value) == "invalid timeout_seconds"
+
+
+def test_codex_timeout_range_remains_independent_from_opencode_timeout_range() -> None:
+    config = LocalConfig.from_mapping({"codex": {"enabled": True, "runner": r"C:\\Tools\\codex.exe", "timeout_seconds": 120}, "opencode_go": {"timeout_seconds": 10}})
+    assert config.codex.timeout_seconds == MAX_CODEX_TIMEOUT_SECONDS
+    with pytest.raises(ConfigError, match="^invalid timeout_seconds$"):
+        LocalConfig.from_mapping({"codex": {"enabled": True, "runner": r"C:\\Tools\\codex.exe", "timeout_seconds": 120.1}, "opencode_go": {}})
 
 
 def test_models_have_closed_states_codes_and_safe_validation() -> None:

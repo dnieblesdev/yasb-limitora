@@ -20,10 +20,9 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
-dependencies = ["limitora==0.1.0"]
+dependencies = ["limitora[opencode-go]==0.2.0"]
 
 [project.optional-dependencies]
-opencode-go = ["httpx<1,>=0.27"]
 test = ["pytest>=8,<9"]
 
 [tool.pytest.ini_options]

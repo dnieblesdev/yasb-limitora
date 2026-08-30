@@ -12,7 +12,7 @@ from yasb_limitora.cli import main
 from yasb_limitora.codex_helper import CodexHelperExecutor, _payload
 from yasb_limitora.config import LocalConfig
 from yasb_limitora.coordinator import RuntimeCoordinator
-from yasb_limitora.limitora_api import read_opencode_go
+from yasb_limitora.limitora_api import OpenCodeReadResult, OpenCodeRequest, read_opencode_go
 from yasb_limitora.model import (
     DocumentView,
     ProviderKey,
@@ -44,7 +44,7 @@ class Codex:
 def enabled_config(codex=True, opencode=True, timeout=0.2):
     return LocalConfig.from_mapping({
         "codex": {"enabled": codex, "runner": r"C:\codex.exe", "timeout_seconds": timeout},
-        "opencode_go": {"enabled": opencode, "workspace_id": "workspace", "timeout_seconds": timeout},
+        "opencode_go": {"enabled": opencode, "timeout_seconds": timeout},
     })
 
 
@@ -52,8 +52,8 @@ def test_coordinator_preserves_mixed_outcomes_and_fixed_order():
     codex = Codex(view(ProviderKey.CODEX))
     document = RuntimeCoordinator(
         codex,
-        lambda workspace, environment: view(ProviderKey.OPENCODE_GO, ProviderState.SAFE_ERROR, SafeErrorCode.PROVIDER_ERROR),
-    ).run(enabled_config(), {"LIMITORA_AUTH_COOKIE": "cookie"})
+        lambda request: OpenCodeReadResult(view(ProviderKey.OPENCODE_GO, ProviderState.SAFE_ERROR, SafeErrorCode.PROVIDER_ERROR)),
+    ).run(enabled_config(), {"LIMITORA_OPENCODE_API_KEY": "key"})
     assert tuple(v.provider for v in document.providers) == (ProviderKey.CODEX, ProviderKey.OPENCODE_GO)
     assert tuple(v.state for v in document.providers) == (ProviderState.SUCCESS, ProviderState.SAFE_ERROR)
     assert codex.runners == [(r"C:\codex.exe", "app-server")]
@@ -98,12 +98,12 @@ def test_coordinator_retries_retained_codex_cleanup_before_next_normal_invocatio
 def test_opencode_timeout_discards_late_completion():
     release = threading.Event()
     late = view(ProviderKey.OPENCODE_GO, display_label="late")
-    def reader(workspace, environment):
+    def reader(request):
         release.wait(1)
-        return late
+        return OpenCodeReadResult(late)
     started = time.monotonic()
     document = RuntimeCoordinator(Codex(view(ProviderKey.CODEX)), reader).run(
-        enabled_config(timeout=0.02), {"LIMITORA_AUTH_COOKIE": "cookie"}
+        enabled_config(timeout=0.02), {"LIMITORA_OPENCODE_API_KEY": "key"}
     )
     assert time.monotonic() - started < 0.4
     assert document.providers[1] == view(ProviderKey.OPENCODE_GO, ProviderState.SAFE_ERROR, SafeErrorCode.TIMEOUT)
@@ -117,8 +117,8 @@ def test_codex_timeout_does_not_erase_opencode_success():
         def run(self, runner):
             time.sleep(0.1)
             return view(ProviderKey.CODEX)
-    document = RuntimeCoordinator(SlowCodex(), lambda *_: view(ProviderKey.OPENCODE_GO)).run(
-        enabled_config(timeout=0.02), {"LIMITORA_AUTH_COOKIE": "cookie"}
+    document = RuntimeCoordinator(SlowCodex(), lambda *_: OpenCodeReadResult(view(ProviderKey.OPENCODE_GO))).run(
+        enabled_config(timeout=0.02), {"LIMITORA_OPENCODE_API_KEY": "key"}
     )
     assert document.providers[0].error.code is SafeErrorCode.TIMEOUT
     assert document.providers[1].state is ProviderState.SUCCESS
@@ -130,9 +130,9 @@ def test_concurrent_timeouts_use_invocation_deadlines_not_collection_order():
         started[index].set(); release.wait(1); return view(provider)
     class BlockedCodex:
         def run(self, runner): calls.append("codex"); return blocked(0, ProviderKey.CODEX)
-    def blocked_opencode(workspace, environment): calls.append("opencode"); return blocked(1, ProviderKey.OPENCODE_GO)
+    def blocked_opencode(request): calls.append("opencode"); return OpenCodeReadResult(blocked(1, ProviderKey.OPENCODE_GO))
     config = enabled_config(timeout=0.05)
-    result, worker = {}, threading.Thread(target=lambda: result.setdefault("document", RuntimeCoordinator(BlockedCodex(), blocked_opencode).run(config, {"LIMITORA_AUTH_COOKIE": "cookie"})), daemon=True)
+    result, worker = {}, threading.Thread(target=lambda: result.setdefault("document", RuntimeCoordinator(BlockedCodex(), blocked_opencode).run(config, {"LIMITORA_OPENCODE_API_KEY": "key"})), daemon=True)
     started_at = time.monotonic()
     worker.start()
     assert all(event.wait(1) for event in started)
@@ -147,7 +147,7 @@ def test_concurrent_timeouts_use_invocation_deadlines_not_collection_order():
     invalid = enabled_config()
     object.__setattr__(invalid.codex, "timeout_seconds", -1)
     object.__setattr__(invalid.opencode_go, "timeout_seconds", float("nan"))
-    invalid_document = RuntimeCoordinator(BlockedCodex(), blocked_opencode).run(invalid, {"LIMITORA_AUTH_COOKIE": "cookie"})
+    invalid_document = RuntimeCoordinator(BlockedCodex(), blocked_opencode).run(invalid, {"LIMITORA_OPENCODE_API_KEY": "key"})
     assert calls == [] and all(view.error.code is SafeErrorCode.CONFIGURATION_INVALID for view in invalid_document.providers)
 
 
@@ -181,7 +181,7 @@ def test_runtime_safe_error_has_exit_one_and_sanitized_diagnostic():
                 view(ProviderKey.OPENCODE_GO),
             )
     coordinator = FailingCoordinator()
-    assert main((), coordinator=coordinator, environment={"LIMITORA_AUTH_COOKIE": "cookie"}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 1
+    assert main((), coordinator=coordinator, environment={"LIMITORA_OPENCODE_API_KEY": "key"}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 1
     assert stderr.getvalue() == "yasb-limitora: runtime_error\n"
     assert "cookie" not in stdout.getvalue().decode() + stderr.getvalue()
 
@@ -226,7 +226,7 @@ def test_v2_default_resolution_reads_injected_localappdata(monkeypatch):
 def test_v2_cli_missing_opencode_credentials_is_clean_not_run(monkeypatch, tmp_path):
     path = tmp_path / "config.json"
     path.write_text(
-        json.dumps({"codex": {}, "opencode_go": {"enabled": True, "workspace_id": "workspace"}}),
+        json.dumps({"codex": {}, "opencode_go": {"enabled": True}}),
         encoding="utf-8",
     )
 
@@ -244,8 +244,8 @@ def test_v2_cli_missing_opencode_credentials_is_clean_not_run(monkeypatch, tmp_p
     class Worker:
         record = None
 
-        def run_with_deadline(self, workspace, environment, context):
-            return read_opencode_go(workspace, environment)
+        def run_with_deadline(self, request, context):
+            return read_opencode_go(request).view
 
     orchestrator = V2ExecutionOrchestrator(
         guard_factory=Guard,
@@ -344,7 +344,7 @@ class _MatrixCodex:
 @pytest.mark.parametrize("scenario", ("guard_wait_timeout", "guard_acquisition_failed", "deadline_exhausted", "cleanup_failed"))
 def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, tmp_path, scenario):
     path = tmp_path / "config.json"
-    opencode_config = {"enabled": True, "workspace_id": "workspace"} if scenario == "deadline_exhausted" else {}
+    opencode_config = {"enabled": True} if scenario == "deadline_exhausted" else {}
     path.write_text(json.dumps({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": opencode_config}), encoding="utf-8")
 
     if scenario == "guard_wait_timeout":
@@ -385,7 +385,7 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
 
     monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
-    code = main(("--output-version", "2", "--config", str(path)), stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
+    code = main(("--output-version", "2", "--config", str(path)), environment={"LIMITORA_OPENCODE_API_KEY": "key"}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
 
     assert code == 1
     assert stdout.getvalue() == expected
