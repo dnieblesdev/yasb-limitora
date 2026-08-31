@@ -70,8 +70,13 @@ local JSON with these provider fields:
 
 The Codex runner must be an absolute Windows path. OpenCode Go has no workspace,
 cookie, dashboard, or endpoint setting in this consumer. A disabled provider is
-represented as `not_run` with `not_run_reason: disabled` in v2; malformed local
-configuration produces `configuration_invalid` and exit code `2`.
+represented as `not_run` with `not_run_reason: disabled` in v2.
+
+V2 configuration failures split by scope. A malformed provider object is
+provider-scoped: only that provider is projected as `provider_failed/provider`,
+and a valid peer provider remains eligible to run. Top-level grammar, path,
+JSON decoding, and deadline errors remain document/global configuration
+failures and produce `configuration_invalid` with exit code `2`.
 
 For manual OpenCode acceptance, use the Limitora JSON at
 `%LOCALAPPDATA%\yasb-limitora\config.json`, or set `YASB_LIMITORA_CONFIG` to an
@@ -183,14 +188,33 @@ The v2 document uses `execution_state` values `complete`, `partial`, `not_run`, 
 `execution_error`, with validated snapshot status in `public_state`. Document and
 provider fields remain independent, preserving each provider error in its own slot.
 
-V2 exit code `1` covers these bounded execution errors, including
-`guard_acquisition_failed`, `guard_wait_timeout`, and `deadline_exhausted`:
+The v2 exit matrix follows the normative specification. A mixed usable result
+keeps exit code `0` even when another provider carries a provider-scoped
+failure. A provider-owned failure with no usable provider uses exit code `1`.
+A document/global execution failure uses exit code `2`, and unsupported-runtime,
+invocation, or configuration failures also use exit code `2`. A provider-scoped
+configuration error behaves like a provider failure for exit purposes; it never
+changes a valid peer result.
 
 | Code | Meaning |
-|---:|---|
-| `0` | No document or provider `execution_error` was projected. |
-| `1` | A provider runtime, timeout, cleanup, or internal failure was projected as `execution_error`; this includes `guard_acquisition_failed`, `guard_wait_timeout`, and `deadline_exhausted`. |
-| `2` | The runtime is unsupported, or local invocation/configuration was malformed. Unsupported-platform rejection uses the exact stderr contract above and no JSON stdout. |
+| ---: | --- |
+| `0` | No document `execution_error`, including a mixed usable result where another provider carries a provider-scoped failure. |
+| `1` | A provider-owned failure was projected as `execution_error` and no provider result remains usable. |
+| `2` | A document/global execution failure, including `guard_acquisition_failed`, `guard_wait_timeout`, or `deadline_exhausted`. |
+| `2` | An unsupported runtime, or malformed invocation/configuration. Unsupported-platform rejection uses the exact stderr contract above and no JSON stdout. |
+
+### Frozen PyInstaller runtime
+
+In the frozen PyInstaller runtime, the public v1 and public v2 CLI routes keep
+the same JSON/stream/exit contracts as the source runtime, including the v2
+selector, configuration resolution, exit matrix, and bounded stderr;
+unsupported-platform, invocation, and configuration rejection keep their exact
+streams and exit code `2`. The Codex helper still runs in a disposable child
+process, but the frozen build relaunches it as an internal child of the frozen
+executable instead of spawning a Python interpreter. That internal child
+relaunch is not a public CLI invocation: it uses the private helper environment
+only, and it preserves the same JSON stream, bounded IPC, and exit contracts as
+the source-runtime child.
 
 ## Availability and fail-safe behavior
 

@@ -28,7 +28,7 @@ runtime portability or Windows integration proof.
 | R8 | Add the cross-process execution guard | Add bounded guard acquisition, deadlines, and cleanup behavior | Complete — merged to `main` at `5bee184` |
 | R9 | Package CustomWidget examples and static CSS | Package the CustomWidget examples and static presentation assets | Complete — merged to `main` at `2d529ae` |
 | R10 | Prove pinned YASB integration on Windows | Validate the YASB CustomWidget integration on Windows | Complete — automated native CLI/JSON proof plus maintainer manual YASB acceptance |
-| R11 | Release and smoke-test 0.2.0 | Complete release readiness and the final smoke test | Next, gated by #130 and the released Limitora dependency/manual OpenCode acceptance |
+| R11 | Release and smoke-test 0.2.0 | Complete release readiness and the final smoke test | Next, gated by #130 and the released Limitora 0.3.1 dependency/manual OpenCode acceptance |
 
 ## Official architecture
 
@@ -288,9 +288,16 @@ migration #130 is the next R11 dependency and must be completed and manually
 accepted in real YASB before R11 release readiness; #62 remains the broader
 release and smoke-test gate.
 
+### R10 final stabilization evidence
+
+The R10 Windows-native stabilization is final. Verified at HEAD `1e6c86e`
+with Python 3.13.5 against Limitora 0.3.1: full suite 597 passed, 4 skipped;
+focused native Windows suite 106 passed; frozen v1/v2 invocations exit 0,
+empty stderr, no remaining process.
+
 ## Current gate
 
-R1-R10 are complete. R11 is next, gated by the released Limitora 0.2.0 dependency,
+R1-R10 are complete. R11 is next, gated by the released Limitora 0.3.1 dependency,
 approved OpenCode migration #130, and separate manual OpenCode acceptance in a
 real YASB installation. No R11 release claim is made here.
 

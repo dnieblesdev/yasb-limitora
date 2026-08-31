@@ -133,8 +133,36 @@ def test_opencode_operator_contract_documents_the_copy_ready_flow():
     assert all(term in v1 and term not in v2 for term in ("loading", "success", "unavailable", "safe_error"))
     assert all(term in v2 for term in ("execution_state", "execution_error", "snapshot", "undetected", "not_run"))
     assert "exit code `1`" in v2 and all(code in v2 for code in ("guard_acquisition_failed", "guard_wait_timeout", "deadline_exhausted"))
+    exit_rows = [line for line in v2.splitlines() if re.match(r"\|\s*`[012]`\s*\|", line.strip())]
+    exit_1_rows = [line for line in exit_rows if re.match(r"\|\s*`1`\s*\|", line.strip())]
+    exit_2_rows = [line for line in exit_rows if re.match(r"\|\s*`2`\s*\|", line.strip())]
+    assert exit_1_rows and not any(code in " ".join(exit_1_rows) for code in ("guard_acquisition_failed", "guard_wait_timeout", "deadline_exhausted"))
+    assert any(all(code in line for code in ("guard_acquisition_failed", "guard_wait_timeout", "deadline_exhausted")) for line in exit_2_rows)
+    assert any(re.search(r"mixed\s+usable", line, re.IGNORECASE) for line in exit_rows if re.match(r"\|\s*`0`\s*\|", line.strip()))
+    assert any("no usable provider" in line.lower() or "no provider result remains usable" in line.lower() for line in exit_1_rows)
+    frozen = " ".join(v2.split("### Frozen PyInstaller runtime", 1)[1].split())
+    assert "internal child relaunch" in frozen and "child relaunch is not a public CLI invocation" in frozen
+    assert "JSON/stream/exit contracts" in frozen
+    for phrase in ("public v1", "public v2", "v2 selector"):
+        assert phrase in frozen
+    assert "exit code `2`" in frozen
     manual = " ".join(windows.split("## Manual native YASB acceptance", 1)[1].split("## Verified limitations and troubleshooting", 1)[0].split())
     assert all(needle in manual for needle in ("remove the `LIMITORA_OPENCODE_API_KEY` line from `.env`", "clear/unset any `LIMITORA_OPENCODE_API_KEY` value in the current/inherited OS environment", "Do not print it", "yasbc reload", "restore it securely")) and "## Published-package verification" not in windows
+
+
+def test_windows_json_exit_matrix_matches_the_normative_specification():
+    windows = " ".join((ROOT / "docs/windows-json.md").read_text(encoding="utf-8").split())
+    distinction = " ".join(
+        windows.split("## Configuration", 1)[1].split("### v2 configuration resolution", 1)[0].split()
+    )
+    assert "provider-scoped" in distinction
+    assert "document/global configuration failures" in distinction
+    assert re.search(r"provider-scoped[^.]{0,180}provider_failed", distinction, re.IGNORECASE)
+    assert re.search(r"document/global[^.]{0,180}exit.{0,8}2", distinction, re.IGNORECASE)
+    assert re.search(r"mixed\s+usable.{0,120}\bexit\s+code\s+`0`", windows, re.IGNORECASE | re.DOTALL)
+    assert re.search(r"provider-owned\s+failure.{0,140}no\s+usable\s+provider.{0,80}\bexit\s+code\s+`1`", windows, re.IGNORECASE | re.DOTALL)
+    assert re.search(r"document/global.{0,160}\bexit\s+code\s+`2`", windows, re.IGNORECASE | re.DOTALL)
+    assert re.search(r"unsupported.{0,200}invocation.{0,200}exit\s+code\s+`2`", windows, re.IGNORECASE | re.DOTALL)
 
 
 def test_source_of_truth_docs_use_the_consumed_limitora_bearer_contract():
@@ -149,14 +177,26 @@ def test_source_of_truth_docs_use_the_consumed_limitora_bearer_contract():
     architecture_contract = architecture.split("## Execution boundary", 1)[0]
     research_contract = research.split("## Sanitized evidence rules", 1)[0]
     for text in (architecture_contract, research_contract):
-        assert "0.2.0" in text and "Bearer" in text
-        assert "0.1.0" not in text
+        assert "0.3.1" in text and "Bearer" in text
+        assert "0.1.0" not in text and "0.2.0" not in text
         assert not re.search(r"\b(?:workspace|cookie)\b", text, re.IGNORECASE)
 
-    assert "Limitora 0.2.0" in roadmap
-    assert "Limitora 0.1.0" not in roadmap
+    assert "Limitora 0.3.1" in roadmap
+    assert "Limitora 0.1.0" not in roadmap and "Limitora 0.2.0" not in roadmap
+    assert "Release and smoke-test 0.2.0" in roadmap
     assert "five_hour" in roadmap and "monthly" in roadmap and "weekly" in roadmap
     assert "#55" in roadmap and "#133" in roadmap
+
+    r10_record = roadmap.split("### R10 final stabilization evidence", 1)[1]
+    r10_record = r10_record.split("## Current gate", 1)[0]
+    assert "`1e6c86e`" in r10_record
+    assert "Python 3.13.5" in r10_record
+    assert "Limitora 0.3.1" in r10_record
+    assert "597 passed" in r10_record and "4 skipped" in r10_record
+    assert "106 passed" in r10_record
+    assert re.search(r"frozen[^.]{0,160}exit\s+`?0`?", r10_record, re.IGNORECASE | re.DOTALL)
+    assert re.search(r"empty\s+stderr", r10_record, re.IGNORECASE)
+    assert re.search(r"no\s+remaining\s+process", r10_record, re.IGNORECASE)
 
     assert "Limitora v0.3.0" in specification
     assert "yasb-limitora does not consume it until #133" in specification

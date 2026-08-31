@@ -32,7 +32,7 @@ automated YASB rendering.
 |-----------|------|--------------|
 | YASB CustomWidget | Host lifecycle, compact/alternate labels, tooltip, static CSS, periodic/manual refresh | Provider calls, credentials, JSON interpretation, cancellation of a running helper |
 | `yasb-limitora` | Version selection, config resolution, bounded execution, safe projection, JSON serialization | Provider implementation or private Limitora APIs |
-| Limitora 0.2.0 Bearer public API | Provider detection, authentication, transport, status state, freshness, quota windows, Decimal quantities | YASB imports, widget layout, popover behavior |
+| Limitora 0.3.1 Bearer public API | Provider detection, authentication, transport, status state, freshness, quota windows, Decimal quantities | YASB imports, widget layout, popover behavior |
 
 ## Product contract
 
