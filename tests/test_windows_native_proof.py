@@ -32,6 +32,9 @@ from yasb_limitora.v2_path import V2FileError, canonicalize_v2_path, read_v2_con
 from yasb_limitora.v2_worker import cleanup_complete
 
 
+TEST_SID = bytes((1, 1, 0, 0, 0, 0, 0, 5, 21, 0, 0, 0))
+
+
 pytestmark = [
     pytest.mark.windows_native,
 ]
@@ -367,7 +370,7 @@ def test_native_release_fault_is_deterministic_and_sanitized() -> None:
         def ReleaseMutex(self, _): return False
         def CloseHandle(self, _): return True
 
-    lease = V2Guard(api=Api(), sid_provider=lambda: b"native-test-sid").acquire(r"C:\native.json", DeadlineContext.from_seconds(1))
+    lease = V2Guard(api=Api(), sid_provider=lambda: TEST_SID).acquire(r"C:\native.json", DeadlineContext.from_seconds(1))
     assert lease.release() is False
 
 

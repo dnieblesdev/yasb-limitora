@@ -191,11 +191,12 @@ class WindowsJobBoundary:
         if self.borrowed_process and process_ready and job_ready and self.job is None:
             self.process, self.borrowed_process = None, False
         return ok
-    def _cleanup(self, assigned: bool, deadline: float, timed_out: bool = False) -> tuple[bool, bool]:
-        ok, process_waited, wait_failed, active_zero = True, self.process is None or (self.borrowed_process and not assigned), False, self.job is None or not assigned
-        process_terminated = self.process is None or assigned or self.borrowed_process
+    def _cleanup(self, assigned: bool, deadline: float, timed_out: bool = False, *, terminate_unassigned: bool = True) -> tuple[bool, bool]:
+        process_waited = self.process is None or (self.borrowed_process and not assigned) or (not assigned and not terminate_unassigned)
+        ok, wait_failed, active_zero = True, False, self.job is None or not assigned
+        process_terminated = self.process is None or assigned or self.borrowed_process or (not assigned and not terminate_unassigned)
         job_terminated = self.job is None
-        if not assigned and self.process is not None and not self.borrowed_process:
+        if not assigned and self.process is not None and not self.borrowed_process and terminate_unassigned:
             process_terminated = self._safe("terminate_process", self.process)
             ok &= process_terminated
         if self.job is not None:
@@ -207,7 +208,7 @@ class WindowsJobBoundary:
                 timed_out = True
                 break
             timeout_ms = max(MIN_WAIT_MILLISECONDS, min(MAX_WAIT_MILLISECONDS, int(remaining * MILLISECONDS_PER_SECOND)))
-            if self.process is not None and (not self.borrowed_process or assigned):
+            if self.process is not None and (not self.borrowed_process or assigned) and (assigned or terminate_unassigned):
                 try: result = self._call("wait", self.process, timeout_ms)
                 except JobError: ok = process_waited = False; result = WAIT_FAILED
                 if result == WAIT_OBJECT_0: process_waited = True
@@ -227,13 +228,13 @@ class WindowsJobBoundary:
         job_ready = job_terminated and active_zero
         closed = self._close_handles(process_ready, job_ready)
         return ok and closed, timed_out
-    def assign_process(self, pid: int) -> None:
+    def assign_process(self, pid: int, *, allow_nested: bool = False) -> None:
         if self.state is not JobState.CREATED or self.process is not None or self.job is None: raise JobError(JobErrorCode.INVALID_STATE)
         assigned = False
         try:
             self.process = self._call("open_process", pid, PROCESS_ACCESS)
             if not self.process: raise JobError(JobErrorCode.HANDLE_FAILED)
-            if self._call("is_process_in_job", self.process, None): raise JobError(JobErrorCode.NESTED_JOB)
+            if not allow_nested and self._call("is_process_in_job", self.process, None): raise JobError(JobErrorCode.NESTED_JOB)
             assigned = bool(self._call("assign", self.job, self.process))
             self.assigned = assigned
             if not assigned: raise JobError(JobErrorCode.ASSIGNMENT_FAILED)
@@ -241,18 +242,18 @@ class WindowsJobBoundary:
             if self._call("query_active", self.job) < MIN_ACTIVE_PROCESSES: raise JobError(JobErrorCode.ASSIGNMENT_FAILED)
             self.assigned = True; self.state = JobState.ASSIGNED
         except Exception as error:
-            ok, _ = self._cleanup(assigned, self.clock() + EMERGENCY_CLEANUP_BUDGET_SECONDS, True)
+            ok, _ = self._cleanup(assigned, self.clock() + EMERGENCY_CLEANUP_BUDGET_SECONDS, True, terminate_unassigned=False)
             self.state = JobState.CLOSED if ok else JobState.BROKEN
             if not ok: raise JobError(CLEANUP_ERROR) from None
             raise error if isinstance(error, JobError) else JobError(JobErrorCode.INTERNAL_ERROR) from None
 
-    def assign_borrowed_handle(self, handle: Any) -> None:
+    def assign_borrowed_handle(self, handle: Any, *, allow_nested: bool = False) -> None:
         if self.state is not JobState.CREATED or self.process is not None or self.job is None: raise JobError(JobErrorCode.INVALID_STATE)
         if not handle or handle == INVALID_HANDLE: raise JobError(JobErrorCode.HANDLE_FAILED)
         assigned = False
         self.process, self.borrowed_process = handle, True
         try:
-            if self._call("is_process_in_job", handle, None): raise JobError(JobErrorCode.NESTED_JOB)
+            if not allow_nested and self._call("is_process_in_job", handle, None): raise JobError(JobErrorCode.NESTED_JOB)
             assigned = bool(self._call("assign", self.job, handle))
             self.assigned = assigned
             if not assigned: raise JobError(JobErrorCode.ASSIGNMENT_FAILED)

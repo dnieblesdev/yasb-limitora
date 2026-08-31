@@ -18,7 +18,7 @@ import re
 import sys
 
 PACKAGE = "limitora"
-EXPECTED_VERSION = "0.2.0"
+EXPECTED_VERSION = "0.3.1"
 EXTRA = "opencode-go"
 DUMMY = "package-verification-dummy"
 EXTRA_EQUALITY = re.compile(r"\bextra\s*==\s*(['\"])([^'\"]*)\1")
