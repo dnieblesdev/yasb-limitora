@@ -107,6 +107,7 @@ The failed `feature/137-json-projection@13f63d6` is excluded and is not in this 
 - [x] Update examples and active docs only after runtime behavior is green; preserve historical and immutable identity text.
 - [x] CustomWidget examples/docs child: selector-free `yasb-limitora`, current-only fixture/docs assertions, exact provider paths, and immutable source IDs preserved.
 - [x] Normative current-contract child: update title, root shape/order, projection/cache/runtime wording, examples, schema metadata, and coupled spec expectations while retaining v2 filenames and identities.
+- [x] Bounded normative CLI/configuration child: replace the legacy selector/configuration block with one current invocation grammar, precedence, strict config rules, invalid former-selector behavior, and the current stream/exit matrix.
 
 ### Mechanical rename exceptions and final gate
 

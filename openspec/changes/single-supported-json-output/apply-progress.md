@@ -1143,3 +1143,56 @@ This is one bounded active documentation work unit on `docs/137-operator-current
 ### Workload / PR boundary
 
 This child is limited to the bounded normative contract/schema metadata work unit. Stop before commit if no-rename accounting exceeds 400 changed lines; otherwise create one local conventional commit only, with no push or PR.
+
+## Progress: bounded normative CLI/configuration replacement child
+
+### Status
+
+- **Slice:** Normative CLI/configuration block replacement
+- **Branch:** `docs/137-normative-cli-current`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local conventional commit, no push or PR
+- **Allowed edit surfaces:** `docs/specifications/json-v2.md`, `tests/test_json_v2_spec.py`, `tasks.md`, and this artifact
+- **No-rename budget:** 360 changed lines including this evidence entry; below 400
+
+### Completed tasks
+
+- Replaced the dedicated legacy selector/configuration block with exactly one current invocation grammar: no arguments or one supported `--config`/`-c` form.
+- Documented explicit, non-empty `YASB_LIMITORA_CONFIG`, then per-user default precedence; strict current configuration parsing; bounded path/file/deadline rules; and provider-scoped validation behavior.
+- Documented all former `--output-version` spellings as ordinary invalid invocation, rejected before configuration loading or provider execution.
+- Replaced the split legacy stream/exit descriptions with one current stream/exit matrix and preserved current sanitized stdout, stderr, and exit behavior.
+- Updated only the coupled CLI/configuration assertions in `tests/test_json_v2_spec.py`; `tests/test_cli_output_version.py` remained verification-only.
+
+### Strict TDD Cycle Evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Updated the block assertions first; `python -m pytest -q --strict-markers tests/test_json_v2_spec.py -k current_cli_configuration_grammar_and_stream_exit_matrix_are_normative` | **1 failed** because the legacy section heading was still present |
+| GREEN | Replaced only the dedicated specification block and corrected one coupled assertion | Focused block test: **1 passed** |
+| TRIANGULATE | `python -m pytest -q --strict-markers tests/test_json_v2_spec.py`; `python -m pytest -q --strict-markers tests/test_cli_output_version.py` | **24 passed**; **53 passed** |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **590 tests collected**, 0 collection errors |
+| TRIANGULATE / native | `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` | **11 passed** |
+| REFACTOR / lint | `ruff check tests/test_json_v2_spec.py`; `git diff --check` | Passed |
+| REFACTOR / LSP | `pyright --version`; `python -m pyright --version` | Unavailable in this environment; no LSP result available |
+| REFACTOR / residue | Scoped block scan for frozen-v1/default-v1/explicit-v2/version-scanning/separate-grammar residue; former selector spellings checked | No forbidden legacy promises; all four former selector spellings documented as invalid |
+| REFACTOR / links and budget | Local Markdown link check; `git diff --no-renames --numstat` | Passed; 1 local target; **356 changed lines**, below 400 |
+| FULL / strict and configured | `python -m pytest -q --strict-markers`; `python -m pytest -q` | **586 passed, 3 skipped, 1 pre-existing environment failure** in isolated safe-path package provenance |
+
+### Files changed
+
+- `docs/specifications/json-v2.md`
+- `tests/test_json_v2_spec.py`
+- `openspec/changes/single-supported-json-output/tasks.md`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- No runtime, schema, filename, `$id`, identity, example, roadmap, operator-document, or `tests/test_cli_output_version.py` changes were made.
+- The existing section 13 cross-reference to section 12.4 remains valid through a bounded-I/O subsection inside the replacement block.
+
+### Remaining tasks
+
+- Parent chain owns final full/native verification and later mechanical normalization rename exceptions.
+
+### Workload / PR boundary
+
+This is one bounded normative documentation/test work unit. Current `git diff --no-renames --numstat` accounting is **360 changed lines**, below 400; stop before commit if that gate changes. One local conventional commit is required; no push, PR, or issue/change closure from this child.
