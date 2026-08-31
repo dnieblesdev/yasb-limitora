@@ -299,9 +299,11 @@ empty stderr, no remaining process.
 ## Current gate
 
 R1-R10 are complete. OpenCode Bearer API migration #130 is complete and
-integrated via PR #159 at `main` merge `bdcd29f6`; final `main` run
+integrated via PR #159 at `main` merge `bdcd29f6`; final integration run
 `33345080629` (Limitora 0.3.1) passed the selected 11 checks with checkpoint 9
-and the full suite (598 passed, 4 skipped). R11 is next, gated by the separate
+and the full suite (598 passed, 4 skipped). Post-integration documentation gates
+then passed 599 tests with the same 4 platform-conditional skips. R11 is next,
+gated by the separate
 manual OpenCode acceptance in a real YASB installation and release/smoke-test
 #62. No R11 release claim is made here.
 
