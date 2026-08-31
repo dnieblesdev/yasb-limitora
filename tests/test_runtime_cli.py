@@ -331,6 +331,57 @@ def test_v2_cli_consumes_private_opencode_evidence_sidecar(evidence, expected, m
     assert document["execution_error"] == {"code": "provider_failed", "phase": "provider"}
 
 
+def test_v2_provider_config_error_bypasses_cache_and_preserves_usable_peer(monkeypatch, tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps({"codex": {"enabled": True}, "opencode_go": {"enabled": True}}),
+        encoding="utf-8",
+    )
+    cache_calls, run_calls = [], []
+
+    class Cache:
+        def __init__(self, *args):
+            cache_calls.append(args)
+
+        def get_or_refresh(self, *args):
+            raise AssertionError("cache must be bypassed for provider configuration errors")
+
+    class Orchestrator:
+        last_record = None
+
+        def run(self, config, environment, context, config_path, *, provider_errors=frozenset()):
+            run_calls.append(provider_errors)
+            return DocumentView.ordered(
+                ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE),
+                ProviderView(
+                    ProviderKey.OPENCODE_GO,
+                    ProviderState.UNAVAILABLE,
+                    outcome=ProviderOutcome.UNDETECTED,
+                ),
+            )
+
+    monkeypatch.setattr(cli, "V2QuotaCache", Cache)
+    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", Orchestrator)
+    stdout, stderr = io.BytesIO(), io.StringIO()
+
+    code = main(
+        ("--output-version", "2", "--config", str(path)),
+        environment={"LIMITORA_OPENCODE_API_KEY": "key"},
+        stdout=stdout,
+        stderr=stderr,
+        platform_is_windows=lambda: True,
+    )
+
+    document = json.loads(stdout.getvalue())
+    assert code == 0
+    assert stderr.getvalue() == ""
+    assert cache_calls == []
+    assert run_calls == [frozenset({ProviderKey.CODEX})]
+    assert document["execution_state"] == "partial"
+    assert document["providers"][0]["execution_error"] == {"code": "provider_failed", "phase": "provider"}
+    assert [provider["provider"] for provider in document["providers"]] == ["codex", "opencode_go"]
+
+
 def test_v2_configuration_failure_starts_no_provider(monkeypatch):
     starts = []
 
@@ -445,7 +496,7 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
     stdout, stderr = io.BytesIO(), io.StringIO()
     code = main(("--output-version", "2", "--config", str(path)), environment={"LOCALAPPDATA": str(tmp_path), "LIMITORA_OPENCODE_API_KEY": "key"}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
 
-    assert code == 1
+    assert code == 2
     assert stdout.getvalue() == expected
     assert stdout.getvalue().endswith(b"\n") and not stdout.getvalue().endswith(b"\n\n")
     assert stderr.getvalue() == expected_stderr
@@ -556,7 +607,7 @@ def test_v2_cli_cache_producer_failure_fails_closed_without_direct_run(monkeypat
         platform_is_windows=lambda: True,
     )
 
-    assert code == 1
+    assert code == 2
     assert stdout.getvalue() == project_v2_failure_bytes("internal_error")
     assert stderr.getvalue() == "yasb-limitora: runtime_error\n"
     assert len(attempts) == 1
@@ -625,7 +676,7 @@ def test_v2_cli_cache_guard_timeout_preserves_diagnostic_without_running_produce
     stdout, stderr = io.BytesIO(), io.StringIO()
     code = main(("--output-version", "2", "--config", str(path)), environment={"LOCALAPPDATA": str(tmp_path)}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
 
-    assert code == 1
+    assert code == 2
     assert stdout.getvalue() == project_v2_not_run_bytes("guard_wait_timeout")
     assert stderr.getvalue() == "yasb-limitora: guard_wait_timeout\n"
     assert producer_calls == []

@@ -471,7 +471,7 @@ def test_unexpected_provider_exception_emits_schema_safe_internal_document(monke
     )
     stdout, stderr = io.BytesIO(), io.StringIO()
 
-    assert main(("--output-version", "2", "--config", str(config_path)), stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 1
+    assert main(("--output-version", "2", "--config", str(config_path)), environment={"LOCALAPPDATA": str(tmp_path)}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 2
     document = json.loads(stdout.getvalue())
     assert document["execution_error"] == {"code": "internal_error", "phase": "document"}
     assert all(provider["not_run_reason"] == "document_aborted" for provider in document["providers"])
