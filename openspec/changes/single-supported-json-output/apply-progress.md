@@ -291,3 +291,46 @@ This is the assigned `feature/137-json-worker-lint` blocker slice under the auto
 ### Workload / PR boundary
 
 This is one assigned test-only diagnostic work unit. The total 309-line no-rename diff remains under the 400-line budget. Parent LSP disposition is complete; no push, PR, or production edit.
+
+## Progress: remaining five test diagnostics
+
+### Status
+
+- **Slice:** Test-only lint/type diagnostic remediation
+- **Branch:** `feature/137-json-test-diagnostics-2`
+- **Base:** `feature/137-json-test-diagnostics` at `81d4498`
+- **Delivery boundary:** feature-branch-chain / auto-chain; uncommitted handoff, no push, PR, rename, or production edit
+- **Budget:** 326 changed lines before this progress entry; remains below the 400-line no-rename limit after this entry
+
+### Completed tasks
+
+- Added optional snapshot/window narrowing and honest optional helper annotations in projection tests.
+- Converted enabled-provider inputs to `frozenset`, typed provider-error sets, and used targeted casts for adversarial invalid model/config inputs.
+- Preserved frozen-dataclass, invalid-object, cache, and redaction semantics while making fake cache guards/callbacks protocol-compatible.
+- Fixed import ordering, `zip(strict=True)`, Decimal literals, managed cache reads, and multi-statement formatting; removed stale deleted-v1 fixture hash assertions.
+
+### TDD cycle evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Supplied actionable diagnostics plus initial `ruff check` | **32 Ruff findings** and the reported auxiliary test typing findings; environment-only `pytest` resolution excluded |
+| GREEN | Targeted casts, narrowing helpers, protocol-compatible fakes, formatting, and stale-fixture assertion cleanup | Required focused suite: **220 passed**; Ruff all five: **All checks passed** |
+| TRIANGULATE | `python -m pytest -q --collect-only` | **590 tests collected**, 0 collection errors |
+| REFACTOR | `python -m py_compile` on all five files and `git diff --check` | Passed; no production edits, renames, ignores, or commits |
+
+### Files changed
+
+- `tests/test_json_v2_projection.py`
+- `tests/test_contracts.py`
+- `tests/test_customwidget_examples.py`
+- `tests/test_cli_output_version.py`
+- `tests/test_v2_cache.py`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Remaining tasks
+
+- Parent authoritative LSP found only installed-`pytest` environment false positives plus three stale/misaligned CustomWidget Pyright locations; all were recorded explicitly. No actionable findings remain in this slice.
+
+### Workload / PR boundary
+
+Assigned test-only remediation slice; the 381-line total no-rename diff remains within the 400-line budget. Parent LSP disposition is complete; no production changes, selector behavior changes, push, or PR.

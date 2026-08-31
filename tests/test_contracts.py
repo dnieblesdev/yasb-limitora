@@ -1,6 +1,7 @@
 import json
 import math
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -16,7 +17,11 @@ from yasb_limitora import (
     SafeErrorCode,
     project_bytes,
 )
-from yasb_limitora.config import CodexConfig, DEFAULT_TIMEOUT_SECONDS, MAX_CODEX_TIMEOUT_SECONDS
+from yasb_limitora.config import (
+    DEFAULT_TIMEOUT_SECONDS,
+    MAX_CODEX_TIMEOUT_SECONDS,
+    CodexConfig,
+)
 from yasb_limitora.model import ProviderOutcome
 from yasb_limitora.projection_v2 import V2ProjectionInput, project_v2_bytes
 
@@ -37,7 +42,7 @@ def test_config_is_immutable_and_repr_redacts_private_values() -> None:
     assert "private-workspace" not in repr(config)
     assert "codex.exe" not in repr(config.codex)
     with pytest.raises((AttributeError, TypeError)):
-        config.codex.enabled = False
+        cast(Any, config.codex).enabled = False
 
 
 @pytest.mark.parametrize("runner", [r"C:\Tools\codex.exe", r"\\server\share\codex.exe"])
@@ -59,34 +64,34 @@ def test_config_rejects_credentials_and_non_absolute_runners(value: dict[str, ob
 
 
 def test_v2_rejects_nested_credential_keys_before_provider_isolation() -> None:
-    secret = "nested-private-value"
+    private_value = "nested-private-value"
     with pytest.raises(ConfigError) as error:
         LocalConfig.from_v2_mapping(
-            {"opencode_go": {"nested": [{"headers": {"api_key": secret}}]}},
+            {"opencode_go": {"nested": [{"headers": {"api_key": private_value}}]}},
             provider_errors=set(),
         )
-    assert secret not in str(error.value)
+    assert private_value not in str(error.value)
 
 
 def test_v2_rejects_direct_provider_credential_keys_before_provider_isolation() -> None:
-    secret = "direct-private-value"
+    private_value = "direct-private-value"
     with pytest.raises(ConfigError) as error:
         LocalConfig.from_v2_mapping(
-            {"opencode_go": {"api_key": secret}},
+            {"opencode_go": {"api_key": private_value}},
             provider_errors=set(),
         )
-    assert secret not in str(error.value)
+    assert private_value not in str(error.value)
 
 
 @pytest.mark.parametrize("timeout", [0, -1, 10.1, math.nan, math.inf, 10**10000, "bad", None], ids=["zero", "negative", "oversized", "nan", "inf", "huge", "text", "none"])
 def test_timeout_errors_are_finite_deterministic_and_safe(timeout: object) -> None:
     with pytest.raises(ConfigError) as error:
-        OpenCodeGoConfig(timeout_seconds=timeout)
+        OpenCodeGoConfig(timeout_seconds=cast(float, timeout))
     assert str(error.value) == "invalid timeout_seconds"
 
 
 @pytest.mark.parametrize("timeout", [1, 7, 7.5, 10])
-def test_opencode_timeout_accepts_json_numbers(timeout: int | float) -> None:
+def test_opencode_timeout_accepts_json_numbers(timeout: float) -> None:
     assert OpenCodeGoConfig.from_v2_mapping({"timeout_seconds": timeout}).timeout_seconds == float(timeout)
 
 
@@ -97,7 +102,7 @@ def test_opencode_timeout_rejects_non_json_numbers(timeout: object) -> None:
 
 
 @pytest.mark.parametrize("timeout", [1, 7, 120])
-def test_codex_timeout_accepts_json_numbers(timeout: int | float) -> None:
+def test_codex_timeout_accepts_json_numbers(timeout: float) -> None:
     assert CodexConfig.from_v2_mapping({"timeout_seconds": timeout}).timeout_seconds == float(timeout)
 
 
@@ -119,7 +124,7 @@ def test_v2_provider_errors_are_captured_independently_and_substituted(invalid_p
         "opencode_go": {"enabled": True},
     }
     raw[invalid_provider]["timeout_seconds"] = 121 if invalid_provider == "codex" else 11
-    errors: set[object] = set()
+    errors: set[ProviderKey] = set()
 
     config = LocalConfig.from_v2_mapping(raw, provider_errors=errors)
 
@@ -130,7 +135,7 @@ def test_v2_provider_errors_are_captured_independently_and_substituted(invalid_p
 
 
 def test_v2_provider_error_markers_are_safe_and_v1_remains_atomic() -> None:
-    errors: set[object] = set()
+    errors: set[ProviderKey] = set()
     config = LocalConfig.from_v2_mapping(
         {
             "opencode_go": {
@@ -192,30 +197,30 @@ def test_models_have_closed_states_codes_and_safe_validation() -> None:
     )
     assert tuple(view.provider.value for view in document.providers) == ("codex", "opencode_go")
     with pytest.raises(ValueError, match="^invalid provider key$"):
-        ProviderView("private-workspace", ProviderState.SUCCESS)
+        ProviderView(cast(ProviderKey, "private-workspace"), ProviderState.SUCCESS)
     with pytest.raises(ValueError, match="^invalid provider state$"):
-        ProviderView(ProviderKey.CODEX, "secret-state")
+        ProviderView(ProviderKey.CODEX, cast(ProviderState, "secret-state"))
     with pytest.raises(ValueError, match="^invalid safe error code$"):
-        SafeError("secret-workspace-code")
+        SafeError(cast(SafeErrorCode, "secret-workspace-code"))
 
 
 def test_projection_is_exact_utf8_unicode_deterministic_and_redacted() -> None:
     document = DocumentView.ordered(
         ProviderView(ProviderKey.CODEX, ProviderState.SUCCESS, display_label="成功 ✓"),
-        ProviderView(ProviderKey.OPENCODE_GO, ProviderState.SAFE_ERROR, SafeError("provider_error")),
+        ProviderView(ProviderKey.OPENCODE_GO, ProviderState.SAFE_ERROR, SafeError(cast(SafeErrorCode, "provider_error"))),
     )
     expected = ('{"version":1,"providers":[{"provider":"codex","state":"success",'
                 '"display_label":"成功 ✓"},{"provider":"opencode_go","state":"safe_error",'
-                '"error":{"code":"provider_error"}}]}\n').encode("utf-8")
+                '"error":{"code":"provider_error"}}]}\n').encode()
     result = project_bytes(document)
     assert result == expected == project_bytes(document)
     assert json.loads(result.decode("utf-8"))["providers"][0]["display_label"] == "成功 ✓"
     assert result.decode("utf-8").encode("utf-8") == result
     assert "private-workspace" not in result.decode("utf-8")
     with pytest.raises(TypeError):
-        project_bytes({"version": 1})  # type: ignore[arg-type]
+        project_bytes(cast(DocumentView, {"version": 1}))
     with pytest.raises((TypeError, ValueError)):
-        DocumentView([])
+        DocumentView(())
     with pytest.raises(ValueError, match="^safe_error requires"):
         ProviderView(ProviderKey.CODEX, ProviderState.SAFE_ERROR)
     with pytest.raises(ValueError, match="^safe_error requires"):

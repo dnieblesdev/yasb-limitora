@@ -4,9 +4,17 @@ import ntpath
 
 import pytest
 
-import yasb_limitora.cli as cli
+from yasb_limitora import cli
 from yasb_limitora.cli import main
-from yasb_limitora.model import DocumentView, ProviderKey, ProviderOutcome, ProviderState, ProviderView, SafeError, SafeErrorCode
+from yasb_limitora.model import (
+    DocumentView,
+    ProviderKey,
+    ProviderOutcome,
+    ProviderState,
+    ProviderView,
+    SafeError,
+    SafeErrorCode,
+)
 
 
 def _run(argv, *, coordinator=None, environment=None):

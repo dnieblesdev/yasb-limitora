@@ -1,9 +1,7 @@
-import hashlib
 import json
 import re
 import unittest
 from pathlib import Path
-
 
 ROOT = Path(__file__).parents[1]
 EXAMPLE = ROOT / "examples/customwidget"
@@ -31,28 +29,38 @@ NOT_RUN_PRESENTATION = {
 }
 WINDOW_TOOLTIP_SUFFIXES = {
     "complete": (
-        "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
-        "unit=percentage_points; source_id=\"codex-app-server-v2\"; result=80% remaining\n"
-        "Reset: 2026-08-02T00:00:00.000000Z",
-        "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
-        "unit=percentage_points; source_id=\"opencode-go-api\"; result=60% remaining\n"
-        "Reset: 2026-08-02T00:00:00.000000Z",
+        (
+            "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
+            "unit=percentage_points; source_id=\"codex-app-server-v2\"; result=80% remaining\n"
+            "Reset: 2026-08-02T00:00:00.000000Z"
+        ),
+        (
+            "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
+            "unit=percentage_points; source_id=\"opencode-go-api\"; result=60% remaining\n"
+            "Reset: 2026-08-02T00:00:00.000000Z"
+        ),
     ),
     "partial": (None, None),
     "stale": (
-        "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
-        "unit=percentage_points; source_id=\"codex-app-server-v2\"; result=40% remaining\n"
-        "Reset: 2026-08-02T00:00:00.000000Z",
-        "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
-        "unit=percentage_points; source_id=\"opencode-go-api\"; result=40% remaining\n"
-        "Reset: 2026-08-02T00:00:00.000000Z",
+        (
+            "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
+            "unit=percentage_points; source_id=\"codex-app-server-v2\"; result=40% remaining\n"
+            "Reset: 2026-08-02T00:00:00.000000Z"
+        ),
+        (
+            "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
+            "unit=percentage_points; source_id=\"opencode-go-api\"; result=40% remaining\n"
+            "Reset: 2026-08-02T00:00:00.000000Z"
+        ),
     ),
     "undetected": (None, None),
     "provider-unavailable": (
         None,
-        "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
-        "unit=percentage_points; source_id=\"opencode-go-api\"; result=60% remaining\n"
-        "Reset: 2026-08-02T00:00:00.000000Z",
+        (
+            "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
+            "unit=percentage_points; source_id=\"opencode-go-api\"; result=60% remaining\n"
+            "Reset: 2026-08-02T00:00:00.000000Z"
+        ),
     ),
     "providers-disabled": (None, None),
     "safe-error": (None, None),
@@ -77,14 +85,6 @@ RUNTIME_METADATA = {
         "tooltip": "Quota not run: deadline exhausted",
     },
 }
-V1_SHA256 = {
-    "json_v1_success.json": "974957799f3729bb4ee66ad405f1cbd4594a1024592103338fa4ffa1a57d1013",
-    "json_v1_unicode_label.json": "9ebca8f5675145771aedb0b821d16b021763df4842fabea8fa9576c7f3dbacec",
-    "json_v1_unavailable.json": "7c68e64a98981bf0255cd7e7f039a2209f49f9d153127370d97df1038e1e11a3",
-    "json_v1_safe_error.json": "f322351a2f4ce4d548adac6583592ab1d4483c2f20dc3c8284c4d8ede1cbb515",
-}
-
-
 def _json_document(path):
     def no_duplicates(pairs):
         result = {}
@@ -179,7 +179,7 @@ class CustomWidgetExamplesTests(unittest.TestCase):
                     {"code": "invalid_provider_data", "phase": "provider"},
                 ],
             }.get(name, [None, None])
-            for index, (provider, percent) in enumerate(zip(value["providers"], percentages if name not in ("providers-disabled", "safe-error") else (None, None))):
+            for index, (provider, percent) in enumerate(zip(value["providers"], percentages if name not in ("providers-disabled", "safe-error") else (None, None), strict=True)):
                 assert provider["execution_error"] == expected_errors[index]
                 if provider["provider"] == "opencode_go" and provider["outcome"] == "snapshot" and provider["public_state"] in {"available", "partial"}:
                     commercial = [window for window in provider["windows"] if window["kind"] == "commercial_quota"]
@@ -253,13 +253,11 @@ class CustomWidgetExamplesTests(unittest.TestCase):
             ".custom-widget.limitora-r9 .widget-container .label.alt", ".custom-widget.limitora-r9 .widget-container .icon",
         }
 
-    def test_missing_consumed_leaf_is_rejected_and_v1_bytes_remain_frozen(self):
+    def test_missing_consumed_leaf_is_rejected(self):
         value = _json_document(FIXTURES / "complete.json")
         del value["providers"][0]["tooltip_text"]
         with self.assertRaises(AssertionError):
             _assert_provider(value["providers"][0], ("snapshot", "available", "fresh"), 80)
-        for name, digest in V1_SHA256.items():
-            assert hashlib.sha256((ROOT / "tests/fixtures" / name).read_bytes()).hexdigest() == digest
 
     def test_multiline_unicode_uses_utf8_and_lf_only(self):
         value = _json_document(FIXTURES / "multiline-unicode.json")
