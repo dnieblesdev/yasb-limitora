@@ -98,7 +98,7 @@ security, bounded errors, cache refresh, and manual YASB procedures.
   boundary decisions.
 - [`docs/research/README.md`](docs/research/README.md): verified CustomWidget
   and Limitora evidence.
-- [`docs/specifications/json-v2.md`](docs/specifications/json-v2.md): normative
+- [`docs/specifications/json-output.md`](docs/specifications/json-output.md): normative
   R2 contract, acceptance criteria, and the historical abandoned-harness boundary
   alongside the completed R10 proof split.
 - [`docs/specifications/json-v2.schema.json`](docs/specifications/json-v2.schema.json):

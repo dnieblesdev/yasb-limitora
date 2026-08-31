@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).parents[1]
-SPEC = ROOT / "docs/specifications/json-v2.md"
+SPEC = ROOT / "docs/specifications/json-output.md"
 SCHEMA = ROOT / "docs/specifications/json-v2.schema.json"
 
 DOCUMENT_FIELD_ORDER = ("execution_state", "execution_error", "providers")
@@ -177,7 +177,7 @@ def test_current_contract_metadata_and_root_shape_are_normative():
     assert schema["title"] == "yasb-limitora current JSON contract"
     assert schema["description"] == (
         "Structural support for the normative current JSON contract. "
-        "Semantic and deadline rules remain normative in json-v2.md."
+        "Semantic and deadline rules remain normative in json-output.md."
     )
     assert tuple(schema["properties"]) == DOCUMENT_FIELD_ORDER
     assert set(schema["properties"]) == set(DOCUMENT_FIELD_ORDER)

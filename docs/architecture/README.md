@@ -124,5 +124,5 @@ fields are bounded text only; they do not create a severity protocol.
   but the exports are never edited or used as runtime code.
 
 See [`docs/roadmap.md`](../roadmap.md) for the ordered R1-R11 product plan and
-[`docs/specifications/json-v2.md`](../specifications/json-v2.md) for the
+[`docs/specifications/json-output.md`](../specifications/json-output.md) for the
 normative boundary.

@@ -5,7 +5,7 @@ Codex and OpenCode Go. The official 0.2 consumer is YASB's existing
 `CustomWidget`; this repository does not implement a native YASB widget or
 popover. This page documents the sole current JSON contract, selector-free
 invocation, and the OpenCode Go Bearer-key delivery boundary. The immutable
-normative reference is [`specifications/json-v2.md`](specifications/json-v2.md).
+normative reference is [`specifications/json-output.md`](specifications/json-output.md).
 
 ## Quick path
 

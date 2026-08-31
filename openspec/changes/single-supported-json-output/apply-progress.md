@@ -1257,3 +1257,46 @@ intentional invalid-selector data in the unchanged CLI block/tests; root
 ### Workload / PR boundary
 
 This is the final bounded semantic cleanup for the normative document, limited to 254 no-rename changed lines and one local commit. No physical rename, runtime change, push, PR, or issue/change closure is included.
+
+## Progress: size:exception 1 — normative document rename
+### Status
+
+- **Slice:** Mechanical rename of the normative current-output document
+- **Branch:** `docs/137-rename-json-output-spec`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local commit, no push or PR
+- **Authorization:** maintainer-approved `size:exception 1`; no-rename ceiling 3,779 lines
+### Completed tasks
+
+- Renamed `docs/specifications/json-v2.md` to `docs/specifications/json-output.md` with `git mv`.
+- Updated only active path references in the authorized README, operator/architecture docs, schema description, and two coupled tests.
+- Preserved the schema filename/`$id`, test filename, roadmap historical references, OpenSpec history, and all renamed-document bytes.
+### Verification evidence
+
+| Check | Result |
+|---|---|
+| Rename content identity | Pre-rename and new Git blobs match byte-for-byte; 84,733 bytes, SHA-256 `39632f4b5950e35389cae32ca79c213448c41944e864598308ca27a419382239` |
+| Focused spec/docs/CustomWidget tests | `python -m pytest -q --strict-markers tests/test_json_v2_spec.py tests/test_windows_only_documentation_contract.py tests/test_customwidget_examples.py` → **40 passed** |
+| Strict collection | `python -m pytest -q --strict-markers --collect-only` → **591 tests collected**, 0 errors |
+| Link scan | Authorized Markdown links → **0 missing targets** |
+| Ruff | Changed tests → **All checks passed** |
+| LSP | `pyright` and `python -m pyright` unavailable in this environment |
+| Diff check | `git diff --check` passed |
+### TDD applicability
+This is a mechanical rename exception, not semantic TDD; verification proves path-reference GREEN and byte identity.
+
+### Files changed
+
+- `docs/specifications/json-output.md` (renamed from `json-v2.md`)
+- `README.md`, `docs/windows-json.md`, `docs/architecture/README.md`
+- `docs/specifications/json-v2.schema.json`
+- `tests/test_json_v2_spec.py`, `tests/test_windows_only_documentation_contract.py`
+- `openspec/changes/single-supported-json-output/tasks.md`
+
+### Deviations and remaining tasks
+
+- No deviations; no semantic wording, runtime, schema identity, test identity, roadmap, or historical OpenSpec edits.
+- Remaining: later rename exceptions and final verification; this child must commit locally only.
+
+### Workload / PR boundary
+
+Native/no-rename count is **3,778 changed lines** (1,911 additions + 1,867 deletions); Git rename-aware count is **68 changed lines** (56 additions + 12 deletions). Both include the authorized task/progress records, and native remains at or below 3,779. Rollback is limited to this document rename and its active path-reference updates.
