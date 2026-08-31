@@ -109,3 +109,45 @@ This attempt is limited to the contract/projection/cache compatibility slice on 
 ### Workload / PR boundary
 
 This is one bounded deletion-only prerequisite child under the feature-branch chain. The provider/no-rename diff is 231 test/artifact changed lines versus the base (280 including task/progress artifacts), within budget. One local commit is authorized after verification; no push or PR.
+
+## Progress: Semantic 1B native-version consumers
+
+### Status
+
+- **Slice:** Semantic 1B — update native proof consumers for the removed root `version`
+- **Branch:** `feature/137-json-cli-cache`
+- **Base:** `4e9fd29`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local commit only, no push or PR
+- **Provider/no-rename budget:** tiny test-only correction, well below the 400-line semantic limit
+
+### Completed tasks
+
+- Updated the two Windows native current-contract assertions to require the three-root document without a public `version` field.
+- Preserved CLI invocation arguments and all production behavior; no source, fixture, rename, or unrelated test changes were made.
+
+### TDD cycle evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Independent verification on committed base `4e9fd29`: `python -m pytest -q` | **2 failed, 119 passed, 4 skipped**; both failures were the native default/launcher root `version` expectations; collection was clean at 590 |
+| GREEN | Updated only `tests/test_windows_native_proof.py` after the recorded RED | `python -m pytest -q --strict-markers tests/test_cli_output_version.py tests/test_cli_platform_boundary.py tests/test_runtime_cli.py tests/test_v2_worker.py tests/test_windows_native_proof.py` → **121 passed, 4 skipped** |
+| TRIANGULATE | `python -m pytest -q --strict-markers --collect-only` | **590 tests collected**, 0 collection errors |
+| REFACTOR | Reviewed the focused diff and protected edit surfaces | No additional changes required |
+
+### Files changed
+
+- `tests/test_windows_native_proof.py`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- None. This correction only migrates native proof consumers to the already-implemented three-root contract and does not change CLI behavior or production code.
+
+### Remaining tasks
+
+- Continue the remaining Semantic 2/3/4 implementation and later rename-exception slices.
+- Run the final full strict-marker suite and native Windows proof at the designated final verification boundary.
+
+### Workload / PR boundary
+
+This is the assigned Semantic 1B consumer correction: one focused test/progress work unit, far below the 400-line budget. Commit locally after verification; do not push, open, or merge a PR.

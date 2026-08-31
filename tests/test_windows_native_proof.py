@@ -308,7 +308,7 @@ def test_native_v2_default_configuration_reads_localappdata() -> None:
             stdout=stdout,
             stderr=stderr,
         ) == 0
-        assert json.loads(stdout.getvalue())["version"] == 2
+        assert "version" not in json.loads(stdout.getvalue())
         assert stderr.getvalue() == ""
         assert str(config_path) not in stdout.getvalue().decode() + stderr.getvalue()
     finally:
@@ -320,7 +320,7 @@ def test_native_yasb_limitora_launcher_contract(tmp_path: Path) -> None:
     launcher = Path(sys.prefix) / "Scripts" / "yasb-limitora.exe"; assert launcher.is_file()
     config = tmp_path / "disabled.json"; config.write_bytes(b'{"codex":{"enabled":false},"opencode_go":{"enabled":false}}'); environment = os.environ.copy(); environment["YASB_LIMITORA_CONFIG"] = str(config)
     invoke = lambda *args: subprocess.run([os.fspath(launcher), *args], env=environment, capture_output=True, timeout=10, check=False)
-    valid = invoke("--output-version", "2"); expected = (Path(__file__).parents[1] / "examples/customwidget/fixtures/providers-disabled.json").read_bytes(); document = json.loads(valid.stdout); leaves = ("compact_text", "alternate_text", "tooltip_text"); assert valid.returncode == 0 and valid.stdout == expected and valid.stderr == b"" and list(document) == ["version", "execution_state", "execution_error", "providers"] and document["version"] == 2 and all(all(leaf in provider and isinstance(provider[leaf], str) and provider[leaf] and "\r" not in provider[leaf] and "stderr" not in provider[leaf].lower() for leaf in leaves) for provider in document["providers"])
+    valid = invoke("--output-version", "2"); expected = (Path(__file__).parents[1] / "examples/customwidget/fixtures/providers-disabled.json").read_bytes(); document = json.loads(valid.stdout); leaves = ("compact_text", "alternate_text", "tooltip_text"); assert valid.returncode == 0 and valid.stdout == expected and valid.stderr == b"" and list(document) == ["execution_state", "execution_error", "providers"] and "version" not in document and all(all(leaf in provider and isinstance(provider[leaf], str) and provider[leaf] and "\r" not in provider[leaf] and "stderr" not in provider[leaf].lower() for leaf in leaves) for provider in document["providers"])
     invalid_config = tmp_path / "invalid.json"; invalid_config.write_text('{"codex":{"enabled":true}}', encoding="utf-8"); environment["YASB_LIMITORA_CONFIG"] = str(invalid_config); invalid = invoke("--output-version", "2"); environment["YASB_LIMITORA_CONFIG"] = str(config); invocation = invoke("--output-version", "2", "--unsupported"); assert invalid.returncode == 1 and json.loads(invalid.stdout)["providers"][0]["execution_error"] == {"code": "provider_failed", "phase": "provider"} and invalid.stderr == b"yasb-limitora: runtime_error\r\n" and str(invalid_config).encode() not in invalid.stdout + invalid.stderr and invocation.returncode == 2 and json.loads(invocation.stdout)["execution_error"] == {"code": "invocation_invalid", "phase": "configuration"} and invocation.stderr == b"yasb-limitora: invocation_invalid\r\n" and b"unsupported" not in invocation.stdout + invocation.stderr
 
 
