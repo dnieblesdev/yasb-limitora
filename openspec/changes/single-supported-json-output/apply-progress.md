@@ -896,3 +896,52 @@ This is the assigned bounded CustomWidget examples/docs child on `docs/137-custo
 ### Workload / PR boundary
 
 This is one bounded corrective test-quality work unit. The cumulative diff remains below 400 changed lines and contains no runtime edits, content expansion, renames, push, or PR activity. One corrective local commit is required.
+
+
+## Progress: roadmap supersession child
+
+### Status
+
+- **Slice:** Semantic 4 bounded documentation child — issue #137 roadmap supersession note
+- **Branch:** `docs/137-roadmap-supersession`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local commit, no push or PR
+- **Allowed edit surfaces:** `docs/roadmap.md`, `tests/test_windows_only_documentation_contract.py`, and this artifact
+- **Budget:** 28 insertions, below the 400-line limit
+
+### Completed tasks
+
+- Added one dated issue #137 note near the roadmap top stating supersession, the single current JSON contract, no selector/root `version`, and that all v1/v2, selector, and root-version material below remains historical roadmap text.
+- Added focused regression coverage that requires the note and verifies it precedes retained historical markers.
+- Proved the roadmap change is insertion-only and that the historical pre-image suffix remains byte-for-byte unchanged.
+
+### TDD Cycle Evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | `python -m pytest -q --strict-markers tests/test_windows_only_documentation_contract.py::test_issue_137_roadmap_supersession_note_precedes_retained_history` before the roadmap edit | **1 failed** because the supersession note was absent |
+| GREEN | Added the dated roadmap note; reran the focused test | **1 passed** |
+| TRIANGULATE | `python -m pytest -q --strict-markers tests/test_windows_only_documentation_contract.py` | **6 passed** |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **588 tests collected**, 0 collection errors |
+| REFACTOR / lint | `ruff check tests/test_windows_only_documentation_contract.py` | All checks passed |
+| REFACTOR / LSP | `pyright tests/test_windows_only_documentation_contract.py`; `python -m pyright tests/test_windows_only_documentation_contract.py` | Unavailable in this environment: executable and module not installed |
+| REFACTOR / diff | `git diff --check` plus byte comparison against `git show HEAD:docs/roadmap.md` | Passed; removing the exact insertion reconstructs the pre-image and the retained suffix is byte-identical |
+| FULL | `python -m pytest -q --strict-markers` | **584 passed, 3 skipped, 1 pre-existing environment failure** in isolated safe-path package provenance |
+
+### Files changed
+
+- `docs/roadmap.md`
+- `tests/test_windows_only_documentation_contract.py`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- None. The roadmap's pre-existing historical bytes below the insertion were preserved exactly; no broad Windows documentation assertions were rewritten.
+
+### Remaining tasks
+
+- Parent chain: continue remaining semantic cleanup, rename exceptions, and final verification.
+- The pre-existing isolated-safe-path provenance failure and unavailable local LSP remain parent-gate environment dispositions.
+
+### Workload / PR boundary
+
+This is one focused roadmap documentation work unit on `docs/137-roadmap-supersession`. It is below the 400-line budget, contains no runtime changes or renames, and is ready for one local commit only; do not push or open a PR from this child.

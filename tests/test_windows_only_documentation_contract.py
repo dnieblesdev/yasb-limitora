@@ -107,6 +107,30 @@ def test_scoped_docs_declare_one_bounded_windows_only_contract():
     assert "automated" in roadmap_r10.lower() and "manual" in roadmap_r10.lower()
 
 
+def test_issue_137_roadmap_supersession_note_precedes_retained_history():
+    roadmap = (ROOT / "docs/roadmap.md").read_text(encoding="utf-8")
+    note_start = roadmap.index("## Issue #137 supersession — 2026-08-31")
+    note_end = roadmap.index("## Delivery order", note_start)
+    note = roadmap[note_start:note_end]
+
+    assert "supersedes" in note
+    assert "current JSON contract is the single supported contract" in note
+    assert "sole supported output" in note
+    assert "no output selector" in note
+    assert "no root `version` field" in note
+    assert "v1/v2, selector, and root-version material below" in note
+    assert "retained as historical roadmap text only" in note
+
+    for marker in (
+        "JSON v2",
+        "v1 golden fixtures",
+        "--output-version 2",
+        "## R5 closeout",
+        "## R10 closeout",
+    ):
+        assert note_end < roadmap.index(marker, note_end)
+
+
 def test_opencode_operator_contract_documents_the_copy_ready_flow():
     readme, windows = [(ROOT / name).read_text(encoding="utf-8") for name in ("README.md", "docs/windows-json.md")]
     example_readme = (ROOT / "examples/customwidget/README.md").read_text(encoding="utf-8")

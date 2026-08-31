@@ -8,6 +8,10 @@ verification are complete at the exact pre-closeout integration candidate
 `main` at `30c94d00f780b597644c1494833d4dd50738556b`.
 Later units remain out of scope until their ordered turn.
 
+## Issue #137 supersession — 2026-08-31
+
+Issue #137 supersedes the former versioned-output guidance. The current JSON contract is the single supported contract and sole supported output. There is no output selector and no root `version` field. All v1/v2, selector, and root-version material below is retained as historical roadmap text only.
+
 The complete `yasb-limitora` runtime is Windows-only. Both public CLI routes
 share one early boundary: on non-Windows they return `2`, emit exactly
 `yasb-limitora: unsupported_platform\n` on stderr, and emit no stdout bytes
