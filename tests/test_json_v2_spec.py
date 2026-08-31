@@ -137,6 +137,10 @@ def _assert_provider(provider):
     outcome = provider["outcome"]
     assert outcome in {"snapshot", "undetected", "not_run", "execution_error"}
     assert isinstance(provider["windows"], list)
+    expected_source = {"codex": "codex-app-server-v2", "opencode_go": "opencode-go-api"}[provider["provider"]]
+    assert provider["source_id"] in (expected_source, None)
+    assert all(window["source_id"] in (expected_source, None) and (window["source_id"] is not None or (window["availability"] == "unavailable" and all(window[field] is None for field in ("limit", "used", "remaining", "reset_at")))) for window in provider["windows"])
+    assert provider["most_depleted_window"] is None or provider["most_depleted_window"]["source_id"] in (expected_source, None)
 
     if outcome == "snapshot":
         assert provider["public_state"] is not None
@@ -385,9 +389,9 @@ def test_r6_fallback_mappings_and_exclusions_are_normative():
     assert examples[4]["providers"][0]["tooltip_text"] == "Quota error"
 
 
-def test_pr2a_schema_and_spec_declare_bounded_provider_errors_without_source_activation():
+def test_pr2b_schema_and_spec_declare_provider_bound_api_sources():
     schema = _schema()
-    assert schema["$defs"]["sourceId"]["enum"] == ["codex-app-server-v2", "opencode-go-dashboard", None]
+    assert schema["$defs"]["sourceId"]["enum"] == ["codex-app-server-v2", "opencode-go-api", None]
     assert {
         "credential_invalid",
         "provider_timeout",
@@ -399,6 +403,29 @@ def test_pr2a_schema_and_spec_declare_bounded_provider_errors_without_source_act
     assert "`provider_rate_limited`" in text
     assert "`provider_unavailable`" in text
     assert "the aggregate remains `provider_failed`" in text
+    assert "OpenCode accepts only `opencode-go-api`" in text
+    assert "numeric quantities from a window" in text
+    codex_rules = schema["$defs"]["codexProvider"]["allOf"]
+    codex_source_rule = codex_rules[2]["properties"]
+    assert codex_source_rule["source_id"] == {"enum": ["codex-app-server-v2", None]}
+    codex_window_source_rule = codex_source_rule["windows"]["items"]["allOf"][1]["properties"]
+    assert codex_window_source_rule["source_id"] == {"enum": ["codex-app-server-v2", None]}; assert codex_source_rule["most_depleted_window"]["anyOf"][1]["properties"]["source_id"] == {"enum": ["codex-app-server-v2", None]}
+    assert "opencode-go-api" not in codex_source_rule["source_id"]["enum"]
+    opencode_rules = schema["$defs"]["opencodeProvider"]["allOf"]
+    source_rule = opencode_rules[2]["properties"]
+    assert source_rule["source_id"] == {"enum": ["opencode-go-api", None]}
+    window_source_rule = source_rule["windows"]["items"]["allOf"][1]["properties"]
+    assert window_source_rule["source_id"] == {"enum": ["opencode-go-api", None]}
+    source_null_rule = next(rule for rule in schema["$defs"]["window"]["allOf"] if rule.get("if", {}).get("properties", {}).get("source_id", {}).get("type") == "null")
+    assert source_null_rule["then"]["properties"]["plan_id"] == {"type": "null"}
+    assert source_rule["most_depleted_window"]["anyOf"][1]["properties"]["source_id"] == {"enum": ["opencode-go-api", None]}
+    invalid = deepcopy(_v2_examples()[0]["providers"][0])
+    invalid["windows"][0]["source_id"] = None
+    with pytest.raises(AssertionError): _assert_provider(invalid)
+    invalid["windows"][0]["source_id"] = "opencode-go-api"
+    with pytest.raises(AssertionError): _assert_provider(invalid)
+    invalid["windows"][0]["source_id"] = "codex-app-server-v2"; invalid["most_depleted_window"]["source_id"] = "opencode-go-api"
+    with pytest.raises(AssertionError): _assert_provider(invalid)
 
 
 def test_r6_tooltip_identity_escaping_rule_is_normative():

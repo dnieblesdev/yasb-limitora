@@ -379,7 +379,7 @@
     },
     "sourceId": {
       "type": ["string", "null"],
-      "enum": ["codex-app-server-v2", "opencode-go-dashboard", null]
+      "enum": ["codex-app-server-v2", "opencode-go-api", null]
     },
     "timestampOrNull": {
       "type": ["string", "null"],
@@ -509,6 +509,8 @@
             }
           }
         },
+         {"if": {"required": ["source_id"], "properties": {"source_id": {"type": "null"}}}, "then": {"properties": {"plan_id": {"type": "null"}, "availability": {"const": "unavailable"}, "limit": {"type": "null"}, "used": {"type": "null"}, "remaining": {"type": "null"}, "reset_at": {"type": "null"}}}
+        },
         {
           "if": {"properties": {"kind": {"const": "commercial_quota"}}},
           "then": {
@@ -627,13 +629,41 @@
     "codexProvider": {
       "allOf": [
         {"$ref": "#/$defs/providerBase"},
-        {"properties": {"provider": {"const": "codex"}}}
+        {"properties": {"provider": {"const": "codex"}}},
+        {
+          "properties": {
+            "source_id": {"enum": ["codex-app-server-v2", null]},
+            "windows": {
+              "items": {
+                "allOf": [
+                  {"$ref": "#/$defs/window"},
+                  {"properties": {"source_id": {"enum": ["codex-app-server-v2", null]}}}
+                ]
+              }
+            },
+            "most_depleted_window": {"anyOf": [{"type": "null"}, {"type": "object", "properties": {"source_id": {"enum": ["codex-app-server-v2", null]}}}]}
+          }
+        }
       ]
     },
     "opencodeProvider": {
       "allOf": [
         {"$ref": "#/$defs/providerBase"},
-        {"properties": {"provider": {"const": "opencode_go"}}}
+        {"properties": {"provider": {"const": "opencode_go"}}},
+        {
+          "properties": {
+            "source_id": {"enum": ["opencode-go-api", null]},
+            "windows": {
+              "items": {
+                "allOf": [
+                  {"$ref": "#/$defs/window"},
+                  {"properties": {"source_id": {"enum": ["opencode-go-api", null]}}}
+                ]
+              }
+            },
+            "most_depleted_window": {"anyOf": [{"type": "null"}, {"type": "object", "properties": {"source_id": {"enum": ["opencode-go-api", null]}}}]}
+          }
+        }
       ]
     }
   }

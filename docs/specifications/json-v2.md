@@ -109,6 +109,13 @@ Every provider object has exactly these fields:
 may be unknown to the safe allowlist. The raw reference MUST NOT be copied into
 the output.
 
+Source identity is provider-bound. Codex accepts only `codex-app-server-v2`;
+OpenCode accepts only `opencode-go-api`. Every provider root source and window
+source is normalized independently before evidence validation. A wrong,
+unknown, or absent source becomes `null`, and numeric quantities from a window
+without its provider-bound source MUST NOT remain trusted; the window is
+projected as unavailable with null quantities and reset.
+
 ### 3.2 Window object
 
 Every item in `windows` has exactly these fields:
@@ -385,7 +392,7 @@ lookahead over `[\\s\\S]`; it does not rely on `$` alone, because JSON Schema
 
 1. Convert the public source reference to NFC and trim it.
 2. Emit it only when it is exactly one of the current allowlisted IDs
-   `codex-app-server-v2` or `opencode-go-dashboard`.
+   `codex-app-server-v2` or `opencode-go-api`.
 3. Emit JSON `null` for every other value. Never emit the raw rejected value.
 
 The provider source and each window source are sanitized independently. A
@@ -1022,7 +1029,7 @@ this R2 unit.
       "status_observed_at": "2026-08-01T12:00:01.000000Z",
       "fetched_at": "2026-08-01T12:00:01.000000Z",
       "data_at": "2026-08-01T12:00:01.000000Z",
-      "source_id": "opencode-go-dashboard",
+      "source_id": "opencode-go-api",
       "windows": [
         {
           "kind": "commercial_quota",
@@ -1030,7 +1037,7 @@ this R2 unit.
           "period": "weekly",
           "plan_id": null,
           "availability": "known",
-          "source_id": "opencode-go-dashboard",
+          "source_id": "opencode-go-api",
           "limit": {"value": "100", "metric": "commercial_quota", "unit": "percentage_points"},
           "used": {"value": "40", "metric": "commercial_quota", "unit": "percentage_points"},
           "remaining": {"value": "60", "metric": "commercial_quota", "unit": "percentage_points"},
@@ -1045,12 +1052,12 @@ this R2 unit.
         "period": "weekly",
         "plan_id": null,
         "unit": "percentage_points",
-        "source_id": "opencode-go-dashboard",
+        "source_id": "opencode-go-api",
         "remaining_percentage": "60"
       },
       "compact_text": "Quota 60% remaining; state=available; freshness=fresh",
       "alternate_text": "Quota account / weekly: 60% remaining; state=available; freshness=fresh",
-      "tooltip_text": "State: available\nFreshness: fresh\nQuota: 60% remaining\nWindow: kind=commercial_quota; scope=account; period=weekly; plan_id=null; unit=percentage_points; source_id=\"opencode-go-dashboard\"; result=60% remaining\nReset: 2026-08-08T12:00:01.000000Z"
+      "tooltip_text": "State: available\nFreshness: fresh\nQuota: 60% remaining\nWindow: kind=commercial_quota; scope=account; period=weekly; plan_id=null; unit=percentage_points; source_id=\"opencode-go-api\"; result=60% remaining\nReset: 2026-08-08T12:00:01.000000Z"
     }
   ]
 }
@@ -1260,7 +1267,7 @@ this R2 unit.
       "status_observed_at": "2026-08-01T12:02:00.000000Z",
       "fetched_at": "2026-08-01T12:02:00.000000Z",
       "data_at": "2026-08-01T12:02:00.000000Z",
-      "source_id": "opencode-go-dashboard",
+      "source_id": "opencode-go-api",
       "windows": [],
       "execution_error": null,
       "not_run_reason": null,
