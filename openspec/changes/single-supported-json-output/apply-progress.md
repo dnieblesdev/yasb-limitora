@@ -1342,3 +1342,13 @@ Native/no-rename count is **3,778 changed lines** (1,911 additions + 1,867 delet
 - Files: `src/yasb_limitora/projection.py`, `tests/test_json_projection.py`, this artifact.
 - No-rename accounting from `c1aa29c`: **2775 changed lines** after this record; within the **2,800** exception ceiling. Remaining: parent final verification and later rename exceptions.
 - No deviation from design; rollback is limited to this corrective invariant and regression.
+
+## Progress: projection strict-zip gate correction
+- **Slice / branch:** Rejected-evidence remediation; `refactor/137-rename-projection`.
+- **Recovery:** Remediates `sha256:8bb23972a8736bed7f4f99cdd99cb9296bc07527d81f8a259a513f1852713cdd`.
+- **Completed:** Added `strict=True` to `_project_document`'s sole `zip(...)`; output and formatting otherwise remain unchanged.
+- **Verification:** `tests/test_json_projection.py`, `tests/test_contracts.py`, and `tests/test_cli_output_version.py` → **152 passed**; strict collection → **593 collected**, 0 errors.
+- **Structural check:** AST scan found one `zip` call with literal `strict=True`; `git diff --check` passed.
+- **Diagnostics:** Ruff reports 9 pre-existing findings in unchanged projection imports/validation/Decimal expressions; the strict-zip edit introduces none.
+- **Accounting:** `git diff --no-renames --numstat c1aa29c` is **2,786** changed lines after this record, within the 2,800 ceiling.
+- **Boundary:** No rename, test, docs, push, or PR change; parent owns the required local commit.

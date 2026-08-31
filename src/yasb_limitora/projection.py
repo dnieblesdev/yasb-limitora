@@ -483,7 +483,8 @@ def _project_document(
                 timestamp_formatter,
             )
             for provider in PROVIDER_ORDER
-        )
+        ),
+        strict=True,
     )
     successful = {ProviderOutcome.SNAPSHOT.value, ProviderOutcome.UNDETECTED.value}
     document_error = input.document.document_error
