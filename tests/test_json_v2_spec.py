@@ -11,7 +11,7 @@ ROOT = Path(__file__).parents[1]
 SPEC = ROOT / "docs/specifications/json-v2.md"
 SCHEMA = ROOT / "docs/specifications/json-v2.schema.json"
 
-DOCUMENT_FIELD_ORDER = ("version", "execution_state", "execution_error", "providers")
+DOCUMENT_FIELD_ORDER = ("execution_state", "execution_error", "providers")
 PROVIDER_FIELD_ORDER = (
     "provider",
     "outcome",
@@ -121,7 +121,7 @@ def _schema():
 
 def _v2_examples():
     blocks = re.findall(r"```json\n(.*?)\n```", SPEC.read_text(encoding="utf-8"), re.S)
-    return [json.loads(block) for block in blocks if json.loads(block)["version"] == 2]
+    return [json.loads(block) for block in blocks if json.loads(block).get("execution_state") in {"complete", "partial", "not_run", "execution_error"}]
 
 
 def _is_success_outcome(outcome):
@@ -172,8 +172,7 @@ def _assert_provider(provider):
 
 
 def _assert_document(document):
-    assert set(document) == {"version", "execution_state", "execution_error", "providers"}
-    assert document["version"] == 2
+    assert set(document) == {"execution_state", "execution_error", "providers"}
     assert [provider["provider"] for provider in document["providers"]] == ["codex", "opencode_go"]
     for provider in document["providers"]:
         _assert_provider(provider)

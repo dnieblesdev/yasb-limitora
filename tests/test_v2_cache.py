@@ -153,12 +153,47 @@ def test_cache_round_trip_is_public_only_and_refreshes_identical_provider_text(t
     assert len(envelope["fingerprint"]) == 64
 
 
+def test_schema_two_cache_is_a_cold_miss_and_refreshes_once(tmp_path):
+    cache, _ = make_cache(tmp_path)
+    document = public_bytes()
+    envelope = {
+        "schema": 2,
+        "cached_at": "2026-08-15T00:00:00.000000Z",
+        "fingerprint": cache.fingerprint,
+        "document": json.loads(document),
+    }
+    Path(cache.path).parent.mkdir(parents=True, exist_ok=True)
+    Path(cache.path).write_bytes((json.dumps(envelope, separators=(",", ":")) + "\n").encode())
+    calls = []
+
+    def producer(_context):
+        calls.append(True)
+        return SingleFlightResult(value="fresh", cached_public_bytes=document, produced=True)
+
+    result = cache.get_or_refresh(context(), producer)
+
+    assert result.produced and calls == [True]
+    assert cache.load(context()) == document
+    assert json.loads(Path(cache.path).read_text())["schema"] == 3
+
+
+def test_cache_rejects_current_payload_with_inserted_root_version(tmp_path):
+    cache, _ = make_cache(tmp_path)
+    document = public_bytes()
+    assert cache.publish(document, context())
+    envelope = json.loads(Path(cache.path).read_text())
+    envelope["document"] = {"version": 2, **envelope["document"]}
+    Path(cache.path).write_bytes((json.dumps(envelope, separators=(",", ":")) + "\n").encode())
+
+    assert cache.load(context()) is None
+
+
 def test_cache_hit_preserves_public_document_root_order(tmp_path):
     cache, _ = make_cache(tmp_path)
     assert cache.publish(public_bytes(), context())
     loaded = cache.load(context())
     assert loaded is not None
-    assert list(json.loads(loaded).keys()) == ["version", "execution_state", "execution_error", "providers"]
+    assert list(json.loads(loaded).keys()) == ["execution_state", "execution_error", "providers"]
 
 
 @pytest.mark.parametrize("mutate", ("root", "provider", "window", "quantity", "depleted", "error"))
@@ -251,7 +286,7 @@ def test_distinct_config_paths_use_distinct_cache_files_and_create_directory(tmp
     "mutate",
     (
         lambda raw: raw[:-1] + b" ",
-        lambda raw: raw.replace(b'"schema":2', b'"schema":2,"schema":2', 1),
+        lambda raw: raw.replace(b'"schema":3', b'"schema":3,"schema":3', 1),
         lambda raw: b"{" + b"x" * 131_073,
         lambda raw: raw.replace(b'"execution_error":null', b'"execution_error":{"code":"provider_failed","phase":"provider"}', 1),
         lambda raw: raw.replace(b'"compact_text":"Quota not detected"', b'"compact_text":"C:\\\\secret\\\\token"', 1),

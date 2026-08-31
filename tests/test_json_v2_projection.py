@@ -75,8 +75,8 @@ def _near_boundary_document(accent_count):
             index += 1
     return document
 def _assert_document(value):
-    assert list(value) == ["version", "execution_state", "execution_error", "providers"]
-    assert value["version"] == 2 and len(value["providers"]) == 2
+    assert list(value) == ["execution_state", "execution_error", "providers"]
+    assert "version" not in value and len(value["providers"]) == 2
     assert [p["provider"] for p in value["providers"]] == ["codex", "opencode_go"]
     outcomes = []
     for provider in value["providers"]:
@@ -339,7 +339,7 @@ def test_opencode_private_sidecar_maps_only_the_bounded_v2_taxonomy(evidence, ma
     projection = V2ProjectionInput(document, opencode_evidence=evidence)
     value = project_v2_document(projection)
 
-    assert value["version"] == 2
+    assert "version" not in value
     assert "OpenCodeFailureEvidence" not in repr(projection)
     assert [provider["provider"] for provider in value["providers"]] == ["codex", "opencode_go"]
     assert value["providers"][1]["execution_error"] == {"code": mapped, "phase": "provider"}
@@ -584,11 +584,11 @@ def test_unknown_evidence_fails_closed_without_echoing_the_rejected_value():
     assert "future-secret-state" not in str(error.value)
 
 
-@pytest.mark.parametrize(("adjustment", "candidate_size"), (("boundary_65401", 65_401), ("boundary_65402", 65_402), ("oversize", 65_696)))
+@pytest.mark.parametrize(("adjustment", "candidate_size"), (("boundary_65389", 65_389), ("boundary_65390", 65_390), ("oversize", 65_696)))
 def test_document_byte_boundaries_are_allowed_or_replaced_whole(adjustment, candidate_size):
-    if adjustment == "boundary_65401":
+    if adjustment == "boundary_65389":
         document = _near_boundary_document(39)
-    elif adjustment == "boundary_65402":
+    elif adjustment == "boundary_65390":
         document = _near_boundary_document(40)
     else:
         document = _large_document(64)

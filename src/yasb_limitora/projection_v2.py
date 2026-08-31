@@ -502,7 +502,6 @@ def _project_v2_document(
     else:
         execution_state, execution_error = "execution_error", {"code": "provider_failed", "phase": "provider"}
     return {
-        "version": 2,
         "execution_state": execution_state,
         "execution_error": execution_error,
         "providers": list(providers),
@@ -587,7 +586,6 @@ def project_v2_failure_bytes(code: str | SafeErrorCode) -> bytes:
         providers.append(item)
     return _encode(
         {
-            "version": 2,
             "execution_state": "execution_error",
             "execution_error": {"code": value, "phase": phase},
             "providers": providers,

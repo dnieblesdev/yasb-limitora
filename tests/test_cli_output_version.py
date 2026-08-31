@@ -115,7 +115,7 @@ def test_exact_v2_selectors_route_the_v2_projection(tmp_path, selector):
     path = _disabled_config_path(tmp_path)
     code, document, stderr, _ = _run((*selector, "--config", str(path)), coordinator=_Coordinator(_disabled_document()))
     assert code == 0 and stderr == ""
-    assert document["version"] == 2
+    assert "version" not in document
     assert all(provider["outcome"] == "not_run" for provider in document["providers"])
 
 
@@ -177,7 +177,7 @@ def test_trusted_v2_loads_before_later_rejection_without_coordinator(monkeypatch
     coordinator = _Coordinator(_disabled_document())
     code, document, stderr, _ = _run(argv, coordinator=coordinator)
     assert code == 2
-    assert document["version"] == 2
+    assert "version" not in document
     assert document["execution_error"] == {"code": "invocation_invalid", "phase": "configuration"}
     assert stderr == "yasb-limitora: invocation_invalid\n"
     assert events == [("resolve", tuple(arg for arg in argv if arg not in {"--output-version", "2", "--output-version=2"}), {})]
@@ -187,7 +187,7 @@ def test_trusted_v2_loads_before_later_rejection_without_coordinator(monkeypatch
 def test_trusted_v2_owns_secret_like_later_invocation_failure():
     code, document, stderr, _ = _run(("--output-version", "2", "--config", "token"))
     assert code == 2
-    assert document["version"] == 2
+    assert "version" not in document
     assert document["execution_error"] == {"code": "invocation_invalid", "phase": "configuration"}
     assert stderr == "yasb-limitora: invocation_invalid\n"
 
@@ -199,7 +199,7 @@ def test_trusted_v2_routes_configuration_failure_to_v2(tmp_path):
         ("--output-version", "2", "--config", str(missing)), coordinator=coordinator
     )
     assert code == 2
-    assert document["version"] == 2
+    assert "version" not in document
     assert document["execution_error"] == {"code": "configuration_invalid", "phase": "configuration"}
     assert stderr == "yasb-limitora: configuration_invalid\n"
     assert coordinator.calls == []
@@ -213,7 +213,7 @@ def test_trusted_v2_routes_runtime_failure_to_v2(tmp_path):
     path = _disabled_config_path(tmp_path)
     code, document, stderr, raw = _run(("--output-version", "2", "--config", str(path)), coordinator=FailingCoordinator())
     assert code == 2
-    assert document["version"] == 2
+    assert "version" not in document
     assert document["execution_error"] == {"code": "internal_error", "phase": "document"}
     assert stderr == "yasb-limitora: runtime_error\n"
     assert b"private runtime detail" not in raw + stderr.encode()
@@ -247,7 +247,7 @@ def test_duplicate_config_flags_fail_safely(tmp_path):
     path = str(tmp_path / "config.json")
     for selector in ((), ("--output-version", "1"), ("--output-version", "2")):
         code, document, stderr, _ = _run((*selector, "--config", path, "-c", path))
-        assert code == 2 and document["version"] == (2 if selector == ("--output-version", "2") else 1)
+        assert code == 2 and ("version" not in document if selector == ("--output-version", "2") else document["version"] == 1)
         assert stderr == "yasb-limitora: invocation_invalid\n"
 
 
@@ -258,7 +258,7 @@ def test_output_selector_preserves_existing_config_forms(tmp_path, form):
     config_args = {"long": ("--config", str(path)), "short": ("-c", str(path)), "equals": (f"--config={path}",)}[form]
     coordinator = _Coordinator(_disabled_document())
     code, document, stderr, _ = _run(("--output-version", "2", *config_args), coordinator=coordinator)
-    assert code == 0 and stderr == "" and document["version"] == 2
+    assert code == 0 and stderr == "" and "version" not in document
     assert coordinator.calls[0][0].codex.enabled is True
 
 
@@ -277,7 +277,7 @@ def test_v2_explicit_config_wins_over_environment_and_default(monkeypatch):
     }
     code, document, stderr, _ = _run(("--output-version", "2", "--config", explicit), environment=environment)
 
-    assert code == 0 and document["version"] == 2 and stderr == ""
+    assert code == 0 and "version" not in document and stderr == ""
     assert paths == [explicit]
 
 
@@ -295,7 +295,7 @@ def test_v2_environment_config_wins_over_default(monkeypatch):
         environment={"YASB_LIMITORA_CONFIG": environment_path, "LOCALAPPDATA": r"C:\Users\user\AppData\Local"},
     )
 
-    assert code == 0 and document["version"] == 2 and stderr == ""
+    assert code == 0 and "version" not in document and stderr == ""
     assert paths == [environment_path]
 
 
@@ -310,7 +310,7 @@ def test_v2_default_uses_injected_localappdata(monkeypatch):
     localappdata = r"C:\Users\user\AppData\Local"
     code, document, stderr, _ = _run(("--output-version", "2"), environment={"LOCALAPPDATA": localappdata})
 
-    assert code == 0 and document["version"] == 2 and stderr == ""
+    assert code == 0 and "version" not in document and stderr == ""
     assert paths == [ntpath.join(localappdata, "yasb-limitora", "config.json")]
 
 
@@ -425,7 +425,7 @@ def test_v2_opencode_numeric_timeout_is_accepted(tmp_path, timeout):
 
     code, document, stderr, _ = _run(("--output-version", "2", "--config", str(path)), coordinator=coordinator)
 
-    assert code == 0 and stderr == "" and document["version"] == 2
+    assert code == 0 and stderr == "" and "version" not in document
     assert coordinator.calls[0][0].opencode_go.timeout_seconds == float(timeout)
 
 

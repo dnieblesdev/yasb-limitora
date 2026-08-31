@@ -84,7 +84,6 @@ rejected. All fields in this table are present; nullable fields contain JSON
 
 | Field | Type | Required rule |
 |-------|------|---------------|
-| `version` | integer | MUST equal `2` |
 | `execution_state` | string | One of `complete`, `partial`, `not_run`, `execution_error` |
 | `execution_error` | object or `null` | Required; document-level sanitized error, subject to the legal matrix |
 | `providers` | array | Required; exactly two provider objects, ordered `codex`, then `opencode_go` |
@@ -867,7 +866,7 @@ current CustomWidget `stop()` behavior is not a process-termination primitive.
 
 The shared quota cache is an optional, non-authoritative output artifact, not a
 second execution boundary. It uses a per-config/fingerprint filename and
-strictly validated schema-2 bytes. Publication occurs only after the provider
+strictly validated schema-3 bytes. Publication occurs only after the provider
 guard has been released and closed and a clean provider result has been
 projected. It uses an atomic same-directory replace with a bounded temporary
 file; a failure is non-fatal and only the current operation's temporary file
@@ -1040,7 +1039,6 @@ this R2 unit.
 
 ```json
 {
-  "version": 2,
   "execution_state": "complete",
   "execution_error": null,
   "providers": [
@@ -1152,7 +1150,6 @@ this R2 unit.
 
 ```json
 {
-  "version": 2,
   "execution_state": "complete",
   "execution_error": null,
   "providers": [
@@ -1231,7 +1228,6 @@ this R2 unit.
 
 ```json
 {
-  "version": 2,
   "execution_state": "complete",
   "execution_error": null,
   "providers": [
@@ -1277,7 +1273,6 @@ this R2 unit.
 
 ```json
 {
-  "version": 2,
   "execution_state": "not_run",
   "execution_error": {"code": "guard_wait_timeout", "phase": "guard_wait"},
   "providers": [
@@ -1323,7 +1318,6 @@ this R2 unit.
 
 ```json
 {
-  "version": 2,
   "execution_state": "partial",
   "execution_error": null,
   "providers": [
@@ -1369,7 +1363,6 @@ this R2 unit.
 
 ```json
 {
-  "version": 2,
   "execution_state": "not_run",
   "execution_error": null,
   "providers": [
@@ -1415,7 +1408,6 @@ this R2 unit.
 
 ```json
 {
-  "version": 2,
   "execution_state": "execution_error",
   "execution_error": {"code": "configuration_invalid", "phase": "configuration"},
   "providers": [
@@ -1461,7 +1453,6 @@ this R2 unit.
 
 ```json
 {
-  "version": 2,
   "execution_state": "execution_error",
   "execution_error": {"code": "invocation_invalid", "phase": "configuration"},
   "providers": [
@@ -1507,7 +1498,6 @@ this R2 unit.
 
 ```json
 {
-  "version": 2,
   "execution_state": "not_run",
   "execution_error": {"code": "deadline_exhausted", "phase": "document"},
   "providers": [
@@ -1553,7 +1543,6 @@ this R2 unit.
 
 ```json
 {
-  "version": 2,
   "execution_state": "execution_error",
   "execution_error": {"code": "internal_error", "phase": "document"},
   "providers": [
@@ -1599,7 +1588,6 @@ this R2 unit.
 
 ```json
 {
-  "version": 2,
   "execution_state": "execution_error",
   "execution_error": {"code": "cleanup_failed", "phase": "cleanup"},
   "providers": [
@@ -1671,7 +1659,6 @@ replace either provider result.
 
 ```json
 {
-  "version": 2,
   "execution_state": "execution_error",
   "execution_error": {"code": "provider_failed", "phase": "provider"},
   "providers": [
@@ -1717,7 +1704,6 @@ replace either provider result.
 
 ```json
 {
-  "version": 2,
   "execution_state": "partial",
   "execution_error": null,
   "providers": [
@@ -1763,7 +1749,6 @@ replace either provider result.
 
 ```json
 {
-  "version": 2,
   "execution_state": "execution_error",
   "execution_error": {"code": "provider_failed", "phase": "provider"},
   "providers": [
@@ -1809,7 +1794,6 @@ replace either provider result.
 
 ```json
 {
-  "version": 2,
   "execution_state": "partial",
   "execution_error": null,
   "providers": [
@@ -1855,7 +1839,6 @@ replace either provider result.
 
 ```json
 {
-  "version": 2,
   "execution_state": "execution_error",
   "execution_error": {"code": "deadline_exhausted", "phase": "document"},
   "providers": [

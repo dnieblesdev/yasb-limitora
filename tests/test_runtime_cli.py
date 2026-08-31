@@ -220,7 +220,7 @@ def test_v2_default_resolution_reads_injected_localappdata(monkeypatch):
         platform_is_windows=lambda: True,
     ) == 0
     assert paths == [ntpath.join(localappdata, "yasb-limitora", "config.json")]
-    assert json.loads(stdout.getvalue())["version"] == 2
+    assert "version" not in json.loads(stdout.getvalue())
     assert stderr.getvalue() == ""
 
 

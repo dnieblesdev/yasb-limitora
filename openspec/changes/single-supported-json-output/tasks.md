@@ -90,12 +90,12 @@ The failed `feature/137-json-projection@13f63d6` is excluded and is not in this 
 ### Planning and accounting
 
 - [ ] Add the planning correction first on `feature/137-json-budget-repartition`; do not use `13f63d6`.
-- [ ] Record provider/no-rename counts for every semantic child and keep each at or below 400.
+- [x] Record provider/no-rename counts for every semantic child and keep each at or below 400. Semantic Slice 1: 141 changed lines, within the 400-line budget.
 - [ ] Record the seven bounded rename-only exception budgets (normative doc, projection, cache, worker, guard/deadline/path, spec tests, schema) and Git rename-aware guidance; do not hide rename work in semantic slices.
 
 ### Semantic RED → GREEN → TRIANGULATE → REFACTOR
 
-- [ ] RED: add/update current-only projection, schema, CLI, cache, runtime, and consumer tests while retaining v2 filenames.
+- [x] RED: add/update current-only projection, schema, CLI, cache, runtime, and consumer tests while retaining v2 filenames.
 - [ ] GREEN: implement contract/cache/CLI/runtime semantics in dependency order; migrate consumers before any provider rename or deletion.
 - [ ] TRIANGULATE: run focused success, failure, not-run, malformed, ordering, size, redaction, LF, stream/exit, precedence, deadline, stale-cache, import, process, guard, jobs, and spawn checks; require collection to remain clean.
 - [ ] REFACTOR: remove duplicate `project_bytes` and any behavior-slice lint debt introduced by the work; distinguish pre-existing named worker/test lint debt.

@@ -164,8 +164,8 @@ class CustomWidgetExamplesTests(unittest.TestCase):
             raw = (FIXTURES / f"{name}.json").read_bytes()
             assert raw.endswith(bytes([0x0A])) and b"\r" not in raw
             value = _json_document(FIXTURES / f"{name}.json")
-            assert list(value) == ["version", "execution_state", "execution_error", "providers"]
-            assert value["version"] == 2 and value["execution_state"] == execution_state and len(value["providers"]) == 2
+            assert list(value) == ["execution_state", "execution_error", "providers"]
+            assert "version" not in value and value["execution_state"] == execution_state and len(value["providers"]) == 2
             assert [provider["provider"] for provider in value["providers"]] == ["codex", "opencode_go"]
             serialized = json.dumps(value).lower()
             assert all(key not in serialized for key in ("opencode-go-dashboard", "exit_code", "stderr", "stdout", "traceback", "password", "api_key", "cookie", "/home/", "c:\\"))

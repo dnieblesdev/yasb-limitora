@@ -37,7 +37,7 @@ from .v2_guard import GuardError, V2Guard
 from .v2_path import V2DeadlineError, V2FileError, canonicalize_v2_path, path_identity
 
 
-CACHE_SCHEMA = 2
+CACHE_SCHEMA = 3
 CACHE_TTL_SECONDS = 180
 MAX_CACHE_BYTES = 131_072
 MAX_CACHE_DOCUMENT_BYTES = 65_536
@@ -198,7 +198,7 @@ def _canonical_json(value: object) -> bytes:
 
 
 def _public_document_json(document: Mapping[str, object]) -> bytes:
-    root = {key: document[key] for key in ("version", "execution_state", "execution_error", "providers")}
+    root = {key: document[key] for key in ("execution_state", "execution_error", "providers")}
     return (json.dumps(root, ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
 
 
@@ -353,7 +353,6 @@ def _presentation_candidate(
         canonical_item.update(expected)
         canonical_providers.append(canonical_item)
     canonical_document = {
-        "version": root["version"],
         "execution_state": root["execution_state"],
         "execution_error": root["execution_error"],
         "providers": canonical_providers,
@@ -387,8 +386,8 @@ def _presentation_matches(
 
 
 def _validate_document(document: object) -> dict[str, object]:
-    root = _safe_mapping(document, ("version", "execution_state", "execution_error", "providers"))
-    if root["version"] != 2 or root["execution_state"] not in {"complete", "partial", "not_run", "execution_error"}:
+    root = _safe_mapping(document, ("execution_state", "execution_error", "providers"))
+    if root["execution_state"] not in {"complete", "partial", "not_run", "execution_error"}:
         raise CacheValidationError("invalid cache document")
     providers = root["providers"]
     if type(providers) is not list or len(providers) != 2:

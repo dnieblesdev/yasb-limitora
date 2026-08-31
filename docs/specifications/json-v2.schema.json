@@ -5,9 +5,8 @@
   "description": "Structural support for the normative R2 JSON v2 specification. Semantic and deadline rules remain normative in json-v2.md.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "execution_state", "execution_error", "providers"],
+  "required": ["execution_state", "execution_error", "providers"],
   "properties": {
-    "version": {"const": 2},
     "execution_state": {"enum": ["complete", "partial", "not_run", "execution_error"]},
     "execution_error": {"$ref": "#/$defs/executionErrorOrNull"},
     "providers": {
