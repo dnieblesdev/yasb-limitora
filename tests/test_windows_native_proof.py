@@ -152,13 +152,32 @@ def _read_evidence(path: Path, timeout: float = 5.0) -> dict[str, object]:
     while time.monotonic() < deadline:
         try:
             value = json.loads(path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError):
+        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
             time.sleep(0.05)
             continue
         if value.get("authorized"):
             return value
         time.sleep(0.05)
     pytest.fail("native fixture did not reach the post-READY protocol boundary")
+
+def test_read_evidence_retries_transient_permission_error(monkeypatch, tmp_path: Path) -> None:
+    expected = {"authorized": True, "helper_pid": 1}
+    attempts = 0
+
+    def read_text(_path: Path, *, encoding: str) -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise PermissionError("transient Windows sharing lock")
+        assert encoding == "utf-8"
+        return json.dumps(expected)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+
+    assert _read_evidence(tmp_path / "evidence.json", timeout=0.1) == expected
+    assert attempts == 2
+
 
 def _assert_gone(pids: list[int]) -> None:
     deadline = time.monotonic() + 5.0
