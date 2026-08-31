@@ -31,7 +31,7 @@ from .model import (
     PublicProviderState,
     SnapshotFreshness,
 )
-from .projection_v2 import _presentation as _project_presentation, _window_sort_key
+from .projection import _presentation as _project_presentation, _window_sort_key
 from .v2_deadline import DeadlineContext
 from .v2_guard import GuardError, V2Guard
 from .v2_path import V2DeadlineError, V2FileError, canonicalize_v2_path, path_identity

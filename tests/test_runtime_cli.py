@@ -24,11 +24,11 @@ from yasb_limitora.model import (
     SafeError,
     SafeErrorCode,
 )
-from yasb_limitora.projection_v2 import (
-    V2ProjectionInput,
-    project_v2_bytes,
-    project_v2_failure_bytes,
-    project_v2_not_run_bytes,
+from yasb_limitora.projection import (
+    ProjectionInput,
+    project_bytes,
+    project_failure_bytes,
+    project_not_run_bytes,
 )
 from yasb_limitora.v2_cache import SingleFlightResult, V2QuotaCache
 from yasb_limitora.v2_deadline import DeadlineContext
@@ -408,11 +408,11 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
     codex: _MatrixCodex | None = None
     if scenario == "guard_wait_timeout":
         orchestrator = V2ExecutionOrchestrator(guard_factory=cast(type[V2Guard], lambda: _MatrixGuard(error=scenario)))
-        expected = project_v2_not_run_bytes(scenario)
+        expected = project_not_run_bytes(scenario)
         expected_stderr = "yasb-limitora: guard_wait_timeout\n"
     elif scenario == "guard_acquisition_failed":
         orchestrator = V2ExecutionOrchestrator(guard_factory=cast(type[V2Guard], lambda: _MatrixGuard(error=scenario)))
-        expected = project_v2_failure_bytes(scenario)
+        expected = project_failure_bytes(scenario)
         expected_stderr = "yasb-limitora: runtime_error\n"
     elif scenario == "deadline_exhausted":
         orchestrator = V2ExecutionOrchestrator(guard_factory=cast(type[V2Guard], _MatrixGuard))
@@ -426,7 +426,7 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
             return real_from_seconds(seconds, t0_ns=t0_ns, clock_ns=clock_ns)
 
         monkeypatch.setattr(DeadlineContext, "from_seconds", classmethod(expired_after_config))
-        expected = project_v2_not_run_bytes(scenario)
+        expected = project_not_run_bytes(scenario)
         expected_stderr = "yasb-limitora: runtime_error\n"
     else:
         codex = _MatrixCodex()
@@ -439,7 +439,7 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
             ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason="disabled"),
             SafeError(SafeErrorCode.CLEANUP_FAILED),
         )
-        expected = project_v2_bytes(V2ProjectionInput(expected_document, frozenset({ProviderKey.CODEX})))
+        expected = project_bytes(ProjectionInput(expected_document, frozenset({ProviderKey.CODEX})))
         expected_stderr = "yasb-limitora: runtime_error\n"
 
     monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
@@ -562,7 +562,7 @@ def test_v2_cli_cache_producer_failure_fails_closed_without_direct_run(monkeypat
     )
 
     assert code == 2
-    assert stdout.getvalue() == project_v2_failure_bytes("internal_error")
+    assert stdout.getvalue() == project_failure_bytes("internal_error")
     assert stderr.getvalue() == "yasb-limitora: runtime_error\n"
     assert len(attempts) == 1
     assert direct_runs == []
@@ -602,7 +602,7 @@ def test_v2_cli_cache_constructor_failure_runs_orchestrator(monkeypatch, tmp_pat
     )
 
     assert code == 0, stderr.getvalue()
-    assert stdout.getvalue() == project_v2_bytes(V2ProjectionInput(expected_document, frozenset({ProviderKey.CODEX})))
+    assert stdout.getvalue() == project_bytes(ProjectionInput(expected_document, frozenset({ProviderKey.CODEX})))
     assert stderr.getvalue() == ""
     assert direct_runs == [True]
 
@@ -631,6 +631,6 @@ def test_v2_cli_cache_guard_timeout_preserves_diagnostic_without_running_produce
     code = main(("--config", str(path)), environment={"LOCALAPPDATA": str(tmp_path)}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
 
     assert code == 2
-    assert stdout.getvalue() == project_v2_not_run_bytes("guard_wait_timeout")
+    assert stdout.getvalue() == project_not_run_bytes("guard_wait_timeout")
     assert stderr.getvalue() == "yasb-limitora: guard_wait_timeout\n"
     assert producer_calls == []

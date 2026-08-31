@@ -66,7 +66,7 @@ _NOT_RUN_TEXT = {
     "deadline_exhausted": "deadline exhausted",
 }
 @dataclass(frozen=True, slots=True)
-class V2ProjectionInput:
+class ProjectionInput:
     """Validated document evidence and the providers enabled for this run."""
 
     document: DocumentView
@@ -111,31 +111,31 @@ def _source(value: object, provider: ProviderKey = ProviderKey.CODEX) -> str | N
     return candidate if candidate == expected else None
 def _timestamp(value: object) -> str:
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
-        raise ValueError("invalid v2 timestamp")
+        raise ValueError("invalid current timestamp")
     return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 def _quantity(quantity: object) -> dict[str, str]:
     if not isinstance(quantity, QuotaQuantity):
-        raise ValueError("invalid v2 quantity")
+        raise ValueError("invalid current quantity")
     value = quantity.value
-    metric = _enum(QuotaMetricKind, quantity.metric, "invalid v2 quantity metric")
+    metric = _enum(QuotaMetricKind, quantity.metric, "invalid current quantity metric")
     if not isinstance(value, Decimal) or not value.is_finite() or value < 0:
-        raise ValueError("invalid v2 quantity")
+        raise ValueError("invalid current quantity")
     rendered = format(value, "f")
     if "." in rendered:
         rendered = rendered.rstrip("0").rstrip(".")
-    return {"value": rendered or "0", "metric": metric.value, "unit": _identity(quantity.unit, "invalid v2 unit")}
+    return {"value": rendered or "0", "metric": metric.value, "unit": _identity(quantity.unit, "invalid current unit")}
 def _window(window: object, provider: ProviderKey = ProviderKey.CODEX) -> dict[str, Any]:
     if not isinstance(window, QuotaWindowView):
-        raise ValueError("invalid v2 window")
-    kind = _enum(QuotaWindowKind, window.kind, "invalid v2 window kind")
+        raise ValueError("invalid current window")
+    kind = _enum(QuotaWindowKind, window.kind, "invalid current window kind")
     source_id = _source(window.source_id, provider)
     trusted = source_id is not None
-    availability = _enum(QuotaAvailability, window.availability, "invalid v2 availability") if trusted else QuotaAvailability.UNAVAILABLE
-    plan_id = None if not trusted or window.plan_id is None else _identity(window.plan_id, "invalid v2 plan id")
+    availability = _enum(QuotaAvailability, window.availability, "invalid current availability") if trusted else QuotaAvailability.UNAVAILABLE
+    plan_id = None if not trusted or window.plan_id is None else _identity(window.plan_id, "invalid current plan id")
     return {
         "kind": kind.value,
-        "scope": _identity(window.scope, "invalid v2 scope"),
-        "period": _identity(window.period, "invalid v2 period"),
+        "scope": _identity(window.scope, "invalid current scope"),
+        "period": _identity(window.period, "invalid current period"),
         "plan_id": plan_id,
         "availability": availability.value,
         "source_id": source_id,
@@ -164,11 +164,11 @@ def _opencode_windows(snapshot: ProviderSnapshotView) -> list[dict[str, Any]]:
     preserved: list[dict[str, Any]] = []
     for raw in snapshot.windows:
         if not isinstance(raw, QuotaWindowView):
-            raise ValueError("invalid v2 window")
-        kind = _enum(QuotaWindowKind, raw.kind, "invalid v2 window kind")
+            raise ValueError("invalid current window")
+        kind = _enum(QuotaWindowKind, raw.kind, "invalid current window kind")
         if kind is QuotaWindowKind.COMMERCIAL_QUOTA:
             try:
-                period = _identity(raw.period, "invalid v2 period")
+                period = _identity(raw.period, "invalid current period")
             except ValueError:
                 continue
             if period in candidates:
@@ -202,7 +202,7 @@ def _window_sort_key(window: dict[str, Any]) -> tuple[object, ...]:
         window["source_id"] or "",
     )
 def _error(code: SafeErrorCode, evidence: object | None = None) -> dict[str, str]:
-    code = _enum(SafeErrorCode, code, "invalid v2 error code")
+    code = _enum(SafeErrorCode, code, "invalid current error code")
     if evidence is not None:
         if not isinstance(evidence, OpenCodeFailureEvidence):
             raise ValueError("invalid OpenCode evidence")
@@ -386,8 +386,8 @@ def _provider(
     opencode_evidence: object | None = None,
     timestamp_formatter: Callable[[datetime], str] = _format_local_datetime,
 ) -> tuple[dict[str, Any], str]:
-    provider = _enum(ProviderKey, view.provider, "invalid v2 provider")
-    state = _enum(ProviderState, view.state, "invalid v2 provider state")
+    provider = _enum(ProviderKey, view.provider, "invalid current provider")
+    state = _enum(ProviderState, view.state, "invalid current provider state")
     outcome = view.outcome
     if outcome is None:
         if view.snapshot is not None:
@@ -398,7 +398,7 @@ def _provider(
             outcome = ProviderOutcome.UNDETECTED if provider in enabled else ProviderOutcome.NOT_RUN
         else:
             raise ValueError("provider outcome is not representable")
-    outcome = _enum(ProviderOutcome, outcome, "invalid v2 provider outcome")
+    outcome = _enum(ProviderOutcome, outcome, "invalid current provider outcome")
 
     item: dict[str, Any] = {
         "provider": provider.value,
@@ -416,10 +416,10 @@ def _provider(
     if outcome is ProviderOutcome.SNAPSHOT:
         snapshot = view.snapshot
         if not isinstance(snapshot, ProviderSnapshotView) or view.error is not None:
-            raise ValueError("invalid v2 snapshot outcome")
+            raise ValueError("invalid current snapshot outcome")
         item.update(
-            public_state=_enum(PublicProviderState, snapshot.public_state, "invalid v2 public state").value,
-            freshness=_enum(SnapshotFreshness, snapshot.freshness, "invalid v2 freshness").value,
+            public_state=_enum(PublicProviderState, snapshot.public_state, "invalid current public state").value,
+            freshness=_enum(SnapshotFreshness, snapshot.freshness, "invalid current freshness").value,
             status_observed_at=_timestamp(snapshot.status_observed_at),
             fetched_at=_timestamp(snapshot.fetched_at),
             data_at=_timestamp(snapshot.data_at),
@@ -432,17 +432,17 @@ def _provider(
         )
         item["windows"] = sorted(windows, key=_window_sort_key)
         if len(item["windows"]) > MAX_QUOTA_WINDOWS:
-            raise _TooManyWindows("too many v2 windows")
+            raise _TooManyWindows("too many current windows")
     elif outcome is ProviderOutcome.UNDETECTED:
         if view.snapshot is not None or view.error is not None:
-            raise ValueError("invalid v2 undetected outcome")
+            raise ValueError("invalid current undetected outcome")
     elif outcome is ProviderOutcome.NOT_RUN:
         if view.snapshot is not None or view.error is not None or (provider in enabled and view.not_run_reason not in {"disabled", "document_aborted", "guard_wait_timeout", "deadline_exhausted"}):
-            raise ValueError("invalid v2 not-run outcome")
+            raise ValueError("invalid current not-run outcome")
         item["not_run_reason"] = view.not_run_reason or "disabled"
     else:
         if view.snapshot is not None or view.error is None:
-            raise ValueError("invalid v2 execution-error outcome")
+            raise ValueError("invalid current execution-error outcome")
         item["execution_error"] = _error(view.error.code, opencode_evidence if provider is ProviderKey.OPENCODE_GO else None)
     item.update(
         _presentation(
@@ -459,15 +459,15 @@ def _provider(
     return item, outcome.value
 
 
-def _project_v2_document(
-    input: V2ProjectionInput,
+def _project_document(
+    input: ProjectionInput,
     tooltip_limit: int,
     timestamp_formatter: Callable[[datetime], str] = _format_local_datetime,
 ) -> dict[str, Any]:
-    """Build the ordered JSON-compatible v2 document without encoding it."""
+    """Build the ordered JSON-compatible current document without encoding it."""
 
-    if not isinstance(input, V2ProjectionInput):
-        raise TypeError("input must be a V2ProjectionInput")
+    if not isinstance(input, ProjectionInput):
+        raise TypeError("input must be a ProjectionInput")
     views = {view.provider: view for view in input.document.providers}
     if tuple(views) != PROVIDER_ORDER or len(views) != len(PROVIDER_ORDER):
         raise ValueError("document providers are not canonical")
@@ -507,11 +507,11 @@ def _project_v2_document(
     }
 
 
-def project_v2_not_run_bytes(reason: str) -> bytes:
+def project_not_run_bytes(reason: str) -> bytes:
     """Project a document-level not-run matrix entry."""
 
     if reason not in {"guard_wait_timeout", "deadline_exhausted"}:
-        raise ValueError("unsupported v2 not-run reason")
+        raise ValueError("unsupported current not-run reason")
     code = SafeErrorCode.GUARD_WAIT_TIMEOUT if reason == "guard_wait_timeout" else SafeErrorCode.DEADLINE_EXHAUSTED
     error = SafeError(code)
     document = DocumentView.ordered(
@@ -519,53 +519,53 @@ def project_v2_not_run_bytes(reason: str) -> bytes:
         ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason=reason),
         error,
     )
-    return project_v2_bytes(V2ProjectionInput(document))
+    return project_bytes(ProjectionInput(document))
 
 
-def project_v2_document(
-    input: V2ProjectionInput,
+def project_document(
+    input: ProjectionInput,
     *,
     timestamp_formatter: Callable[[datetime], str] = _format_local_datetime,
 ) -> dict[str, Any]:
-    """Build the ordered JSON-compatible v2 document without encoding it."""
+    """Build the ordered JSON-compatible current document without encoding it."""
 
-    return _project_v2_document(input, _MAX_TOOLTIP_SCALARS, timestamp_formatter)
+    return _project_document(input, _MAX_TOOLTIP_SCALARS, timestamp_formatter)
 def _encode(document: dict[str, Any]) -> bytes:
     return (json.dumps(document, ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
 
 
-def project_v2_bytes(
-    input: V2ProjectionInput,
+def project_bytes(
+    input: ProjectionInput,
     *,
     timestamp_formatter: Callable[[datetime], str] = _format_local_datetime,
 ) -> bytes:
-    """Return one compact UTF-8 v2 document followed by exactly one LF."""
+    """Return one compact UTF-8 current document followed by exactly one LF."""
 
     try:
-        encoded = _encode(project_v2_document(input, timestamp_formatter=timestamp_formatter))
+        encoded = _encode(project_document(input, timestamp_formatter=timestamp_formatter))
     except _TooManyWindows:
-        return project_v2_failure_bytes("internal_error")
+        return project_failure_bytes("internal_error")
     if len(encoded) <= _MAX_DOCUMENT_BYTES:
         return encoded
 
     low, high, best = 0, _MAX_TOOLTIP_SCALARS, None
     while low <= high:
         tooltip_limit = (low + high) // 2
-        candidate = _encode(_project_v2_document(input, tooltip_limit, timestamp_formatter))
+        candidate = _encode(_project_document(input, tooltip_limit, timestamp_formatter))
         if len(candidate) <= _MAX_DOCUMENT_BYTES:
             best = candidate
             low = tooltip_limit + 1
         else:
             high = tooltip_limit - 1
-    return best if best is not None else project_v2_failure_bytes("internal_error")
-def project_v2_failure_bytes(code: str | SafeErrorCode) -> bytes:
-    """Return a fixed, redacted v2 document-level failure envelope."""
+    return best if best is not None else project_failure_bytes("internal_error")
+def project_failure_bytes(code: str | SafeErrorCode) -> bytes:
+    """Return a fixed, redacted current document-level failure envelope."""
 
     value = code.value if isinstance(code, SafeErrorCode) else code
     try:
         phase, reason = _FAILURES[value]
     except (KeyError, TypeError):
-        raise ValueError("unsupported v2 document failure") from None
+        raise ValueError("unsupported current document failure") from None
     providers = []
     for provider in PROVIDER_ORDER:
         item = {

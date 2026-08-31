@@ -195,7 +195,7 @@ def test_selector_free_projection_failure_is_sanitized(monkeypatch, tmp_path):
     def fail_projection(input):
         raise ValueError("private projection detail")
 
-    monkeypatch.setattr(cli, "project_v2_bytes", fail_projection)
+    monkeypatch.setattr(cli, "project_bytes", fail_projection)
     path = _disabled_config_path(tmp_path)
     code, document, stderr, raw = _run(("--config", str(path)), orchestrator=_Orchestrator(_disabled_document()))
     assert code == 2

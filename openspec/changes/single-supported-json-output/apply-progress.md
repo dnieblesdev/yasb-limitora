@@ -1300,3 +1300,23 @@ This is a mechanical rename exception, not semantic TDD; verification proves pat
 ### Workload / PR boundary
 
 Native/no-rename count is **3,778 changed lines** (1,911 additions + 1,867 deletions); Git rename-aware count is **68 changed lines** (56 additions + 12 deletions). Both include the authorized task/progress records, and native remains at or below 3,779. Rollback is limited to this document rename and its active path-reference updates.
+
+## Progress: size:exception 2 — projection source/tests rename
+### Status
+- **Slice:** Mechanical projection normalization; `refactor/137-rename-projection`
+- **Delivery:** feature-branch-chain / auto-chain; maintainer-approved `size:exception`; local commit only, no push/PR
+- **Completed:** `git mv` source/test files; renamed active projection symbols/imports/monkeypatches and direct labels; preserved wire assertions and immutable IDs.
+### TDD Cycle Evidence
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Renamed projection test/imports before source rename; focused collection | 2 expected missing-module errors |
+| GREEN | Renamed source and migrated CLI/cache/worker/contract/runtime consumers | Scoped projection/contract/CLI/cache/worker tests: **257 passed** |
+| TRIANGULATE | Native proof; strict collection | **11 passed**; **591 collected**, 0 errors |
+| REFACTOR | Normalized-body proof, residue/file checks, `git diff --check` | PASS; old files absent; no active old refs except intentional absence assertions |
+| Diagnostics | Ruff changed Python files; Pyright executable/module probe | **34 pre-existing Ruff findings**, no new findings; LSP unavailable |
+### Files and accounting
+- Files: `src/yasb_limitora/{projection.py,cli.py,v2_cache.py,v2_worker.py}`, `tests/test_json_projection.py`, `test_contracts.py`, `test_cli_output_version.py`, `test_runtime_cli.py`, `test_v2_cache.py`.
+- Source/projection-test normalized bodies match HEAD byte content after name/label reversal; behavior assertions unchanged.
+- Native/no-rename: **2,724** changed lines before progress/task records; Git rename-aware: **332**. Final count remains within the **2,800** ceiling.
+### Deviations, remaining work, and rollback
+- No deviations or compatibility aliases. Remaining: parent final verification and later rename exceptions. Rollback is limited to this source/test rename and its direct reference updates.

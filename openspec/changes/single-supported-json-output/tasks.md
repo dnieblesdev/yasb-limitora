@@ -112,6 +112,7 @@ The failed `feature/137-json-projection@13f63d6` is excluded and is not in this 
 ### Mechanical rename exceptions and final gate
 
 - [x] `size:exception` 1: mechanically rename the normative document and migrate only active path references; preserve document bytes, schema/test identities, and roadmap history.
+- [x] `size:exception` 2: mechanically rename the projection source/tests and normalize active projection imports, symbols, and directly coupled labels; preserve behavior and identities.
 - [ ] After all consumers migrate, execute exactly the seven reviewable rename exceptions (normative doc, projection source/tests, cache source/tests, worker source/tests, guard/deadline/path sources/tests, spec tests, schema), each with its stated no-rename budget.
 - [ ] For every exception, prove rename-only/no semantic edits, record native/no-rename and Git rename-aware counts, and run collection plus its scoped checks; combined source/test slices are permitted only when branch collection remains valid.
 - [ ] Search active source/tests/examples/docs/packaging for selectors, v1 artifacts, deleted names, and active versioned implementation names; exclude only designated historical text and immutable persisted identities.

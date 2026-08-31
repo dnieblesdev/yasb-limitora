@@ -10,7 +10,7 @@ from typing import Any, cast
 
 import pytest
 
-from tests.test_json_v2_projection import _near_boundary_document
+from tests.test_json_projection import _near_boundary_document
 from yasb_limitora.config import LocalConfig
 from yasb_limitora.model import (
     DocumentView,
@@ -29,7 +29,7 @@ from yasb_limitora.model import (
     SafeErrorCode,
     SnapshotFreshness,
 )
-from yasb_limitora.projection_v2 import V2ProjectionInput, project_v2_bytes
+from yasb_limitora.projection import ProjectionInput, project_bytes
 from yasb_limitora.v2_cache import (
     CACHE_TTL_SECONDS,
     OwnerState,
@@ -73,12 +73,12 @@ def public_bytes(*, cleanup=False, provider_error=False, disabled=False):
     if not disabled:
         opencode = ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED)
     error = SafeError(SafeErrorCode.CLEANUP_FAILED) if cleanup else None
-    return project_v2_bytes(V2ProjectionInput(DocumentView.ordered(codex, opencode, error), frozenset({ProviderKey.CODEX, ProviderKey.OPENCODE_GO})))
+    return project_bytes(ProjectionInput(DocumentView.ordered(codex, opencode, error), frozenset({ProviderKey.CODEX, ProviderKey.OPENCODE_GO})))
 
 
 def mixed_not_run_public_bytes(reason):
-    return project_v2_bytes(
-        V2ProjectionInput(
+    return project_bytes(
+        ProjectionInput(
             DocumentView.ordered(
                 ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED),
                 ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason=reason),
@@ -109,8 +109,8 @@ def snapshot_public_bytes(scope="account"):
         "codex-app-server-v2",
         (window,),
     )
-    return project_v2_bytes(
-        V2ProjectionInput(
+    return project_bytes(
+        ProjectionInput(
             DocumentView.ordered(
                 ProviderView(ProviderKey.CODEX, ProviderState.SUCCESS, outcome=ProviderOutcome.SNAPSHOT, snapshot=snapshot),
                 ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED),
@@ -384,7 +384,7 @@ def test_cache_rejects_provider_tooltip_from_independent_budget(tmp_path):
 
 def test_cache_accepts_projection_selected_shared_budget_near_cap(tmp_path):
     cache, _ = make_cache(tmp_path)
-    document = project_v2_bytes(V2ProjectionInput(_near_boundary_document(40)))
+    document = project_bytes(ProjectionInput(_near_boundary_document(40)))
     value = json.loads(document)
     assert len(document) <= 65_536
     assert value["execution_error"] is None
@@ -468,8 +468,8 @@ def test_cache_rejects_provider_errors_cleanup_and_all_disabled_results(tmp_path
     assert cache.publish(public_bytes(disabled=True), context())
     assert not cache.publish(public_bytes(provider_error=True), context())
     assert not cache.publish(public_bytes(cleanup=True), context())
-    all_disabled = project_v2_bytes(
-        V2ProjectionInput(
+    all_disabled = project_bytes(
+        ProjectionInput(
             DocumentView.ordered(
                 ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason="disabled"),
                 ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason="disabled"),

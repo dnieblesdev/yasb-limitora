@@ -571,7 +571,7 @@ class RefreshAttempt:
         config_path: str,
     ):
         """Run one normal v2 attempt and prepare its public cache bytes."""
-        from .projection_v2 import V2ProjectionInput, project_v2_bytes
+        from .projection import ProjectionInput, project_bytes
         from .v2_cache import SingleFlightResult
 
         document = self.run(config, environment, context, config_path)
@@ -585,7 +585,7 @@ class RefreshAttempt:
             if enabled_flag
         )
         _, public_bytes = _try_call(
-            lambda: project_v2_bytes(V2ProjectionInput(document, enabled, evidence)),
+            lambda: project_bytes(ProjectionInput(document, enabled, evidence)),
             None,
         )
         return SingleFlightResult(value=document, cached_public_bytes=public_bytes, produced=True)
@@ -665,7 +665,7 @@ class V2ExecutionOrchestrator:
         provider_errors: frozenset[ProviderKey] | set[ProviderKey] = frozenset(),
     ):
         """Run one provider attempt and prepare its authoritative publication payload."""
-        from .projection_v2 import V2ProjectionInput, project_v2_bytes
+        from .projection import ProjectionInput, project_bytes
         from .v2_cache import SingleFlightResult
 
         document = self.run(config, environment, context, config_path, provider_errors=provider_errors)
@@ -688,7 +688,7 @@ class V2ExecutionOrchestrator:
             and any(view.outcome in (ProviderOutcome.SNAPSHOT, ProviderOutcome.UNDETECTED) for view in document.providers)
             and all(view.outcome is not ProviderOutcome.EXECUTION_ERROR for view in document.providers)
         )
-        projected = project_v2_bytes(V2ProjectionInput(document, enabled_providers, evidence)) if cacheable else None
+        projected = project_bytes(ProjectionInput(document, enabled_providers, evidence)) if cacheable else None
         return SingleFlightResult(value=document, cached_public_bytes=projected, produced=True)
 
 

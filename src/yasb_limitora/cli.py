@@ -27,11 +27,11 @@ from .model import (
     SafeError,
     SafeErrorCode,
 )
-from .projection_v2 import (
-    V2ProjectionInput,
-    project_v2_bytes,
-    project_v2_failure_bytes,
-    project_v2_not_run_bytes,
+from .projection import (
+    ProjectionInput,
+    project_bytes,
+    project_failure_bytes,
+    project_not_run_bytes,
 )
 from .v2_cache import V2QuotaCache
 from .v2_deadline import DeadlineContext
@@ -162,10 +162,10 @@ def _v2_exit_code(document: DocumentView, enabled: frozenset[ProviderKey]) -> in
 
 def _v2_cache_failure(code: str | None) -> bytes:
     if code in {"guard_wait_timeout", "deadline_exhausted"}:
-        return project_v2_not_run_bytes(code)
+        return project_not_run_bytes(code)
     if code == "guard_acquisition_failed":
-        return project_v2_failure_bytes(code)
-    return project_v2_failure_bytes("internal_error")
+        return project_failure_bytes(code)
+    return project_failure_bytes("internal_error")
 
 
 def _write(stream: object, data: bytes) -> None:
@@ -207,19 +207,19 @@ def main(
             DeadlineContext.from_seconds(1, t0_ns=t0_ns),
         )
     except InvocationError:
-        data, diagnostic = project_v2_failure_bytes("invocation_invalid"), "invocation_invalid"
+        data, diagnostic = project_failure_bytes("invocation_invalid"), "invocation_invalid"
         _write(out, data)
         err.write(f"yasb-limitora: {diagnostic}\n")
         err.flush()
         return 2
     except V2DeadlineError:
-        data, diagnostic = project_v2_failure_bytes("deadline_exhausted"), "runtime_error"
+        data, diagnostic = project_failure_bytes("deadline_exhausted"), "runtime_error"
         _write(out, data)
         err.write(f"yasb-limitora: {diagnostic}\n")
         err.flush()
         return 2
     except ConfigError:
-        data, diagnostic = project_v2_failure_bytes("configuration_invalid"), "configuration_invalid"
+        data, diagnostic = project_failure_bytes("configuration_invalid"), "configuration_invalid"
         _write(out, data)
         err.write(f"yasb-limitora: {diagnostic}\n")
         err.flush()
@@ -284,7 +284,7 @@ def main(
             if orchestrator.last_record is not None:
                 opencode_evidence = orchestrator.last_record.opencode_evidence
         except Exception:  # noqa: BLE001 - the machine boundary must never expose runtime details
-            data = project_v2_failure_bytes("internal_error")
+            data = project_failure_bytes("internal_error")
             _write(out, data)
             err.write("yasb-limitora: runtime_error\n")
             err.flush()
@@ -313,9 +313,9 @@ def main(
                     and document.document_error.code is SafeErrorCode.GUARD_WAIT_TIMEOUT
                     else "runtime_error" if exit_code else ""
                 )
-                data = project_v2_bytes(V2ProjectionInput(document, enabled, opencode_evidence))
+                data = project_bytes(ProjectionInput(document, enabled, opencode_evidence))
             except Exception:  # noqa: BLE001 - current projection failures are safe
-                data, exit_code, diagnostic = project_v2_failure_bytes("internal_error"), 2, "runtime_error"
+                data, exit_code, diagnostic = project_failure_bytes("internal_error"), 2, "runtime_error"
     _write(out, data)
     if diagnostic:
         err.write(f"yasb-limitora: {diagnostic}\n")
