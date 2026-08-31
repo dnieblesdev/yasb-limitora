@@ -123,6 +123,43 @@ def _v2_examples():
     return [json.loads(block) for block in blocks if json.loads(block).get("execution_state") in {"complete", "partial", "not_run", "execution_error"}]
 
 
+def test_current_contract_metadata_and_root_shape_are_normative():
+    text = SPEC.read_text(encoding="utf-8")
+    schema = _schema()
+
+    assert text.startswith("# Current JSON Normative Specification\n")
+    assert "The current JSON document is the sole supported output." in text
+    assert "exactly three root fields" in text
+    assert "There is no public root `version` field." in text
+    assert "The current projection emits only this three-field root" in text
+    assert "schema-3" in text
+    assert "cold-refreshed" in text
+    assert "The companion structural support\nfile is" in text
+    assert "[`json-v2.schema.json`](json-v2.schema.json)" in text
+    assert "test_v1_golden_fixtures.py" not in text
+    assert schema["title"] == "yasb-limitora current JSON contract"
+    assert schema["description"] == (
+        "Structural support for the normative current JSON contract. "
+        "Semantic and deadline rules remain normative in json-v2.md."
+    )
+    assert tuple(schema["properties"]) == DOCUMENT_FIELD_ORDER
+    assert set(schema["properties"]) == set(DOCUMENT_FIELD_ORDER)
+    assert "version" not in schema["properties"]
+
+
+def test_current_contract_preserves_external_and_persisted_identities():
+    text = SPEC.read_text(encoding="utf-8")
+
+    for identity in (
+        "Global" + chr(92) * 2 + "yasb-limitora-v2-guard-*",
+        "quota-v2-cache.json",
+        "codex-app-server-v2",
+        "opencode-go-api",
+    ):
+        assert identity in text
+
+
+
 def _is_success_outcome(outcome):
     return outcome in {"snapshot", "undetected"}
 
@@ -372,7 +409,7 @@ def test_r6_fallback_mappings_and_exclusions_are_normative():
         "the aggregate remains `provider_failed`",
         "Missing evidence remains missing: no\nsynthetic value, zero, reset, identity, or raw error",
         "Partial snapshots preserve `state=partial`; stale snapshots preserve",
-        "R6 changes no existing v2 fields,\nschema, model, object-key order",
+        "R6 changes no existing current fields,\nschema, model, object-key order",
         "no new\nsynthetic windows, percentages, resets, plans, periods, severity, CSS/classes",
     ):
         assert fragment in text
@@ -466,7 +503,7 @@ def test_r6_near_cap_presentation_budget_and_boundary_fallback_are_normative():
     text = SPEC.read_text(encoding="utf-8")
 
     for fragment in (
-        "The 65,536-byte document limit is applied after the complete canonical JSON v2",
+        "The 65,536-byte document limit is applied after the complete current JSON",
         "one deterministic,\ndocument-local tooltip scalar budget shared by all snapshot providers",
         "MUST NOT remove or alter canonical `windows` evidence",
         "The largest budget whose encoded document fits MUST be selected",

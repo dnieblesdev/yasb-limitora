@@ -1087,3 +1087,59 @@ Apply-progress content hash (excluding this line): sha256:a5f45935c62aa69b83bc62
 ### Workload / PR boundary
 
 This is one bounded active documentation work unit on `docs/137-operator-current-output`. Its cumulative no-rename diff is 343 changed lines including task/progress artifacts, within the 400-line budget. One local conventional commit was created with message `docs(json): document sole current output contract`. Do not push, open a PR, merge, or close the issue/change from this child.
+
+## Progress: bounded normative current-contract child
+
+### Status
+
+- **Slice:** Normative contract/schema metadata and coupled spec expectations
+- **Branch:** `docs/137-normative-current-contract`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local commit, no push or PR
+- **Allowed edit surfaces:** `docs/specifications/json-v2.md`, `docs/specifications/json-v2.schema.json`, `tests/test_json_v2_spec.py`, `tasks.md`, and this artifact
+- **No-rename budget:** 254 changed lines including task/progress artifacts; below 400
+
+### Completed tasks
+
+- Updated the active specification title and introduction to define one current JSON contract while retaining the `json-v2` filename until the later mechanical rename.
+- Replaced active root-shape, ordering, projection, cache, runtime, and example terminology with the current contract: exactly three root fields, no public root `version`, schema 3 cold refresh, and one final LF.
+- Preserved `Global\\yasb-limitora-v2-guard-*`, `quota-v2-cache.json`, `codex-app-server-v2`, `opencode-go-api`, and external YASB release versions.
+- Updated schema title/description only; `$id`, structural definitions, field order, and schema path remain unchanged.
+- Added current-contract metadata, root-shape, ordering, and identity expectations before the documentation/schema implementation edits.
+
+### Strict TDD Cycle Evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Added current-contract metadata/root/identity tests first; `python -m pytest -q --strict-markers tests/test_json_v2_spec.py -k 'current_contract_metadata or current_contract_preserves_external'` | **2 failed** on the legacy title/metadata and missing normative identity wording |
+| GREEN | Updated the bounded normative document and schema metadata; the new current-contract tests passed after adding projection/cache wording | **2 passed, 23 deselected** |
+| TRIANGULATE | Updated coupled R6 terminology assertions, then `python -m pytest -q --strict-markers tests/test_json_v2_spec.py tests/test_customwidget_examples.py` | **33 passed** |
+| TRIANGULATE / schema-order | JSON parse and exact root/provider/window/quantity order assertions passed in `tests/test_json_v2_spec.py` |
+| TRIANGULATE / native | `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` | **11 passed** |
+| TRIANGULATE / full strict | `python -m pytest -q --strict-markers` | **586 passed, 3 skipped, 1 pre-existing environment failure** in isolated safe-path package provenance |
+| TRIANGULATE / configured | `python -m pytest -q` | **586 passed, 3 skipped, 1 pre-existing environment failure** in isolated safe-path package provenance |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **590 tests collected**, 0 collection errors |
+| REFACTOR / lint | `ruff check tests/test_json_v2_spec.py` | All checks passed |
+| REFACTOR / LSP | `pyright --version`; `python -m pyright --version` | Pyright executable and module unavailable in this environment |
+| REFACTOR / residue-links-diff | Scoped schema/order/residue/link checks, `git diff --check`, and `git diff --no-renames --numstat` | Passed; section 12 unchanged; identities preserved; **254 changed lines**, below 400 |
+
+### Files changed
+
+- `docs/specifications/json-v2.md`
+- `docs/specifications/json-v2.schema.json`
+- `tests/test_json_v2_spec.py`
+- `openspec/changes/single-supported-json-output/tasks.md`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- No physical filename/module rename was made, and the dedicated section 12 CLI/configuration block was left unchanged for the next child.
+- No source, runtime, README/operator/architecture/research/roadmap, example, or external identity changes were made.
+
+### Remaining tasks
+
+- Run the required strict collection, lint/LSP, scoped residue/link/diff checks, and full configured suite before committing.
+- Later children own the CLI/configuration block migration and mechanical filename/module normalization.
+
+### Workload / PR boundary
+
+This child is limited to the bounded normative contract/schema metadata work unit. Stop before commit if no-rename accounting exceeds 400 changed lines; otherwise create one local conventional commit only, with no push or PR.

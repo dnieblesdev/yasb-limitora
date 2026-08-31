@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/dnieblesdev/yasb-limitora/docs/specifications/json-v2.schema.json",
-  "title": "yasb-limitora JSON v2",
-  "description": "Structural support for the normative R2 JSON v2 specification. Semantic and deadline rules remain normative in json-v2.md.",
+  "title": "yasb-limitora current JSON contract",
+  "description": "Structural support for the normative current JSON contract. Semantic and deadline rules remain normative in json-v2.md.",
   "type": "object",
   "additionalProperties": false,
   "required": ["execution_state", "execution_error", "providers"],

@@ -1,14 +1,15 @@
-# JSON v2 Normative Specification
+# Current JSON Normative Specification
 
 **Product:** `yasb-limitora` 0.2
 **Review unit:** R2
-**Status:** Normative contract. The historical R2 SPEC/TEST review scope is
-closed; current runtime behavior is implemented by later reviewed units.
+**Status:** Normative contract. The current JSON document is the sole supported
+output; the historical R2 SPEC/TEST review scope is closed.
 
-This contract is the machine boundary for `YASB CustomWidget -> yasb-limitora
-CLI -> Limitora public API`. The companion structural support file is
-[`json-v2.schema.json`](json-v2.schema.json). The v1 fixture test is
-[`tests/test_v1_golden_fixtures.py`](../../tests/test_v1_golden_fixtures.py).
+The current JSON document is the sole supported output at the machine boundary
+for `YASB CustomWidget -> yasb-limitora CLI -> Limitora public API`. It has no
+version-selection mode or public root version. The companion structural support
+file is [`json-v2.schema.json`](json-v2.schema.json). The filename remains
+`json-v2.schema.json` until the later mechanical normalization rename.
 
 The product runtime is Windows-only. The installed console route and
 `python -m yasb_limitora` converge on one CLI boundary that rejects every
@@ -21,7 +22,8 @@ separate R10 automated native proof and maintainer manual YASB acceptance.
 The shared cache refresh contract is intentionally minimal. A Windows
 cross-process mutex protects only short cache-key state inspection, marker
 transitions, and the atomic publication decision. It MUST NOT span provider
-execution or cleanup.
+execution or cleanup. The persisted cache filename is `quota-v2-cache.json`,
+and guard names retain the exact `Global\\yasb-limitora-v2-guard-*` identity.
 Each key's marker contains exactly `generation`, `owner_pid`, `owner_token`, and
 `started_at`; `owner_token` is a non-reusable process-creation identity. One live
 owner is serviced by bounded waiter retries. A dead or mismatched owner is
@@ -44,19 +46,20 @@ MUST produce the same validated values, ordering, limits, and bytes. It SHOULD
 NOT silently coerce unknown states, floats, duplicate keys, or trailing data.
 
 The R2 review was a specification and test unit: it did not authorize changes
-to `src/`, JSON v2 execution, a native YASB widget, or a v1 runtime change.
-That historical review boundary does not describe the later R3-R10 runtime
-closeouts. This specification is not itself the R10 evidence record; the
-roadmap records the completed automated native proof and manual YASB acceptance.
+to `src/`, current JSON execution, or a native YASB widget. That historical
+review boundary does not describe the later R3-R10 runtime closeouts. This
+specification is not itself the R10 evidence record; the roadmap records the
+completed automated native proof and manual YASB acceptance.
 
 ## 2. Scope and Invariants
 
-JSON v2 is quota-focused. It preserves every safe quota quantity requested from
-the public API together with the context needed to interpret that quantity. It
-does **not** promise the full public Limitora snapshot.
+The current JSON contract is quota-focused. It preserves every safe quota
+quantity requested from the public API together with the context needed to
+interpret that quantity. It does **not** promise the full public Limitora
+snapshot.
 
 The following public fields are explicitly excluded from 0.2 and MUST NOT be
-added to the v2 envelope:
+added to the current envelope:
 
 - `usage`;
 - `rate_limit_reset_credits`; and
@@ -78,9 +81,10 @@ The contract MUST keep these concepts separate:
 
 ## 3. Exact Envelope
 
-The v2 document has exactly these top-level fields. Unknown fields MUST be
-rejected. All fields in this table are present; nullable fields contain JSON
-`null`, never an arbitrary omission.
+The current document has exactly three root fields, in this order:
+`execution_state`, `execution_error`, and `providers`. There is no public root
+`version` field. Unknown fields MUST be rejected. All fields in this table are
+present; nullable fields contain JSON `null`, never an arbitrary omission.
 
 | Field | Type | Required rule |
 |-------|------|---------------|
@@ -88,9 +92,11 @@ rejected. All fields in this table are present; nullable fields contain JSON
 | `execution_error` | object or `null` | Required; document-level sanitized error, subject to the legal matrix |
 | `providers` | array | Required; exactly two provider objects, ordered `codex`, then `opencode_go` |
 
-The v2 output is one UTF-8 JSON document followed by exactly one LF byte. A
-document that cannot be represented within the limits in section 9 MUST fail
-closed and MUST NOT emit a partial JSON document.
+The current output is one UTF-8 JSON document followed by exactly one LF byte.
+The current projection emits only this three-field root and preserves validated
+provider outcomes, safe quota evidence, and provider identities. A document that
+cannot be represented within the limits in section 9 MUST fail closed and MUST
+NOT emit a partial JSON document.
 
 ### 3.1 Provider object
 
@@ -118,7 +124,8 @@ Every provider object has exactly these fields:
 may be unknown to the safe allowlist. The raw reference MUST NOT be copied into
 the output.
 
-Source identity is provider-bound. Codex accepts only `codex-app-server-v2`;
+Source identity is provider-bound and preserved independently of the current
+contract name. Codex accepts only `codex-app-server-v2`;
 OpenCode accepts only `opencode-go-api`. Every provider root source and window
 source is normalized independently before evidence validation. A wrong,
 unknown, or absent source becomes `null`, and numeric quantities from a window
@@ -133,7 +140,7 @@ commercial windows become fixed unavailable/null slots or are discarded, while
 non-commercial windows remain subject to the general rules. A `rate_limited`
 snapshot is provider-level HTTP 429 taxonomy, preserving only technical windows
 (including an empty array) without embedded per-window provenance. #55 is released upstream in
-Limitora v0.3.0, while yasb-limitora #133 remains a separate follow-up; this v2 contract does
+Limitora v0.3.0, while yasb-limitora #133 remains a separate follow-up; this current contract does
 not consume per-window rate-limit provenance.
 
 ### 3.2 Window object
@@ -142,7 +149,7 @@ Every item in `windows` has exactly these fields:
 
 | Field | Type | Required rule |
 |-------|------|---------------|
-| `kind` | string | Closed v2 vocabulary: `commercial_quota`, `technical_rate_limit`, `other` |
+| `kind` | string | Closed current vocabulary: `commercial_quota`, `technical_rate_limit`, `other` |
 | `scope` | string | Non-empty sanitized identity string |
 | `period` | string | Non-empty sanitized bounded string; open to future period names |
 | `plan_id` | string or `null` | Plan identity when evidenced; explicit `null` when absent |
@@ -270,7 +277,7 @@ The code-to-phase mapping is exact:
 For `outcome: snapshot`, `public_state` MUST preserve the current public
 Limitora spelling and meaning:
 
-| Public state | Required v2 interpretation |
+| Public state | Required current interpretation |
 |--------------|----------------------------|
 | `available` | At least one usable evidence-backed quota value; preserve it and its context |
 | `partial` | Usable values plus explicit absences/unsupported windows; preserve both |
@@ -313,10 +320,10 @@ failures. Provider fields not shown as variable MUST follow section 4.5.
 | Document condition | `execution_state` | Top-level error | Allowed provider outcomes | Required provider reason/error |
 |--------------------|-------------------|----------------|----------------------------|--------------------------------|
 | All selected providers disabled | `not_run` | `null` | Every provider `not_run` | Every `not_run_reason: disabled` |
-| Valid v2 invocation, document/global configuration missing/malformed | `execution_error` | `configuration_invalid/configuration` | Every provider `not_run` | `not_run_reason: invalid_configuration` |
+| Valid current invocation, document/global configuration missing/malformed | `execution_error` | `configuration_invalid/configuration` | Every provider `not_run` | `not_run_reason: invalid_configuration` |
 | One provider object is invalid and a peer is usable | `partial` | `null` | One `execution_error`, one `snapshot`/`undetected` | Invalid provider has `provider_failed/provider`; usable peer keeps its own outcome |
 | One provider object is invalid and no provider is usable | `execution_error` | `provider_failed/provider` | One `execution_error`, one `not_run` or `execution_error` | Invalid provider has `provider_failed/provider`; peers retain their own truthful outcome |
-| Valid v2 selection, invalid flag combination | `execution_error` | `invocation_invalid/configuration` | Every provider `not_run` | `not_run_reason: invocation_invalid` |
+| Valid current selection, invalid flag combination | `execution_error` | `invocation_invalid/configuration` | Every provider `not_run` | `not_run_reason: invocation_invalid` |
 | Guard wait expires | `not_run` | `guard_wait_timeout/guard_wait` | Every provider `not_run` | `not_run_reason: guard_wait_timeout` |
 | All provider calls are prevented by the absolute deadline | `not_run` | `deadline_exhausted/document` | Every provider `not_run` | At least one `deadline_exhausted`; other unattempted providers may be `disabled` |
 | One provider times out and another returns a snapshot/undetected result | `partial` | `null` | At least one `execution_error` and one `snapshot`/`undetected` | Timed provider has `provider_timeout/provider`; other provider follows its outcome |
@@ -363,7 +370,7 @@ substitute for plan identity.
 
 `metric` remains in every Quantity. It is not an independent compatibility key:
 for comparable kinds, Limitora validates that metric against the window kind.
-The v2 rules are:
+The current contract rules are:
 
 | Window kind | Required quantity metric |
 |-------------|--------------------------|
@@ -372,17 +379,17 @@ The v2 rules are:
 | `other` | `commercial_quota` or `technical_rate_limit`, but never a cross-provider comparison target |
 
 All non-null quantities in one window MUST use the same metric and unit.
-`other` is retained as safe quota evidence but has no v2 aggregation target.
+`other` is retained as safe quota evidence but has no current aggregation target.
 `tokens` and `balance` remain listed closed public metric values so an unknown
 or excluded public value is handled deterministically, but any Quantity using
 either metric is outside the 0.2 quota contract and MUST fail closed. No
-`UsageSnapshot` is represented by v2.
+`UsageSnapshot` is not represented by the current contract.
 There is no incompatible cross-provider minimum and no synthetic window.
 
 ## 6. Vocabularies and Sanitization
 
-The v2 vocabularies are closed. Unknown values fail closed; they MUST NOT be
-passed through as future enum strings.
+The current vocabularies are closed. Unknown values fail closed; they MUST NOT
+be passed through as future enum strings.
 
 | Vocabulary | Supported values |
 |------------|------------------|
@@ -425,7 +432,7 @@ accepted by a generic identifier regex.
 ## 7. Quantities and Decimal Canonicalization
 
 Quantity values MUST be finite Decimal values serialized as JSON strings. JSON
-numbers, binary floats, `NaN`, and infinities MUST be rejected at the v2
+numbers, binary floats, `NaN`, and infinities MUST be rejected at the current
 boundary. Limitora quantities are non-negative; negative quantities fail
 closed. `-0` is normalized to `0`.
 
@@ -497,12 +504,12 @@ IPC (`CONTROL_MAX_BYTES = 16 KiB`, `RESPONSE_MAX_BYTES = 64 KiB`):
 | `tooltip_text` | 4096 Unicode scalar values |
 | Original quantity text | 256 ASCII characters and 128 significant digits |
 | Derived percentage text | 128 ASCII characters and 34 significant digits |
-| v2 JSON stdout document including final LF | 65,536 bytes |
-| v2 response/frame JSON payload excluding its 4-byte length prefix | 65,536 bytes |
+| Current JSON stdout document including final LF | 65,536 bytes |
+| Current response/frame JSON payload excluding its 4-byte length prefix | 65,536 bytes |
 | Existing control/request frame payload | 16,384 bytes; unchanged |
 
-The v2 implementation MUST NOT increase the existing IPC limits to fit a large
-document. If 64 KiB is insufficient, it must fail closed or revise the
+The current implementation MUST NOT increase the existing IPC limits to fit a
+large document. If 64 KiB is insufficient, it must fail closed or revise the
 contract in a separately reviewed version.
 
 JSON input and output MUST be UTF-8 without a BOM. Parsers MUST reject invalid
@@ -525,8 +532,9 @@ windows by `(kind, scope, period)`, not by position.
 
 ## 10. Presentation Fields
 
-Presentation fields are bounded, sanitized, provider-local evidence. JSON v2
-MUST keep the existing `compact_text`, `alternate_text`, and `tooltip_text`
+Presentation fields are bounded, sanitized, provider-local evidence. The
+current JSON contract MUST keep the existing `compact_text`, `alternate_text`,
+and `tooltip_text`
 trio, in the existing provider object and field order. It MUST NOT add a
 wrapper, duplicate state, or synthetic evidence. All three fields are present
 for every provider outcome.
@@ -575,7 +583,7 @@ Tooltip lines are appended whole, in order, only while the complete result
 remains within 4096 Unicode scalars. Missing evidence remains missing: no
 synthetic value, zero, reset, identity, or raw error is allowed.
 
-The 65,536-byte document limit is applied after the complete canonical JSON v2
+The 65,536-byte document limit is applied after the complete current JSON
 document is projected and encoded. If that encoding would exceed the limit,
 the implementation MUST retry presentation rendering with one deterministic,
 document-local tooltip scalar budget shared by all snapshot providers. The
@@ -620,34 +628,24 @@ the aggregate remains `provider_failed`. Raw reasons and errors MUST NOT appear.
 
 `execution_error.code: cleanup_failed` MUST remain independently visible while
 each provider's recorded presentation remains truthful; a valid snapshot is
-not relabeled as unavailable or error. R6 changes no existing v2 fields,
-schema, model, object-key order, or byte-exact v1 output. It adds no new
+not relabeled as unavailable or error. R6 changes no existing current fields,
+schema, model, object-key order, or historical output. It adds no new
 synthetic windows, percentages, resets, plans, periods, severity, CSS/classes,
 refresh, defaults, execution guards, deadlines, YASB assets, unsupported
 providers/metrics, or R7+ behavior.
 
-## 11. Frozen JSON v1
+## 11. Current contract boundary
 
-v1 is semantically and byte-for-byte frozen. Its existing envelope remains:
+The current JSON document is the sole supported output. It is semantically
+current rather than one selectable version among several, and its root contains
+exactly `execution_state`, `execution_error`, and `providers` in that order.
+There is no public root `version` field. Historical v1 material is retained only
+in `docs/roadmap.md`; it is not an active output, serializer, schema, or fixture
+contract.
 
-```json
-{"version":1,"providers":[{"provider":"codex","state":"success"},{"provider":"opencode_go","state":"unavailable"}]}
-```
-
-The current v1 serializer uses compact JSON, preserves Unicode labels without
-ASCII escaping, emits provider order `codex`, then `opencode_go`, and appends
-one terminating LF. Its state vocabulary remains `loading`, `success`,
-`unavailable`, and `safe_error`; its error object remains `{"code": ...}`.
-
-The no-argument v1 invocation MUST retain all-disabled behavior: both providers
-are `unavailable`, exit code is `0`, stderr is empty, and no default config path
-or named config environment variable is consulted. Explicit v1 `--config`, `-c`,
-and `--config=PATH` retain their current semantics.
-
-R2 adds four byte fixtures and tests only: representative success, all-disabled
-unavailable, safe-error, and Unicode-label states. The tests compare exact bytes
-including the final LF and do not change runtime implementation. A fixture
-failure is a contract failure, not permission to update the fixture casually.
+Current examples and contract tests compare the complete JSON values, canonical
+object order, UTF-8 bytes, and exactly one final LF. A failure is a contract
+failure, not permission to add a compatibility output path.
 
 ## 12. Explicit v2 Selection and Configuration
 
@@ -865,12 +863,13 @@ does not mean instantaneous process death when YASB closes CustomWidget. The
 current CustomWidget `stop()` behavior is not a process-termination primitive.
 
 The shared quota cache is an optional, non-authoritative output artifact, not a
-second execution boundary. It uses a per-config/fingerprint filename and
-strictly validated schema-3 bytes. Publication occurs only after the provider
-guard has been released and closed and a clean provider result has been
-projected. It uses an atomic same-directory replace with a bounded temporary
-file; a failure is non-fatal and only the current operation's temporary file
-may be cleaned up. Uncoordinated cache reads and fallback never acquire a
+second execution boundary. It uses the preserved `quota-v2-cache.json` filename
+and per-config/fingerprint state with strictly validated schema-3 bytes. Any
+older cache schema is stale: it MUST be rejected and cold-refreshed, never
+migrated or served. Publication occurs only after the provider guard has been
+released and closed and a clean current result has been projected. It uses an
+atomic same-directory replace with a bounded temporary file; a failure is
+non-fatal and only the current operation's temporary file may be cleaned up. Uncoordinated cache reads and fallback never acquire a
 mutex; coordinated refresh inspection may hold the per-key mutex only for the
 short cache/marker state transition. After a guard wait timeout, the runtime
 performs one bounded read of the atomically
@@ -883,7 +882,7 @@ a failed publication.
 
 R10 is complete at two separate boundaries, with no automated YASB rendering
 claim. Automated native Windows proof
-covers the installed `yasb-limitora` executable, JSON v2 presentation leaves,
+covers the installed `yasb-limitora` executable, current JSON presentation leaves,
 exit behavior, sanitization, static YAML/CSS compatibility, and clean process
 termination. Real YASB CustomWidget behavior was accepted manually by the
 maintainer on YASB v2.0.6. Passing the repository proof does not substitute for
@@ -986,7 +985,8 @@ R2 excludes:
 - Claude and Gemini;
 - costs, tokens, history, predictions, `usage`, and
   `rate_limit_reset_credits`; and
-- the R2 review's then-unstarted R3 runtime implementation.
+    - the historical R2 review boundary; current runtime behavior is specified
+      by the active contract and its reviewed implementation.
 
 ## 16. Acceptance Criteria
 
@@ -1005,7 +1005,7 @@ Each user rule is mapped to a reviewable acceptance criterion.
 | 9 | Quantity invariants, fixed-point rendering, separate 128-digit original quantities, 34-digit derived percentages, exact formula, zero-limit eligibility, and fail-closed overflow behavior are explicit. |
 | 10 | All four required timestamp fields use six-digit UTC precision and `Z`. |
 | 11 | Cardinalities, string lengths, separate decimal bounds, byte/frame limits, duplicate-key/trailing-data/UTF-8 rules, and deterministic ordering are explicit. |
-| 12 | The historical R2 unit kept v1 rules and four exact-byte golden fixtures/tests without runtime source changes. |
+| 12 | The current contract keeps canonical UTF-8 bytes, one final LF, and current-contract examples/tests without a legacy output path. |
 | 13 | Exact top-level/provider config grammar, v1 compatibility, explicit selectors, v2-only config precedence, environment variable, canonical path, legal flag combinations, parsing order, missing-file behavior, and stream/exit table are present. |
 | 14 | One absolute deadline starts at CLI entry, bounds path/config I/O, reserves cleanup, and defines guard timeout, provider timeout, all-deadline, mixed deadline/provider failure, document, and cleanup failures. |
 | 15 | The guard is named correctly and its user/path scope, bounded wait, abandonment, failures, release, and no-coalescing rules are explicit. |
@@ -1019,9 +1019,9 @@ The R2 review gate required:
 
 - this specification and its schema are internally consistent;
 - the schema and fixture files parse as UTF-8 JSON;
-- focused existing tests and the new golden fixture tests pass;
+- focused current-contract tests pass;
 - `git diff --check` is clean;
-- no `src/` behavior changed; and
+- the current contract, schema, examples, and tests agree; and
 - the reviewer can trace every rule in section 16 to a document, schema, test,
   or explicit manual proof.
 
@@ -1031,7 +1031,7 @@ is recorded at the separate automated-native/manual-YASB boundaries above.
 
 ## 18. Complete Examples
 
-The following examples are complete v2 documents. They are normative examples
+The following examples are complete current-contract documents. They are normative examples
 of shape and legal combinations, not provider fixtures or runtime output from
 this R2 unit.
 
@@ -1449,7 +1449,7 @@ this R2 unit.
 }
 ```
 
-### 18.8 Invocation error after v2 selection
+### 18.8 Invocation error
 
 ```json
 {
