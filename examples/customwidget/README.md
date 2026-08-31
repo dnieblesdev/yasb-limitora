@@ -70,7 +70,8 @@ not contain process exit codes or stderr metadata, and they are not a runtime
 proof of YASB rendering.
 
 The fixtures validate the repository's bounded presentation data only. Generic
-YASB CustomWidget acceptance is complete; OpenCode real-provider acceptance
-remains pending for R11/#130. Follow the manual native procedure in
+YASB CustomWidget acceptance is complete; OpenCode Bearer API migration #130 is
+complete/integrated via #159; real-provider manual acceptance remains pending for
+R11. Follow the manual native procedure in
 [`docs/windows-json.md`](../../docs/windows-json.md) only when an existing real
 Windows YASB installation and authorized test environment are available.

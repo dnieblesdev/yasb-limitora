@@ -212,7 +212,8 @@ def test_completed_migration_130_is_not_documented_as_a_pending_gate():
     roadmap = texts[ROOT / "docs/roadmap.md"]
     research = texts[ROOT / "docs/research/README.md"]
     specification = texts[ROOT / "docs/specifications/json-v2.md"]
-    combined = "\n".join(texts[path] for path in STATUS_DOCUMENTS) + "\n" + windows
+    example_readme = (ROOT / "examples/customwidget/README.md").read_text(encoding="utf-8")
+    combined = "\n".join(texts[path] for path in STATUS_DOCUMENTS) + "\n" + windows + "\n" + example_readme
 
     # Migration #130 is complete and integrated; no document may describe
     # it as a pending implementation gate or an unmet R11 dependency again.
@@ -267,3 +268,10 @@ def test_completed_migration_130_is_not_documented_as_a_pending_gate():
         "externally pending",
     ):
         assert needle in manual
+
+    example_status = " ".join(example_readme.split())
+    assert re.search(
+        r"generic YASB CustomWidget acceptance is complete[^.]{0,160}#130 is complete/integrated via #159[^.]{0,160}manual acceptance remains pending for R11",
+        example_status,
+        re.IGNORECASE,
+    )
