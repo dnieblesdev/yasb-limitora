@@ -615,6 +615,12 @@ def test_unknown_evidence_fails_closed_without_echoing_the_rejected_value():
     assert "future-secret-state" not in str(error.value)
 
 
+@pytest.mark.parametrize(("public_state", "freshness"), ((None, "fresh"), ("available", None)))
+def test_snapshot_presentation_rejects_missing_state_or_freshness(public_state, freshness):
+    with pytest.raises(ValueError, match="invalid snapshot presentation"):
+        projection_module._presentation(ProviderKey.CODEX, ProviderOutcome.SNAPSHOT.value, [], public_state, freshness)
+
+
 @pytest.mark.parametrize(("adjustment", "candidate_size"), (("boundary_65389", 65_389), ("boundary_65390", 65_390), ("oversize", 65_696)))
 def test_document_byte_boundaries_are_allowed_or_replaced_whole(adjustment, candidate_size):
     if adjustment == "boundary_65389":

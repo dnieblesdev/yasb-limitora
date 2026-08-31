@@ -1320,3 +1320,25 @@ Native/no-rename count is **3,778 changed lines** (1,911 additions + 1,867 delet
 - Native/no-rename: **2,724** changed lines before progress/task records; Git rename-aware: **332**. Final count remains within the **2,800** ceiling.
 ### Deviations, remaining work, and rollback
 - No deviations or compatibility aliases. Remaining: parent final verification and later rename exceptions. Rollback is limited to this source/test rename and its direct reference updates.
+
+## Progress: corrective snapshot presentation narrowing
+### Status
+- **Slice:** Rejected-evidence remediation after `fcaea78`; `refactor/137-rename-projection`
+- **Scope:** `projection.py`, `test_json_projection.py`, and this artifact; local commit only, no further renames/docs/push/PR.
+### Completed
+- Added a regression for snapshot presentation with missing `public_state` or `freshness`.
+- Added the smallest post-fallback invariant check; invalid direct snapshot inputs now raise static, safe `ValueError`, while valid output is unchanged.
+### Strict TDD / verification
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Authoritative fresh LSP at rejected evidence `sha256:01d5dee27cf11a19ae4c905f22afaf8e2f1f303e3440f73ed5f00cd3a83dd1ff` | Exactly 2 `reportArgumentType` findings at `_presentation` line 355; focused regression **2 failed** with `AttributeError` |
+| GREEN | Added invariant check after the non-snapshot return | Focused regression **2 passed** |
+| TRIANGULATE | Projection/contract/CLI/cache/worker focused suite | **238 passed** |
+| TRIANGULATE | Native proof; strict collection | **11 passed**; **593 collected**, 0 errors |
+| REFACTOR / LSP | `npx --yes pyright src/yasb_limitora/projection.py` | **0 errors, 0 warnings, 0 informations** |
+| REFACTOR / full | `python -m pytest -q` | **589 passed, 3 skipped, 1 pre-existing** isolated-safe-path provenance failure |
+| REFACTOR | `ruff`, `git diff --check` | 9 pre-existing Ruff findings in projection; no new findings; diff clean |
+### Files, boundary, and remaining work
+- Files: `src/yasb_limitora/projection.py`, `tests/test_json_projection.py`, this artifact.
+- No-rename accounting from `c1aa29c`: **2775 changed lines** after this record; within the **2,800** exception ceiling. Remaining: parent final verification and later rename exceptions.
+- No deviation from design; rollback is limited to this corrective invariant and regression.

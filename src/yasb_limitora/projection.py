@@ -326,6 +326,8 @@ def _presentation(
         if outcome == ProviderOutcome.NOT_RUN.value and reason in _NOT_RUN_TEXT:
             fallback["tooltip_text"] += f": {_NOT_RUN_TEXT[reason]}"
         return fallback
+    if public_state is None or freshness is None:
+        raise ValueError("invalid snapshot presentation") from None
     ordered_windows = sorted(windows, key=_window_sort_key)
     eligible = [(window, _percentage(window)) for window in ordered_windows]
     eligible = [(window, value) for window, value in eligible if value is not None]
