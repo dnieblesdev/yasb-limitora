@@ -32,7 +32,7 @@ automated YASB rendering.
 |-----------|------|--------------|
 | YASB CustomWidget | Host lifecycle, compact/alternate labels, tooltip, static CSS, periodic/manual refresh | Provider calls, credentials, JSON interpretation, cancellation of a running helper |
 | `yasb-limitora` | Version selection, config resolution, bounded execution, safe projection, JSON serialization | Provider implementation or private Limitora APIs |
-| Limitora 0.1.0 public API | Provider detection, authentication, transport, status state, freshness, quota windows, Decimal quantities | YASB imports, widget layout, popover behavior |
+| Limitora 0.2.0 Bearer public API | Provider detection, authentication, transport, status state, freshness, quota windows, Decimal quantities | YASB imports, widget layout, popover behavior |
 
 ## Product contract
 
@@ -44,6 +44,13 @@ R2 defines a quota-focused v2 document that keeps these distinctions explicit:
 - independent freshness;
 - every quota window and its availability/source context; and
 - sanitized execution errors.
+
+The consumed OpenCode 0.2 contract is explicit: `available` and `partial`
+snapshots use one fixed commercial slot for each `five_hour`, `monthly`, and
+`weekly` period. A `rate_limited` snapshot carries technical windows only and
+does not carry per-window commercial provenance. Limitora #55's per-window
+rate-limit signal is released upstream in v0.3.0, but it is upstream context
+only here and is not consumed until yasb-limitora #133.
 
 `usage` and `rate_limit_reset_credits` are excluded from 0.2. This is an
 intentional quota scope, not a claim that it is the complete Limitora snapshot.
@@ -83,8 +90,9 @@ fields are bounded text only; they do not create a severity protocol.
 
 - No native YASB widget or YASB upstream contribution.
 - No official extension research or maintainer approval as roadmap work.
-- No native popover, fixed provider-window assumptions, synthetic windows, or
-  absent-as-zero interpretation.
+- No native popover, generic fixed provider-window assumptions, synthetic
+  windows, or absent-as-zero interpretation. The explicit OpenCode 0.2 fixed
+  commercial slots are defined by the consumed contract above.
 - No Claude, Gemini, costs, tokens, history, predictions, usage, or reset
   credits in 0.2.
 - Open Design exports remain immutable. Their README may explain their status,

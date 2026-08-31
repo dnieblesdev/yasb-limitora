@@ -290,13 +290,18 @@ release and smoke-test gate.
 
 ## Current gate
 
-R1-R10 are complete. R11 is next, gated by the released Limitora dependency,
+R1-R10 are complete. R11 is next, gated by the released Limitora 0.2.0 dependency,
 approved OpenCode migration #130, and separate manual OpenCode acceptance in a
 real YASB installation. No R11 release claim is made here.
 
 ## Explicit exclusions for 0.2
 
-The roadmap does not include native or upstream YASB work, fixed provider-window
-assumptions, absent-as-zero behavior, Claude, Gemini, costs, tokens, history,
-predictions, `usage`, or `rate_limit_reset_credits`. Later units must not be
-implemented before their ordered turn.
+The roadmap does not include native or upstream YASB work, generic fixed
+provider-window assumptions, absent-as-zero behavior, Claude, Gemini, costs,
+tokens, history, predictions, `usage`, or `rate_limit_reset_credits`. The
+approved OpenCode 0.2 contract is the explicit fixed-slot exception: its
+`available` and `partial` snapshots use `five_hour`, `monthly`, and `weekly`
+commercial slots, while `rate_limited` is technical-only. Limitora #55's
+v0.3.0 per-window signal is upstream context and is not consumed until
+yasb-limitora #133. Later units must not be implemented before their ordered
+turn.

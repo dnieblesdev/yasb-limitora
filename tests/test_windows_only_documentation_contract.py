@@ -16,6 +16,12 @@ STATUS_DOCUMENTS = (
     ROOT / "docs/roadmap.md",
     ROOT / "docs/specifications/json-v2.md",
 )
+SOURCE_OF_TRUTH_DOCUMENTS = (
+    ROOT / "docs/architecture/README.md",
+    ROOT / "docs/research/README.md",
+    ROOT / "docs/roadmap.md",
+    ROOT / "docs/specifications/json-v2.md",
+)
 
 
 def _r10_context(text: str) -> str:
@@ -29,6 +35,12 @@ def test_scoped_docs_declare_one_bounded_windows_only_contract():
     assert set(texts) == {
         ROOT / "README.md",
         ROOT / "docs/windows-json.md",
+        ROOT / "docs/architecture/README.md",
+        ROOT / "docs/roadmap.md",
+        ROOT / "docs/specifications/json-v2.md",
+    }
+    assert set(STATUS_DOCUMENTS) == {
+        ROOT / "README.md",
         ROOT / "docs/architecture/README.md",
         ROOT / "docs/roadmap.md",
         ROOT / "docs/specifications/json-v2.md",
@@ -72,3 +84,31 @@ def test_scoped_docs_declare_one_bounded_windows_only_contract():
     roadmap_r10 = next(line for line in texts[ROOT / "docs/roadmap.md"].splitlines() if "| R10 |" in line)
     assert re.search(r"complete", roadmap_r10, re.IGNORECASE)
     assert "automated" in roadmap_r10.lower() and "manual" in roadmap_r10.lower()
+
+
+def test_source_of_truth_docs_use_the_consumed_limitora_bearer_contract():
+    texts = {
+        path: path.read_text(encoding="utf-8") for path in SOURCE_OF_TRUTH_DOCUMENTS
+    }
+    architecture = texts[ROOT / "docs/architecture/README.md"]
+    research = texts[ROOT / "docs/research/README.md"]
+    roadmap = texts[ROOT / "docs/roadmap.md"]
+    specification = texts[ROOT / "docs/specifications/json-v2.md"]
+
+    architecture_contract = architecture.split("## Execution boundary", 1)[0]
+    research_contract = research.split("## Sanitized evidence rules", 1)[0]
+    for text in (architecture_contract, research_contract):
+        assert "0.2.0" in text and "Bearer" in text
+        assert "0.1.0" not in text
+        assert not re.search(r"\b(?:workspace|cookie)\b", text, re.IGNORECASE)
+
+    assert "Limitora 0.2.0" in roadmap
+    assert "Limitora 0.1.0" not in roadmap
+    assert "five_hour" in roadmap and "monthly" in roadmap and "weekly" in roadmap
+    assert "#55" in roadmap and "#133" in roadmap
+
+    assert "Limitora v0.3.0" in specification
+    assert "yasb-limitora does not consume it until #133" in specification
+    assert all(period in specification for period in ("five_hour", "monthly", "weekly"))
+    assert "technical-only" in specification
+    assert "- fixed assumptions about provider window count or names;" not in specification

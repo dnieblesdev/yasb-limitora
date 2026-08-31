@@ -933,7 +933,14 @@ R2 excludes:
 
 - native or upstream YASB work, plugin/extension maintainer approval, and native
   popovers or tabs;
-- fixed assumptions about provider window count or names;
+- generic fixed assumptions about provider window count or names. The approved
+  OpenCode 0.2 contract is the explicit exception: `available` and `partial`
+  snapshots MUST contain one commercial slot for each `five_hour`, `monthly`,
+  and `weekly` period. Missing, invalid, or non-known slots remain unavailable
+  with null quantities and reset data. `rate_limited` is provider-level and
+  technical-only; it MUST NOT carry per-window commercial provenance. Limitora
+  #55's per-window rate-limit signal is released upstream in v0.3.0, but
+  yasb-limitora does not consume it until #133;
 - absent-as-zero, percentages as a replacement for quantities, and incompatible
   cross-provider minima;
 - Claude and Gemini;
