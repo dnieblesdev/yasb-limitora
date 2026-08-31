@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 
+from yasb_limitora.limitora_api import OpenCodeFailureEvidence
 from yasb_limitora.model import (DocumentView, ProviderKey, ProviderOutcome, ProviderSnapshotView, ProviderState, ProviderView, PublicProviderState, QuotaAvailability, QuotaMetricKind, QuotaQuantity, QuotaWindowKind, QuotaWindowView, SafeError, SafeErrorCode, SnapshotFreshness)
 from yasb_limitora.projection_v2 import (
     V2ProjectionInput, project_v2_bytes, project_v2_document, project_v2_failure_bytes,
@@ -16,7 +17,7 @@ WKEYS = {"kind", "scope", "period", "plan_id", "availability", "source_id", "lim
 QKEYS = {"value", "metric", "unit"}
 EKEYS = {"code", "phase"}
 TIME = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$")
-ERROR_PHASE = {"invocation_invalid": "configuration", "configuration_invalid": "configuration", "internal_error": "document", "provider_failed": "provider", "provider_timeout": "provider", "invalid_provider_data": "provider", "unknown_provider_state": "provider"}
+ERROR_PHASE = {"invocation_invalid": "configuration", "configuration_invalid": "configuration", "internal_error": "document", "provider_failed": "provider", "provider_timeout": "provider", "credential_invalid": "provider", "provider_rate_limited": "provider", "provider_unavailable": "provider", "invalid_provider_data": "provider", "unknown_provider_state": "provider"}
 def _window(period, plan=None, source=None, *, values=True, kind=QuotaWindowKind.COMMERCIAL_QUOTA, scope="account", reset=STAMP, unit="percentage_points"):
     metric = QuotaMetricKind.COMMERCIAL_QUOTA if kind is QuotaWindowKind.OTHER else QuotaMetricKind(kind.value)
     quantity = QuotaQuantity(Decimal("100.00"), metric, unit)
@@ -155,6 +156,36 @@ def test_public_projection_maps_provider_execution_error_safely():
     assert provider["execution_error"] == {"code": "provider_timeout", "phase": "provider"}
     assert provider["outcome"] == value["execution_state"] == "execution_error"
     assert provider["compact_text"] == provider["alternate_text"] == provider["tooltip_text"] == "Quota error"
+
+
+@pytest.mark.parametrize(
+    ("evidence", "mapped"),
+    (
+        (OpenCodeFailureEvidence.CREDENTIAL_INVALID, "credential_invalid"),
+        (OpenCodeFailureEvidence.TIMEOUT, "provider_timeout"),
+        (OpenCodeFailureEvidence.RATE_LIMITED, "provider_rate_limited"),
+        (OpenCodeFailureEvidence.UNAVAILABLE, "provider_unavailable"),
+    ),
+)
+def test_opencode_private_sidecar_maps_only_the_bounded_v2_taxonomy(evidence, mapped):
+    document = _document(
+        ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE),
+        ProviderView(
+            ProviderKey.OPENCODE_GO,
+            ProviderState.SAFE_ERROR,
+            SafeError(SafeErrorCode.PROVIDER_ERROR),
+            outcome=ProviderOutcome.EXECUTION_ERROR,
+        ),
+    )
+
+    projection = V2ProjectionInput(document, opencode_evidence=evidence)
+    value = project_v2_document(projection)
+
+    assert value["version"] == 2
+    assert "OpenCodeFailureEvidence" not in repr(projection)
+    assert [provider["provider"] for provider in value["providers"]] == ["codex", "opencode_go"]
+    assert value["providers"][1]["execution_error"] == {"code": mapped, "phase": "provider"}
+    assert value["execution_error"] == {"code": "provider_failed", "phase": "provider"}
 
 
 def test_presentation_fallbacks_stale_markers_and_depleted_tie_are_observable():
@@ -411,6 +442,8 @@ def test_invalid_projection_inputs_fail_closed_and_unsupported_document_codes_ar
         V2ProjectionInput(object())
     with pytest.raises(ValueError):
         V2ProjectionInput(DocumentView.ordered(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), {"secret"})
+    with pytest.raises(ValueError):
+        V2ProjectionInput(DocumentView.ordered(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), opencode_evidence=object())
     bad = _snapshot(ProviderKey.CODEX, [])
     object.__setattr__(bad.snapshot, "fetched_at", None)
     with pytest.raises(ValueError):
