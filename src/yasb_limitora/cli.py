@@ -73,37 +73,6 @@ def _config_path(argv: Sequence[str]) -> str | None:
     raise InvocationError
 
 
-def _output_version(argv: Sequence[str]) -> tuple[int | None, tuple[str, ...]]:
-    """Select the current output contract, retaining temporary v2 no-op syntax."""
-
-    if not all(isinstance(item, str) for item in argv):
-        raise InvocationError
-    version: int | None = 2
-    selector_seen = False
-    remaining: list[str] = []
-    index = 0
-    while index < len(argv):
-        argument = argv[index]
-        if argument == "--output-version":
-            if selector_seen or index + 1 >= len(argv):
-                raise InvocationError
-            value = argv[index + 1]
-            if value != "2":
-                raise InvocationError
-            selector_seen = True
-            index += 2
-            continue
-        if argument.startswith("--output-version="):
-            if selector_seen or argument[17:] != "2":
-                raise InvocationError
-            selector_seen = True
-            index += 1
-            continue
-        remaining.append(argument)
-        index += 1
-    return version, tuple(remaining)
-
-
 def _default_windows_config_path(environment: Mapping[str, str]) -> str:
     localappdata = environment.get("LOCALAPPDATA", "")
     if not localappdata or not localappdata.strip():
@@ -268,13 +237,9 @@ def main(
         return _run_internal_helper()
     effective_environment = os.environ if environment is None else environment
     t0_ns = time.monotonic_ns()
-    try:
-        version, load_args = _output_version(args)
-    except InvocationError:
-        _write(out, project_v2_failure_bytes("invocation_invalid"))
-        err.write("yasb-limitora: invocation_invalid\n")
-        err.flush()
-        return 2
+    # The current contract is the only runtime path; args remain untouched so
+    # removed selectors are rejected by ordinary invocation validation.
+    version, load_args = 2, args
     try:
         resolved_v2_path = None
         if version == 2:

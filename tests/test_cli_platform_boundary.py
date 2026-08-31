@@ -45,7 +45,6 @@ def test_non_windows_rejects_before_product_side_effects(monkeypatch):
         events.append((args, kwargs))
         raise AssertionError("product execution started before platform rejection")
 
-    monkeypatch.setattr(cli, "_output_version", unexpected)
     monkeypatch.setattr(cli, "_config_path", unexpected)
     monkeypatch.setattr(cli, "_resolve_config_path", unexpected)
     monkeypatch.setattr(cli, "_load", unexpected)

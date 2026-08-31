@@ -491,3 +491,57 @@ Focused command for both green runs: `python -m pytest -q --strict-markers tests
 ### Workload / PR boundary
 
 This is one focused test-only work unit, within the 400-line budget. Commit locally after verification; do not push, open, or merge a PR.
+
+## Progress: final public selector-removal slice
+
+### Status
+
+- **Slice:** Semantic 2 final — remove the public output-version parser seam
+- **Branch:** `feature/137-json-selector-removal`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local commit, no push or PR
+- **Provider/no-rename budget:** 209 changed lines across CLI and selector-focused tests, plus one required stale platform-consumer deletion; below the 400-line semantic limit
+
+### Completed tasks
+
+- Deleted `_output_version` completely from `src/yasb_limitora/cli.py`.
+- Preserved the original argument tuple through current invocation validation; every former selector spelling, missing value, duplicate, mixed, and positional form now emits sanitized `invocation_invalid`, exits 2, and does not read configuration or run a coordinator.
+- Migrated selector-focused behavior coverage to selector-free current invocations while preserving configuration precedence, streams, exits, redaction, deadline, grammar, and provider-scoped behavior.
+- Removed the stale platform-boundary monkeypatch of the deleted private symbol; no legacy production modules or filenames were removed or renamed.
+- Retained the internal `version = 2` dispatch marker only to keep this bounded slice mechanically safe; it is no longer derived from or negotiated by user input.
+
+### TDD cycle evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Updated selector-removal tests first; `python -m pytest -q --strict-markers tests/test_cli_output_version.py -k 'removed_output_selector or freeze_support or platform_gate'` | **8 passed, 3 failed, 42 deselected**; v2 spellings still reached configuration instead of being rejected |
+| GREEN | Deleted `_output_version`, passed original args to current validation, and migrated current-path tests | `python -m pytest -q --strict-markers tests/test_cli_output_version.py` → **53 passed** |
+| TRIANGULATE | Required dependent suite: `python -m pytest -q --strict-markers tests/test_cli_output_version.py tests/test_cli_platform_boundary.py tests/test_runtime_cli.py tests/test_v2_worker.py tests/test_windows_native_proof.py` | **115 passed, 3 skipped** |
+| TRIANGULATE / native proof | `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` | **11 passed** |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **583 tests collected**, 0 collection errors |
+| REFACTOR / lint | `ruff check src/yasb_limitora/cli.py tests/test_cli_output_version.py tests/test_cli_platform_boundary.py`; `git diff --check` | All Ruff checks passed; diff check passed |
+
+### Full-suite evidence
+
+- `python -m pytest -q --strict-markers` → **579 passed, 3 skipped, 1 pre-existing environment failure** in `tests/test_pr3b_package_provenance.py::test_isolated_cli_ignores_forged_dist_info_from_cwd`; the failure reports `interpreter_mode_invalid: isolated safe-path Python is required` from this Python 3.10 environment and reproduces when run alone.
+- Active source/test residue search found no `_output_version` symbol. Remaining `--output-version` matches are explicit invalid-selector test data in `tests/test_cli_output_version.py`; deferred docs/example contract assertions remain outside this slice.
+
+### Files changed
+
+- `src/yasb_limitora/cli.py`
+- `tests/test_cli_output_version.py`
+- `tests/test_cli_platform_boundary.py` (required stale consumer cleanup so the deleted symbol is absent and dependent tests collect)
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- No behavioral deviation. The unversioned module/symbol rename and legacy production cleanup remain deferred as required by the handoff.
+- The allowed-surface list omitted `tests/test_cli_platform_boundary.py`, but its existing monkeypatch referenced the symbol that this slice must delete; the one-line stale-consumer removal was necessary to keep the required platform verification green.
+
+### Remaining tasks
+
+- Complete later bounded runtime cleanup, active examples/docs migration, mechanical normalization renames, and final residue verification.
+- Re-run the full suite in an environment with a safe-path-capable isolated interpreter; native Windows proof for this slice passed.
+
+### Workload / PR boundary
+
+This is the final public selector-removal work unit only. The semantic diff remains below 400 changed lines; legacy implementation files, names, and persisted identities remain untouched. Commit locally after verification; do not push, open, or merge a PR.
