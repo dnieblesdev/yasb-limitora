@@ -66,50 +66,57 @@ def test_private_result_queue_and_v2_record_retention():
     assert document.providers[1] is result.view and orchestrator.last_record.opencode_evidence is result.evidence
 
 
-def test_opencode_child_start_receives_only_public_environment(monkeypatch):
+def test_opencode_child_start_uses_private_frozen_environment_without_mutating_parent(monkeypatch):
+    import multiprocessing
+    import multiprocessing.popen_spawn_win32 as spawn_popen
+
+    from yasb_limitora import v2_path
+
     environment = {
         "PATH": "public-path",
+        "_PYI_ARCHIVE_FILE": "archive-sentinel",
+        "_PYI_APPLICATION_HOME_DIR": "home-sentinel",
+        "_PYI_PARENT_PROCESS_LEVEL": "1",
         "LIMITORA_OPENCODE_API_KEY": "opencode-secret",
         "OPENAI_API_KEY": "openai-secret",
         "AWS_SECRET_ACCESS_KEY": "aws-secret",
     }
     monkeypatch.setattr(v2_worker.os, "environ", environment)
-    observed = []
+    monkeypatch.setattr(v2_path._PRIVATE_SYS, "frozen", True, raising=False)
+    observed = {}
 
-    class Process:
-        pid, exitcode = 42, 0
-        def __init__(self, target, args):
-            pass
-        def start(self):
-            observed.append(dict(v2_worker.os.environ))
-        def join(self, timeout=None):
-            pass
-        def is_alive(self):
-            return False
-        def close(self):
-            pass
+    def recording_popen(process_obj):
+        observed["environ_is_parent"] = v2_worker.os.environ is environment
+        observed["environ"] = dict(v2_worker.os.environ)
+        observed["child_environment"] = dict(getattr(process_obj, "_child_environment", None) or {})
+        raise RuntimeError("spawn intercepted")
+
+    monkeypatch.setattr(v2_path, "_windows_spawn_popen", recording_popen)
+    monkeypatch.setattr(spawn_popen, "Popen", recording_popen)
 
     class Job:
         active_processes = 0
         state = "assigned"
         def assign_process(self, pid, *, allow_nested=False):
-            assert allow_nested is True
+            pytest.fail("job assigned before spawn completed")
         def close_with_deadline(self, deadline):
             self.state = "closed"
 
-    class SpawnContext:
-        def Queue(self):
-            return queue.Queue()
-        def Event(self):
-            return type("Event", (), {"set": lambda self: None, "close": lambda self: None})()
-
-    OpenCodeWorkerProcess(
-        process_factory=lambda **kwargs: Process(kwargs["target"], kwargs["args"]),
+    view = OpenCodeWorkerProcess(
         job_factory=Job,
-        context_factory=lambda _: SpawnContext(),
+        context_factory=lambda _: multiprocessing.get_context("spawn"),
     ).run_with_deadline(OpenCodeRequest("request-secret", 7), context())
 
-    assert observed == [{"PATH": "public-path"}]
+    assert observed["environ_is_parent"] is True
+    assert observed["environ"] == environment
+    assert observed["child_environment"] == {
+        "PATH": "public-path",
+        "_PYI_ARCHIVE_FILE": "archive-sentinel",
+        "_PYI_APPLICATION_HOME_DIR": "home-sentinel",
+        "_PYI_PARENT_PROCESS_LEVEL": "1",
+    }
+    assert not any("SECRET" in key or "API_KEY" in key for key in observed["child_environment"])
+    assert view.outcome is ProviderOutcome.EXECUTION_ERROR
     assert v2_worker.os.environ is environment
     assert environment["LIMITORA_OPENCODE_API_KEY"] == "opencode-secret"
 

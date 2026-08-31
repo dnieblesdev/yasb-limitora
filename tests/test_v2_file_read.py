@@ -520,24 +520,3 @@ def test_non_frozen_windows_spawn_keeps_base_executable_and_public_environment(m
     assert application == r"C:\\Python\\python.exe"
     assert environment == {"PATH": "public-sentinel"}
     assert "__PYVENV_LAUNCHER__" not in environment
-
-
-def test_spawn_environment_contains_only_public_sentinels(monkeypatch):
-    from yasb_limitora import v2_path
-
-    source = {
-        "PATH": "public-sentinel",
-        "LIMITORA_OPENCODE_API_KEY": "secret-sentinel",
-        "OPENAI_API_KEY": "other-secret-sentinel",
-    }
-    monkeypatch.setattr(v2_path.os, "environ", source)
-    observed = {}
-
-    with v2_path._spawn_environment(v2_path._public_child_environment(source)):
-        observed.update({
-            "path_present": "PATH" in v2_path.os.environ,
-            "opencode_present": "LIMITORA_OPENCODE_API_KEY" in v2_path.os.environ,
-            "openai_present": "OPENAI_API_KEY" in v2_path.os.environ,
-        })
-
-    assert observed == {"path_present": True, "opencode_present": False, "openai_present": False}
