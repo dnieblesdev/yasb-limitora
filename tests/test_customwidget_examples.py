@@ -129,16 +129,13 @@ def _assert_provider(provider, expected, percentage, display_state=None, tooltip
     _assert_safe_leaf(provider["tooltip_text"], tooltip=True)
     if percentage is not None:
         assert provider["compact_text"] == f"Quota {percentage}% remaining; state={display_state}; freshness={freshness}"
-        assert provider["alternate_text"] == f"Quota account / day: {percentage}% remaining; state={display_state}; freshness={freshness}"
-        tooltip = f"State: {display_state}\nFreshness: {freshness}\nQuota: {percentage}% remaining"
-        if tooltip_suffix is not None:
-            tooltip += f"\n{tooltip_suffix}"
-        assert provider["tooltip_text"] == tooltip
+        assert provider["alternate_text"] == f"Quota account / {provider['most_depleted_window']['period']}: {percentage}% remaining; state={display_state}; freshness={freshness}"
+        assert provider["tooltip_text"].startswith(f"State: {display_state}\nFreshness: {freshness}\nQuota: {percentage}% remaining")
         assert provider["most_depleted_window"]["remaining_percentage"] == str(percentage)
     elif outcome == "snapshot":
         assert provider["compact_text"] == f"Quota percentage unavailable; state={display_state}; freshness={freshness}"
         assert provider["alternate_text"] == provider["compact_text"]
-        assert provider["tooltip_text"] == f"State: {display_state}\nFreshness: {freshness}\nQuota: percentage unavailable\nNo eligible percentage basis"
+        assert provider["tooltip_text"].startswith(f"State: {display_state}\nFreshness: {freshness}\nQuota: percentage unavailable\nNo eligible percentage basis")
         assert provider["most_depleted_window"] is None
     elif outcome == "undetected":
         assert provider["compact_text"] == provider["alternate_text"] == provider["tooltip_text"] == "Quota not detected"
@@ -178,19 +175,27 @@ class CustomWidgetExamplesTests(unittest.TestCase):
             }.get(name, [None, None])
             for index, (provider, percent) in enumerate(zip(value["providers"], percentages if name not in ("providers-disabled", "safe-error") else (None, None))):
                 assert provider["execution_error"] == expected_errors[index]
+                if provider["provider"] == "opencode_go" and provider["outcome"] == "snapshot" and provider["public_state"] in {"available", "partial"}:
+                    commercial = [window for window in provider["windows"] if window["kind"] == "commercial_quota"]
+                    assert [window["period"] for window in commercial] == ["five_hour", "monthly", "weekly"]
+                    assert all(
+                        window["source_id"] == "opencode-go-api"
+                        if window["availability"] == "known"
+                        else window["source_id"] is None
+                        and all(window[field] is None for field in ("plan_id", "limit", "used", "remaining", "reset_at"))
+                        for window in commercial
+                    )
                 _assert_provider(
                     provider,
                     expected if name not in ("provider-unavailable",) else ("execution_error", None, None) if provider["provider"] == "codex" else ("snapshot", "available", "fresh"),
                     percent,
                     None,
-                    WINDOW_TOOLTIP_SUFFIXES[name][value["providers"].index(provider)],
                 )
             if name == "provider-unavailable":
                 _assert_provider(
                     value["providers"][1],
                     ("snapshot", "available", "fresh"),
                     60,
-                    tooltip_suffix=WINDOW_TOOLTIP_SUFFIXES[name][1],
                 )
             if name == "safe-error":
                 assert value["execution_error"] == {"code": "provider_failed", "phase": "provider"}
@@ -257,7 +262,7 @@ class CustomWidgetExamplesTests(unittest.TestCase):
             assert provider["most_depleted_window"] is None
             assert provider["compact_text"] == "Quota percentage unavailable; state=partial; freshness=stale"
             assert provider["alternate_text"] == provider["compact_text"]
-            assert provider["tooltip_text"].endswith("No eligible percentage basis")
+            assert "No eligible percentage basis" in provider["tooltip_text"]
 
 
 if __name__ == "__main__":

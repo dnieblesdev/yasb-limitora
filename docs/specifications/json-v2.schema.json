@@ -663,7 +663,43 @@
             },
             "most_depleted_window": {"anyOf": [{"type": "null"}, {"type": "object", "properties": {"source_id": {"enum": ["opencode-go-api", null]}}}]}
           }
-        }
+        },
+        {
+          "if": {
+            "properties": {
+              "outcome": {"const": "snapshot"},
+              "public_state": {"enum": ["available", "partial"]}
+            }
+          },
+          "then": {
+            "properties": {
+              "windows": {
+                "items": {
+                  "if": {"properties": {"kind": {"const": "commercial_quota"}}},
+                  "then": {"properties": {"period": {"enum": ["five_hour", "monthly", "weekly"]}}}
+                },
+                "allOf": [
+                  {
+                    "contains": {"required": ["kind", "period"], "properties": {"kind": {"const": "commercial_quota"}, "period": {"const": "five_hour"}}},
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {"required": ["kind", "period"], "properties": {"kind": {"const": "commercial_quota"}, "period": {"const": "monthly"}}},
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {"required": ["kind", "period"], "properties": {"kind": {"const": "commercial_quota"}, "period": {"const": "weekly"}}},
+                    "minContains": 1,
+                    "maxContains": 1
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {"if": {"properties": {"public_state": {"const": "rate_limited"}}}, "then": {"properties": {"windows": {"items": {"properties": {"kind": {"const": "technical_rate_limit"}}}}}}}
       ]
     }
   }

@@ -37,13 +37,18 @@ def _large_document(period_length=64):
     limit, used = Decimal("1" + "0" * 127), Decimal("9" * 127)
     def provider(key, source):
         windows = []
+        kind = QuotaWindowKind.COMMERCIAL_QUOTA if key is ProviderKey.CODEX else QuotaWindowKind.TECHNICAL_RATE_LIMIT
+        metric = QuotaMetricKind.COMMERCIAL_QUOTA if key is ProviderKey.CODEX else QuotaMetricKind.TECHNICAL_RATE_LIMIT
         for index in range(32):
             scope = f"scope{index:02}"
             length = period_length if index == 0 else 64
             period = f"{index:02}" + "p" * (length - 2)
-            make_quantity = lambda value: QuotaQuantity(value, QuotaMetricKind.COMMERCIAL_QUOTA, "u" * 64)
-            windows.append(QuotaWindowView(QuotaWindowKind.COMMERCIAL_QUOTA, scope, period, None, QuotaAvailability.KNOWN, source, make_quantity(limit), make_quantity(used), make_quantity(Decimal("1")), STAMP))
-        return _snapshot(key, windows)
+            make_quantity = lambda value: QuotaQuantity(value, metric, "u" * 56)
+            windows.append(QuotaWindowView(kind, scope, period, None, QuotaAvailability.KNOWN, source, make_quantity(limit), make_quantity(used), make_quantity(Decimal("1")), STAMP))
+        view = _snapshot(key, windows)
+        if key is ProviderKey.OPENCODE_GO:
+            object.__setattr__(view.snapshot, "public_state", PublicProviderState.RATE_LIMITED)
+        return view
     return _document(provider(ProviderKey.CODEX, "codex-app-server-v2"), provider(ProviderKey.OPENCODE_GO, "opencode-go-api"))
 def _document(codex, opencode):
     return DocumentView.ordered(codex, opencode)
@@ -367,6 +372,40 @@ def test_projection_normalizes_root_and_window_sources_per_provider_and_drops_un
         assert all(window[field] is None for field in ("limit", "used", "remaining", "reset_at"))
 
 
+def test_opencode_projection_completes_fixed_slots_when_root_source_is_null():
+    known = _window("five_hour", source="opencode-go-api")
+    duplicate = _window("weekly", source="opencode-go-api", scope="team")
+    other_duplicate = _window("weekly", source="opencode-go-api", scope="workspace")
+    snapshot = _snapshot(ProviderKey.OPENCODE_GO, [known, duplicate, other_duplicate])
+    object.__setattr__(snapshot.snapshot, "source_id", None)
+    value = project_v2_document(V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), snapshot)))
+
+    provider = value["providers"][1]
+    assert provider["source_id"] is None
+    commercial = [window for window in provider["windows"] if window["kind"] == "commercial_quota"]
+    assert [window["period"] for window in commercial] == ["five_hour", "monthly", "weekly"]
+    assert commercial[0]["source_id"] == "opencode-go-api"
+    assert commercial[2]["scope"] == "account"
+    for window in commercial[1:]:
+        assert window["availability"] == "unavailable"
+        assert window["source_id"] is None
+        assert all(window[field] is None for field in ("plan_id", "limit", "used", "remaining", "reset_at"))
+    swapped = _snapshot(ProviderKey.OPENCODE_GO, [known, other_duplicate, duplicate]); object.__setattr__(swapped.snapshot, "source_id", None)
+    assert project_v2_bytes(V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), snapshot))) == project_v2_bytes(V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), swapped)))
+
+
+def test_opencode_projection_rate_limited_preserves_only_technical_windows_and_allows_empty():
+    technical = _window("requests", source="opencode-go-api", kind=QuotaWindowKind.TECHNICAL_RATE_LIMIT)
+    rate_limited = _snapshot(ProviderKey.OPENCODE_GO, [technical])
+    object.__setattr__(rate_limited.snapshot, "public_state", PublicProviderState.RATE_LIMITED)
+    empty = _snapshot(ProviderKey.OPENCODE_GO, [])
+    object.__setattr__(empty.snapshot, "public_state", PublicProviderState.RATE_LIMITED)
+
+    for snapshot, expected in ((rate_limited, [("technical_rate_limit", "opencode-go-api")]), (empty, [])):
+        value = project_v2_document(V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), snapshot)))
+        assert [(window["kind"], window["source_id"]) for window in value["providers"][1]["windows"]] == expected
+
+
 def test_summary_truncation_preserves_the_complete_qualifier_and_tooltip_lines():
     document = _document(_snapshot(ProviderKey.CODEX, [_window("p" * 64, "x" * 64)]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))
     provider = project_v2_document(V2ProjectionInput(document))["providers"][0]
@@ -387,9 +426,9 @@ def test_unknown_evidence_fails_closed_without_echoing_the_rejected_value():
 @pytest.mark.parametrize(("adjustment", "candidate_size"), (("boundary_65535", 65_535), ("boundary_65536", 65_536), ("oversize", 65_696)))
 def test_document_byte_boundaries_are_allowed_or_replaced_whole(adjustment, candidate_size):
     if adjustment == "boundary_65535":
-        document = _near_boundary_document(43)
+        document = _near_boundary_document(39)
     elif adjustment == "boundary_65536":
-        document = _near_boundary_document(44)
+        document = _near_boundary_document(40)
     else:
         document = _large_document(64)
     if adjustment == "oversize":
@@ -471,6 +510,10 @@ def test_invalid_projection_inputs_fail_closed_and_unsupported_document_codes_ar
     for code in ("provider_failed", "timeout", "unknown", SafeErrorCode.TIMEOUT):
         with pytest.raises(ValueError):
             project_v2_failure_bytes(code)
+    overflow = _large_document()
+    object.__setattr__(overflow.providers[1].snapshot, "public_state", PublicProviderState.AVAILABLE)
+    value = json.loads(project_v2_bytes(V2ProjectionInput(overflow)))
+    assert value["execution_error"] == {"code": "internal_error", "phase": "document"}; _assert_document(value)
 
 
 @pytest.mark.parametrize("code", ("invocation_invalid", "configuration_invalid", "internal_error"))
