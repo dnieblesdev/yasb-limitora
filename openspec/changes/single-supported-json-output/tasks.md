@@ -28,7 +28,7 @@ Chain strategy: feature-branch-chain
 
 Use a **Feature Branch Chain**. Semantic behavior slices must stay at or below **400 provider/no-rename changed lines**. Physical rename-only work may exceed 400 only through an explicitly named `size:exception` slice with a bounded no-rename budget below. Keep v2 filenames and test filenames during semantic implementation. Do not rename or delete a consumer's provider before all consumers have migrated and passed collection/import checks.
 
-Each slice must state its start, finish, dependency, verification, and rollback boundary. Keep tests with the behavior they verify. Local commits/branches are allowed; pushing, opening PRs, and merging are not authorized. Preserve immutable external/persisted identity strings, including `Global\\yasb-limitora-v2-guard-*`, `quota-v2-cache.json`, and provider source IDs.
+Each slice must state its start, finish, dependency, verification, and rollback boundary. Keep tests with the behavior they verify. The user explicitly authorizes chained-PR publication, push, verification, merge, and issue/change closure; this child remains local until its bounded work unit is ready. Preserve immutable external/persisted identity strings, including `Global\\yasb-limitora-v2-guard-*`, `quota-v2-cache.json`, and provider source IDs.
 
 ## Branch order and dependency diagram
 
@@ -113,5 +113,5 @@ The failed `feature/137-json-projection@13f63d6` is excluded and is not in this 
 ## Non-negotiable constraints
 
 - Keep tests with the behavior they verify and do not add compatibility aliases for deleted active names.
-- Do not push, open, or merge PRs; do not create implementation artifacts outside this tasks file.
+- Chained-PR publication, push, verification, merge, and issue/change closure are authorized by the user; this apply child must only create its bounded local commit and must not publish yet.
 - Preserve `Global\\yasb-limitora-v2-guard-*`, `quota-v2-cache.json`, and provider source IDs exactly.

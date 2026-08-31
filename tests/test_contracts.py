@@ -15,6 +15,7 @@ from yasb_limitora import (
     ProviderView,
     SafeError,
     SafeErrorCode,
+    cli,
     project_bytes,
 )
 from yasb_limitora.config import (
@@ -31,6 +32,11 @@ def test_v1_golden_artifacts_are_absent() -> None:
 
     assert not (root / "tests/test_v1_golden_fixtures.py").exists()
     assert not tuple((root / "tests/fixtures").glob("json_v1_*.json"))
+
+
+@pytest.mark.parametrize("name", ("_failure", "_LEGACY_READ_CONFIG", "_load_explicit", "_load_path", "_load"))
+def test_removed_cli_helpers_are_absent(name: str) -> None:
+    assert not hasattr(cli, name)
 
 
 def test_config_is_immutable_and_repr_redacts_private_values() -> None:

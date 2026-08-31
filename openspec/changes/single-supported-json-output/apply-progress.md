@@ -545,3 +545,57 @@ This is one focused test-only work unit, within the 400-line budget. Commit loca
 ### Workload / PR boundary
 
 This is the final public selector-removal work unit only. The semantic diff remains below 400 changed lines; legacy implementation files, names, and persisted identities remain untouched. Commit locally after verification; do not push, open, or merge a PR.
+
+## Progress: bounded CLI dead-routing cleanup
+
+### Status
+
+- **Slice:** Semantic 3 bounded child — remove dead v1-only CLI routing and loaders
+- **Branch:** `refactor/137-cli-dead-routing`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local conventional commit, no push or PR in this child
+- **Allowed edit surfaces:** `src/yasb_limitora/cli.py`, `tests/test_contracts.py`, `tests/test_cli_platform_boundary.py`, this progress artifact, and the delivery-authorization wording in `tasks.md`
+- **No-rename budget:** 145 changed source/test lines before this progress entry; below the 400-line semantic limit
+
+### Completed tasks
+
+- Added focused absence coverage proving `_failure`, `_LEGACY_READ_CONFIG`, `_load_explicit`, `_load_path`, and `_load` are no longer exposed by `yasb_limitora.cli`.
+- Deleted the v1-only failure projector and loader helpers, the legacy projector import/use, the version marker/load-argument split, and all version-conditioned CLI branches.
+- Preserved the current v2-named loader, runtime, cache, and projection helpers, including the injected `RuntimeCoordinator`/`coordinator=` seam for the next child.
+- Removed the stale platform-boundary monkeypatch for deleted `_load` while retaining the early non-Windows side-effect proof.
+- Replaced stale task wording that prohibited delivery with the user's explicit chained-PR publication, push, verification, merge, and issue/change-closure authorization; this child remains local as assigned.
+
+### TDD cycle evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Added `test_removed_cli_helpers_are_absent` before production edits; `python -m pytest -q --strict-markers tests/test_contracts.py -k removed_cli_helpers_are_absent` | **5 failed**; each deleted helper was still present |
+| GREEN | Removed dead CLI routing/helpers and stale platform monkeypatch; `python -m pytest -q --strict-markers tests/test_contracts.py tests/test_cli_platform_boundary.py` | **54 passed, 3 skipped** |
+| TRIANGULATE | Required focused suite: `python -m pytest -q --strict-markers tests/test_contracts.py tests/test_cli_output_version.py tests/test_cli_platform_boundary.py tests/test_runtime_cli.py tests/test_v2_worker.py tests/test_windows_native_proof.py` | **165 passed, 3 skipped** |
+| TRIANGULATE / native proof | `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` | **11 passed** |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **588 tests collected**, 0 collection errors |
+| REFACTOR / lint | `ruff check src/yasb_limitora/cli.py tests/test_contracts.py tests/test_cli_platform_boundary.py`; `git diff --check` | All Ruff checks passed; diff check passed |
+| REFACTOR / full suite | `python -m pytest -q --strict-markers` | **584 passed, 3 skipped, 1 pre-existing environment failure** in `tests/test_pr3b_package_provenance.py::test_isolated_cli_ignores_forged_dist_info_from_cwd`; isolated safe-path support is unavailable in this Python 3.10 environment |
+| REFACTOR / primary LSP | Checked `pyright` executable/module availability | Unavailable; no primary LSP run |
+
+### Files changed
+
+- `src/yasb_limitora/cli.py`
+- `tests/test_contracts.py`
+- `tests/test_cli_platform_boundary.py`
+- `openspec/changes/single-supported-json-output/tasks.md`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- The active `_read_config` test seam remains, but production default loading continues through bounded `read_v2_config`; the deleted legacy sentinel was replaced with a module-origin check so existing injected loader tests and the shared deadline remain intact.
+- No modules, symbols outside this bounded CLI cleanup, physical names, coordinator behavior, or persisted/external identities were renamed or changed.
+
+### Remaining tasks
+
+- Continue the next bounded runtime cleanup child, retaining v2 filenames until all consumers migrate.
+- Complete active examples/docs updates, mechanical normalization rename exceptions, and final residue verification.
+- Re-run the full suite in an environment with isolated safe-path support for the one pre-existing provenance failure.
+
+### Workload / PR boundary
+
+This child is one focused dead-routing work unit on `refactor/137-cli-dead-routing`; the implementation diff is within the 400-line semantic budget. One local conventional commit is required after verification. Do not push, open a PR, merge, or close the issue/change from this child; the parent owns chained delivery after bounded children are ready.
