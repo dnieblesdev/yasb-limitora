@@ -23,7 +23,6 @@ from yasb_limitora.model import (
     ProviderView,
     SafeError,
     SafeErrorCode,
-    V2SafeErrorCode,
 )
 from yasb_limitora.projection_v2 import (
     V2ProjectionInput,
@@ -438,7 +437,7 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
         expected_document = DocumentView.ordered(
             ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED),
             ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason="disabled"),
-            SafeError(V2SafeErrorCode.CLEANUP_FAILED),
+            SafeError(SafeErrorCode.CLEANUP_FAILED),
         )
         expected = project_v2_bytes(V2ProjectionInput(expected_document, frozenset({ProviderKey.CODEX})))
         expected_stderr = "yasb-limitora: runtime_error\n"

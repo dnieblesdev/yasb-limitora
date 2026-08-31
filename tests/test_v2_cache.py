@@ -28,7 +28,6 @@ from yasb_limitora.model import (
     SafeError,
     SafeErrorCode,
     SnapshotFreshness,
-    V2SafeErrorCode,
 )
 from yasb_limitora.projection_v2 import V2ProjectionInput, project_v2_bytes
 from yasb_limitora.v2_cache import (
@@ -73,7 +72,7 @@ def public_bytes(*, cleanup=False, provider_error=False, disabled=False):
     opencode = ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason="disabled")
     if not disabled:
         opencode = ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED)
-    error = SafeError(V2SafeErrorCode.CLEANUP_FAILED) if cleanup else None
+    error = SafeError(SafeErrorCode.CLEANUP_FAILED) if cleanup else None
     return project_v2_bytes(V2ProjectionInput(DocumentView.ordered(codex, opencode, error), frozenset({ProviderKey.CODEX, ProviderKey.OPENCODE_GO})))
 
 

@@ -24,7 +24,6 @@ from .model import (
     QuotaWindowView,
     SafeErrorCode,
     SafeError,
-    V2SafeErrorCode,
     SnapshotFreshness,
     CODEX_SOURCE_ID,
     MAX_QUOTA_WINDOWS,
@@ -218,8 +217,8 @@ def _error(code: SafeErrorCode, evidence: object | None = None) -> dict[str, str
         SafeErrorCode.TIMEOUT: "provider_timeout",
         SafeErrorCode.INVALID_PROVIDER_DATA: "invalid_provider_data",
         SafeErrorCode.UNKNOWN_PROVIDER_STATE: "unknown_provider_state",
-        V2SafeErrorCode.GUARD_WAIT_TIMEOUT: "guard_wait_timeout",
-        V2SafeErrorCode.DEADLINE_EXHAUSTED: "deadline_exhausted",
+        SafeErrorCode.GUARD_WAIT_TIMEOUT: "guard_wait_timeout",
+        SafeErrorCode.DEADLINE_EXHAUSTED: "deadline_exhausted",
     }.get(code, "provider_failed")
     return {"code": mapped, "phase": "provider"}
 def _fallback(outcome: str) -> dict[str, Any]:
@@ -486,11 +485,11 @@ def _project_v2_document(
     )
     successful = {ProviderOutcome.SNAPSHOT.value, ProviderOutcome.UNDETECTED.value}
     document_error = input.document.document_error
-    if document_error is not None and document_error.code is V2SafeErrorCode.CLEANUP_FAILED:
+    if document_error is not None and document_error.code is SafeErrorCode.CLEANUP_FAILED:
         execution_state, execution_error = "execution_error", {"code": "cleanup_failed", "phase": "cleanup"}
-    elif document_error is not None and document_error.code in (V2SafeErrorCode.GUARD_WAIT_TIMEOUT, V2SafeErrorCode.DEADLINE_EXHAUSTED):
+    elif document_error is not None and document_error.code in (SafeErrorCode.GUARD_WAIT_TIMEOUT, SafeErrorCode.DEADLINE_EXHAUSTED):
         execution_state = "not_run"
-        execution_error = {"code": document_error.code.value, "phase": "guard_wait" if document_error.code is V2SafeErrorCode.GUARD_WAIT_TIMEOUT else "document"}
+        execution_error = {"code": document_error.code.value, "phase": "guard_wait" if document_error.code is SafeErrorCode.GUARD_WAIT_TIMEOUT else "document"}
     elif document_error is not None:
         execution_state, execution_error = "execution_error", {"code": document_error.code.value, "phase": "guard_wait"}
     elif all(outcome in successful for outcome in outcomes):
@@ -513,7 +512,7 @@ def project_v2_not_run_bytes(reason: str) -> bytes:
 
     if reason not in {"guard_wait_timeout", "deadline_exhausted"}:
         raise ValueError("unsupported v2 not-run reason")
-    code = V2SafeErrorCode.GUARD_WAIT_TIMEOUT if reason == "guard_wait_timeout" else V2SafeErrorCode.DEADLINE_EXHAUSTED
+    code = SafeErrorCode.GUARD_WAIT_TIMEOUT if reason == "guard_wait_timeout" else SafeErrorCode.DEADLINE_EXHAUSTED
     error = SafeError(code)
     document = DocumentView.ordered(
         ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason=reason),

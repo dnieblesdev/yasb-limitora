@@ -25,7 +25,6 @@ from .model import (
     ProviderView,
     SafeError,
     SafeErrorCode,
-    V2SafeErrorCode,
 )
 from .v2_deadline import DeadlineContext
 from .v2_guard import GuardError, GuardLease, V2Guard
@@ -451,11 +450,11 @@ class RefreshAttempt:
         for provider in provider_errors:
             views[provider] = _safe_error(provider, SafeErrorCode.CONFIGURATION_INVALID)
         if (self.worker_records or self.codex_helpers) and not self._cleanup_resources(context):
-            result = self._document(views, V2SafeErrorCode.CLEANUP_FAILED)
+            result = self._document(views, SafeErrorCode.CLEANUP_FAILED)
             self.last_record = V2ExecutionRecord(result)
             return result
         if self._unfinalized_leases and not self._retry_unfinalized_leases():
-            result = self._document(views, V2SafeErrorCode.CLEANUP_FAILED)
+            result = self._document(views, SafeErrorCode.CLEANUP_FAILED)
             self.last_record = V2ExecutionRecord(result)
             return result
         if self.worker_records or self.codex_helpers:
@@ -490,7 +489,7 @@ class RefreshAttempt:
                         key: view if key in provider_errors else _not_run(key, "deadline_exhausted")
                         for key, view in views.items()
                     },
-                    V2SafeErrorCode.DEADLINE_EXHAUSTED,
+                    SafeErrorCode.DEADLINE_EXHAUSTED,
                 )
             elif ProviderKey.CODEX in enabled:
                 executor = self.codex_executor
@@ -511,7 +510,7 @@ class RefreshAttempt:
                 usable_ns = max(0, remaining_ns - context.reserve_ns)
                 if usable_ns <= 0:
                     views[ProviderKey.OPENCODE_GO] = _not_run(ProviderKey.OPENCODE_GO, "deadline_exhausted")
-                    result = self._document(views, V2SafeErrorCode.DEADLINE_EXHAUSTED)
+                    result = self._document(views, SafeErrorCode.DEADLINE_EXHAUSTED)
                 else:
                     opencode_api_key = api_key
                     if not isinstance(opencode_api_key, str) or not opencode_api_key:
@@ -536,7 +535,7 @@ class RefreshAttempt:
         try:
             error, _ = _capture_call(execute)
             if isinstance(error, GuardError):
-                code = V2SafeErrorCode.GUARD_WAIT_TIMEOUT if error.code == "guard_wait_timeout" else V2SafeErrorCode.GUARD_ACQUISITION_FAILED
+                code = SafeErrorCode.GUARD_WAIT_TIMEOUT if error.code == "guard_wait_timeout" else SafeErrorCode.GUARD_ACQUISITION_FAILED
                 reason = "guard_wait_timeout" if error.code == "guard_wait_timeout" else "document_aborted"
                 result = self._document({key: _not_run(key, reason) for key in views}, code)
             elif error is not None:
@@ -556,10 +555,10 @@ class RefreshAttempt:
                 self.codex_helpers.clear()
             if cleanup_error:
                 preserved = views if result is None else {view.provider: view for view in result.providers}
-                result = self._document(preserved, V2SafeErrorCode.CLEANUP_FAILED)
+                result = self._document(preserved, SafeErrorCode.CLEANUP_FAILED)
         if unexpected_error is not None:
             raise unexpected_error
-        document = result if result is not None else self._document(views, V2SafeErrorCode.GUARD_ACQUISITION_FAILED)
+        document = result if result is not None else self._document(views, SafeErrorCode.GUARD_ACQUISITION_FAILED)
         evidence = current_opencode_result.evidence if isinstance(current_opencode_result, OpenCodeReadResult) else None
         self.last_record = V2ExecutionRecord(document, evidence)
         return document
@@ -592,7 +591,7 @@ class RefreshAttempt:
         return SingleFlightResult(value=document, cached_public_bytes=public_bytes, produced=True)
 
     @staticmethod
-    def _document(views: dict[ProviderKey, ProviderView], error: V2SafeErrorCode | None = None) -> DocumentView:
+    def _document(views: dict[ProviderKey, ProviderView], error: SafeErrorCode | None = None) -> DocumentView:
         return DocumentView.ordered(views[ProviderKey.CODEX], views[ProviderKey.OPENCODE_GO], SafeError(error) if error else None)
 
 
@@ -638,7 +637,7 @@ class V2ExecutionOrchestrator:
                     ProviderKey.OPENCODE_GO: _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.CONFIGURATION_INVALID)
                     if ProviderKey.OPENCODE_GO in provider_errors else _not_run(ProviderKey.OPENCODE_GO, "disabled"),
                 }
-                result = previous._document(views, V2SafeErrorCode.CLEANUP_FAILED)
+                result = previous._document(views, SafeErrorCode.CLEANUP_FAILED)
                 self.last_record = V2ExecutionRecord(result)
                 return result
             previous.worker_records.clear()

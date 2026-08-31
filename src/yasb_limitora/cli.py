@@ -26,7 +26,6 @@ from .model import (
     ProviderView,
     SafeError,
     SafeErrorCode,
-    V2SafeErrorCode,
 )
 from .projection_v2 import (
     V2ProjectionInput,
@@ -311,7 +310,7 @@ def main(
                 diagnostic = (
                     "guard_wait_timeout"
                     if document.document_error is not None
-                    and document.document_error.code is V2SafeErrorCode.GUARD_WAIT_TIMEOUT
+                    and document.document_error.code is SafeErrorCode.GUARD_WAIT_TIMEOUT
                     else "runtime_error" if exit_code else ""
                 )
                 data = project_v2_bytes(V2ProjectionInput(document, enabled, opencode_evidence))

@@ -53,6 +53,27 @@ def test_legacy_runtime_modules_and_exports_are_absent() -> None:
     assert all(not hasattr(package, name) for name in legacy_symbols)
 
 
+def test_safe_error_codes_have_one_current_enum() -> None:
+    model = importlib.import_module("yasb_limitora.model")
+    removed_enum_name = "V2" + "SafeErrorCode"
+
+    assert not hasattr(model, removed_enum_name)
+    assert tuple(code.value for code in SafeErrorCode) == (
+        "timeout",
+        "provider_error",
+        "internal_error",
+        "configuration_invalid",
+        "invocation_invalid",
+        "invalid_provider_data",
+        "unknown_provider_state",
+        "guard_acquisition_failed",
+        "guard_wait_timeout",
+        "deadline_exhausted",
+        "cleanup_failed",
+    )
+    assert SafeError("cleanup_failed").code is SafeErrorCode.CLEANUP_FAILED
+
+
 @pytest.mark.parametrize("name", ("_failure", "_LEGACY_READ_CONFIG", "_read_config", "_load_explicit", "_load_path", "_load"))
 def test_removed_cli_helpers_are_absent(name: str) -> None:
     assert not hasattr(cli, name)
@@ -223,7 +244,8 @@ def test_codex_timeout_range_remains_independent_from_opencode_timeout_range() -
 def test_models_have_closed_states_codes_and_safe_validation() -> None:
     assert {code.value for code in SafeErrorCode} == {
         "timeout", "provider_error", "internal_error", "configuration_invalid", "invocation_invalid",
-        "invalid_provider_data", "unknown_provider_state",
+        "invalid_provider_data", "unknown_provider_state", "guard_acquisition_failed", "guard_wait_timeout",
+        "deadline_exhausted", "cleanup_failed",
     }
     assert {state.value for state in ProviderState} == {"loading", "success", "unavailable", "safe_error"}
     document = DocumentView.ordered(

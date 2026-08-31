@@ -703,3 +703,58 @@ This child is one focused dead-routing work unit on `refactor/137-cli-dead-routi
 This child is limited to strict configuration grammar and direct consumers. Its no-rename implementation diff is below 400 lines. Commit locally after this evidence; do not push, rename, publish, or create a PR.
 
 Apply-progress content hash (excluding this line): sha256:1f725c3df717ccc7f262628088f5851bbad6c0693be334f4cf35e6809be8cf6c
+
+## Progress: unified safe-error enum child
+
+### Status
+
+- **Slice:** Bounded issue #137 child — merge current safe-error codes into the single enum
+- **Branch:** `refactor/137-unify-safe-errors`
+- **Base:** `4265225`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local commit, no push or PR
+- **No-rename budget:** 79 changed no-rename lines before this progress entry; below the 400-line semantic limit
+
+### Completed tasks
+
+- Added RED coverage for the complete `SafeErrorCode` wire-value set and absence of the removed enum without using a residue-search token.
+- Merged `guard_acquisition_failed`, `guard_wait_timeout`, `deadline_exhausted`, and `cleanup_failed` into `SafeErrorCode` while preserving every existing value.
+- Removed `V2SafeErrorCode` and the compatibility fallback from `SafeError.__post_init__`; `SafeError.code` now uses only `SafeErrorCode`.
+- Migrated active CLI, projection, worker, cache-test, runtime-test, and contract-test uses/imports.
+- Preserved all operational identity literals, v2 filenames/symbols, and projected wire values.
+
+### TDD Cycle Evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Added `test_safe_error_codes_have_one_current_enum` before production edits; `python -m pytest -q --strict-markers tests/test_contracts.py -k safe_error_codes_have_one_current_enum` | **1 failed** because `V2SafeErrorCode` was still present |
+| GREEN | Implemented the single enum and migrated active consumers; focused required suite | **215 passed** |
+| TRIANGULATE | `python -m pytest -q --strict-markers --collect-only` | **586 tests collected**, 0 collection errors |
+| TRIANGULATE / full | `python -m pytest -q --strict-markers` | **582 passed, 3 skipped, 1 pre-existing environment failure** in isolated safe-path package provenance |
+| REFACTOR / syntax | `python -m py_compile` on all four changed source files; `git diff --check` | Passed |
+| REFACTOR / Ruff | Ruff on all required changed source/test files, compared against `HEAD` versions | No newly introduced findings; existing model/projection/test-worker findings remain unchanged apart from line shifts |
+| RESIDUE | Search for `V2SafeErrorCode` across active source and assigned tests | No matches |
+| PRIMARY LSP | `pyright` executable and module probes | Unavailable in this environment; no actionable LSP result |
+
+### Files changed
+
+- `src/yasb_limitora/model.py`
+- `src/yasb_limitora/cli.py`
+- `src/yasb_limitora/projection_v2.py`
+- `src/yasb_limitora/v2_worker.py`
+- `tests/test_contracts.py`
+- `tests/test_runtime_cli.py`
+- `tests/test_v2_cache.py`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- None. The bounded child intentionally retains all active v2 filenames/symbols and changes no module names, public wire values, or operational identity literals.
+
+### Remaining tasks
+
+- Continue remaining semantic runtime/docs/example cleanup and the seven explicitly bounded normalization rename exceptions.
+- Complete final residue, full-suite, native-Windows, LSP, and diff-accounting verification at the designated chain boundary.
+
+### Workload / PR boundary
+
+This child is limited to the unified safe-error model and its assigned active consumers/tests. The no-rename diff remains below 400 lines. Commit locally after this evidence; do not push, open a PR, rename modules, or close the issue/change.

@@ -79,11 +79,6 @@ class SafeErrorCode(str, Enum):
     INVOCATION_INVALID = "invocation_invalid"
     INVALID_PROVIDER_DATA = "invalid_provider_data"
     UNKNOWN_PROVIDER_STATE = "unknown_provider_state"
-
-
-class V2SafeErrorCode(str, Enum):
-    """Document/provider error codes added without changing the v1 enum."""
-
     GUARD_ACQUISITION_FAILED = "guard_acquisition_failed"
     GUARD_WAIT_TIMEOUT = "guard_wait_timeout"
     DEADLINE_EXHAUSTED = "deadline_exhausted"
@@ -172,14 +167,10 @@ def _source_id(value: object) -> str | None:
 
 @dataclass(frozen=True, slots=True)
 class SafeError:
-    code: SafeErrorCode | V2SafeErrorCode
+    code: SafeErrorCode
 
     def __post_init__(self) -> None:
-        try:
-            code = _enum(SafeErrorCode, self.code, "invalid safe error code")
-        except ValueError:
-            code = _enum(V2SafeErrorCode, self.code, "invalid safe error code")
-        object.__setattr__(self, "code", code)
+        object.__setattr__(self, "code", _enum(SafeErrorCode, self.code, "invalid safe error code"))
 
 
 @dataclass(frozen=True, slots=True)
