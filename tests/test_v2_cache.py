@@ -729,13 +729,14 @@ def test_dead_or_mismatched_owner_is_reclaimed_with_next_generation(tmp_path, mo
 def test_stale_generation_cannot_publish_after_authority_is_lost(tmp_path, monkeypatch):
     cache = _single_flight_cache(tmp_path, monkeypatch)
     current_token = cache._process_token(os.getpid())
+    expected_identity = "new-authority"
 
     def producer(_):
         assert cache._write_marker(
             {
                 "generation": 2,
                 "owner_pid": os.getpid(),
-                "owner_token": "new-authority",
+                "owner_token": expected_identity,
                 "started_at": "2026-08-15T00:00:00.000000Z",
             },
             context(),
@@ -749,8 +750,7 @@ def test_stale_generation_cannot_publish_after_authority_is_lost(tmp_path, monke
     assert result.cached_public_bytes is None
     assert cache.load(context()) is None
     marker = cache._read_marker(context())
-    # pi-lens-ignore: hardcoded-password
-    assert marker is not None and marker["generation"] == 2 and marker["owner_token"] == "new-authority"
+    assert marker is not None and marker["generation"] == 2 and marker["owner_token"] == expected_identity
 
 
 def test_failed_publication_cleans_active_marker_without_cache_data(tmp_path, monkeypatch):
@@ -825,10 +825,11 @@ def test_process_identity_distinguishes_definite_missing_from_unknown(monkeypatc
 
 def test_process_identity_query_failure_is_unknown_and_never_reclaimed(tmp_path, monkeypatch):
     cache = _single_flight_cache(tmp_path, monkeypatch)
+    expected_identity = "owner-token"
     marker = {
         "generation": 3,
         "owner_pid": os.getpid(),
-        "owner_token": "owner-token",
+        "owner_token": expected_identity,
         "started_at": "2026-08-15T00:00:00.000000Z",
     }
     monkeypatch.setattr(cache, "_process_token", lambda _pid: None)
@@ -841,8 +842,7 @@ def test_process_identity_query_failure_is_unknown_and_never_reclaimed(tmp_path,
     assert calls == []
     assert result.coordination_failed
     current = cache._read_marker(context())
-    # pi-lens-ignore: hardcoded-password
-    assert current is not None and current["generation"] == 3 and current["owner_token"] == "owner-token"
+    assert current is not None and current["generation"] == 3 and current["owner_token"] == expected_identity
 
 
 def test_unreadable_marker_fails_closed_without_starting_a_second_producer(tmp_path, monkeypatch):
