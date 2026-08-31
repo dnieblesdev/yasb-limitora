@@ -93,20 +93,20 @@ def test_config_rejects_credentials_and_non_absolute_runners(value: dict[str, ob
     assert "secret" not in str(error.value)
 
 
-def test_v2_rejects_nested_credential_keys_before_provider_isolation() -> None:
+def test_current_rejects_nested_credential_keys_before_provider_isolation() -> None:
     private_value = "nested-private-value"
     with pytest.raises(ConfigError) as error:
-        LocalConfig.from_v2_mapping(
+        LocalConfig.from_mapping(
             {"opencode_go": {"nested": [{"headers": {"api_key": private_value}}]}},
             provider_errors=set(),
         )
     assert private_value not in str(error.value)
 
 
-def test_v2_rejects_direct_provider_credential_keys_before_provider_isolation() -> None:
+def test_current_rejects_direct_provider_credential_keys_before_provider_isolation() -> None:
     private_value = "direct-private-value"
     with pytest.raises(ConfigError) as error:
-        LocalConfig.from_v2_mapping(
+        LocalConfig.from_mapping(
             {"opencode_go": {"api_key": private_value}},
             provider_errors=set(),
         )
@@ -121,34 +121,32 @@ def test_timeout_errors_are_finite_deterministic_and_safe(timeout: object) -> No
 
 
 @pytest.mark.parametrize("timeout", [1, 7, 7.5, 10])
-def test_opencode_timeout_accepts_json_numbers(timeout: float) -> None:
-    assert OpenCodeGoConfig.from_v2_mapping({"timeout_seconds": timeout}).timeout_seconds == float(timeout)
+def test_current_opencode_timeout_accepts_json_numbers(timeout: float) -> None:
+    assert OpenCodeGoConfig.from_mapping({"timeout_seconds": timeout}).timeout_seconds == float(timeout)
 
 
 @pytest.mark.parametrize("timeout", ["7", True, math.nan, math.inf, -math.inf])
-def test_opencode_timeout_rejects_non_json_numbers(timeout: object) -> None:
+def test_current_opencode_timeout_rejects_non_json_numbers(timeout: object) -> None:
     with pytest.raises(ConfigError, match="^invalid timeout_seconds$"):
-        OpenCodeGoConfig.from_v2_mapping({"timeout_seconds": timeout})
+        OpenCodeGoConfig.from_mapping({"timeout_seconds": timeout})
 
 
 @pytest.mark.parametrize("timeout", [1, 7, 120])
-def test_codex_timeout_accepts_json_numbers(timeout: float) -> None:
-    assert CodexConfig.from_v2_mapping({"timeout_seconds": timeout}).timeout_seconds == float(timeout)
+def test_current_codex_timeout_accepts_json_numbers(timeout: float) -> None:
+    assert CodexConfig.from_mapping({"timeout_seconds": timeout}).timeout_seconds == float(timeout)
 
 
 @pytest.mark.parametrize("timeout", ["7", True, math.nan, math.inf, -math.inf])
-def test_codex_timeout_rejects_non_json_numbers(timeout: object) -> None:
+def test_current_codex_timeout_rejects_non_json_numbers(timeout: object) -> None:
     with pytest.raises(ConfigError, match="^invalid timeout_seconds$"):
-        CodexConfig.from_v2_mapping({"timeout_seconds": timeout})
+        CodexConfig.from_mapping({"timeout_seconds": timeout})
 
 
-def test_v1_timeout_retains_string_coercion_compatibility() -> None:
-    assert LocalConfig.from_mapping({"codex": {"timeout_seconds": "7"}}).codex.timeout_seconds == 7.0
-    assert LocalConfig.from_mapping({"opencode_go": {"timeout_seconds": "7"}}).opencode_go.timeout_seconds == 7.0
+
 
 
 @pytest.mark.parametrize("invalid_provider", ("codex", "opencode_go"))
-def test_v2_provider_errors_are_captured_independently_and_substituted(invalid_provider: str) -> None:
+def test_current_provider_errors_are_captured_independently_and_substituted(invalid_provider: str) -> None:
     raw = {
         "codex": {"enabled": True, "runner": r"C:\\Tools\\codex.exe"},
         "opencode_go": {"enabled": True},
@@ -156,7 +154,7 @@ def test_v2_provider_errors_are_captured_independently_and_substituted(invalid_p
     raw[invalid_provider]["timeout_seconds"] = 121 if invalid_provider == "codex" else 11
     errors: set[ProviderKey] = set()
 
-    config = LocalConfig.from_v2_mapping(raw, provider_errors=errors)
+    config = LocalConfig.from_mapping(raw, provider_errors=errors)
 
     assert {getattr(provider, "value", provider) for provider in errors} == {invalid_provider}
     assert getattr(config, invalid_provider).enabled is False
@@ -164,9 +162,9 @@ def test_v2_provider_errors_are_captured_independently_and_substituted(invalid_p
     assert getattr(config, peer).enabled is True
 
 
-def test_v2_provider_error_markers_are_safe_and_v1_remains_atomic() -> None:
+def test_current_provider_error_markers_are_safe_and_atomic_without_isolation() -> None:
     errors: set[ProviderKey] = set()
-    config = LocalConfig.from_v2_mapping(
+    config = LocalConfig.from_mapping(
         {
             "opencode_go": {
                 "enabled": True,
@@ -181,6 +179,13 @@ def test_v2_provider_error_markers_are_safe_and_v1_remains_atomic() -> None:
     assert "private_path" not in repr(errors)
     with pytest.raises(ConfigError):
         LocalConfig.from_mapping({"opencode_go": {"timeout_seconds": 11}})
+
+
+def test_legacy_config_parser_names_are_absent() -> None:
+    legacy_parser = "from_" + "v2_mapping"
+    assert not hasattr(CodexConfig, legacy_parser)
+    assert not hasattr(OpenCodeGoConfig, legacy_parser)
+    assert not hasattr(LocalConfig, legacy_parser)
 
 
 def test_v2_projection_keeps_canonical_order_and_aggregate_partial() -> None:

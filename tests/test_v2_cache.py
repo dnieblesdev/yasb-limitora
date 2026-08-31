@@ -53,7 +53,7 @@ def context(seconds=5):
 
 
 def config(path, *, opencode=False, runner=r"C:\\codex.exe"):
-    return LocalConfig.from_v2_mapping(
+    return LocalConfig.from_mapping(
         {
             "codex": {"enabled": True, "runner": runner},
             "opencode_go": {"enabled": opencode},
@@ -124,7 +124,7 @@ def snapshot_public_bytes(scope="account"):
 def make_cache(tmp_path, *, now=None, runner=r"C:\\codex.exe", key="private-key"):
     target = tmp_path / "config.json"
     target.write_text("{}", encoding="utf-8")
-    value = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": runner}, "opencode_go": {}})
+    value = LocalConfig.from_mapping({"codex": {"enabled": True, "runner": runner}, "opencode_go": {}})
     environment = {"LOCALAPPDATA": str(tmp_path), "LIMITORA_OPENCODE_API_KEY": key}
     return V2QuotaCache(value, environment, target, now=now), target
 

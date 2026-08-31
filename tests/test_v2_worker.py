@@ -60,7 +60,7 @@ def test_private_result_queue_and_v2_record_retention():
     v2_worker._opencode_bootstrap(lambda request: result, OpenCodeRequest("sentinel-api-key", 7), output)
     assert queued == [result] and "sentinel-api-key" not in repr(queued[0])
     worker = type("Worker", (), {"record": None, "last_result": result, "run_with_deadline": lambda self, request, deadline: result.view})()
-    config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": True}})
+    config = LocalConfig.from_mapping({"codex": {}, "opencode_go": {"enabled": True}})
     orchestrator = V2ExecutionOrchestrator(guard_factory=lambda: Guard(Lease([])), opencode_factory=lambda: worker)
     document = orchestrator.run(config, {"LIMITORA_OPENCODE_API_KEY": "key"}, context(), "config")
     assert document.providers[1] is result.view and orchestrator.last_record.opencode_evidence is result.evidence
@@ -123,7 +123,7 @@ def test_opencode_child_start_uses_private_frozen_environment_without_mutating_p
 
 def test_provider_configuration_error_skips_only_invalid_provider():
     launches = []
-    config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": True}})
+    config = LocalConfig.from_mapping({"codex": {}, "opencode_go": {"enabled": True}})
 
     class Worker:
         record = None
@@ -167,7 +167,7 @@ def test_reused_orchestrator_retains_only_current_opencode_evidence():
             return self.result.view
 
     workers = [Worker(result) for result in results]
-    config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": True}})
+    config = LocalConfig.from_mapping({"codex": {}, "opencode_go": {"enabled": True}})
     orchestrator = V2ExecutionOrchestrator(
         guard_factory=lambda: Guard(Lease([])),
         opencode_factory=lambda: workers.pop(0),
@@ -194,9 +194,9 @@ def test_disabled_or_codex_only_run_clears_previous_opencode_evidence():
             "run_with_deadline": lambda self, request, deadline: result.view,
         },
     )
-    open_config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": True}})
-    disabled_config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": False}})
-    codex_config = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}})
+    open_config = LocalConfig.from_mapping({"codex": {}, "opencode_go": {"enabled": True}})
+    disabled_config = LocalConfig.from_mapping({"codex": {}, "opencode_go": {"enabled": False}})
+    codex_config = LocalConfig.from_mapping({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}})
     codex_view = ProviderView(ProviderKey.CODEX, ProviderState.SUCCESS)
     codex = type("Codex", (), {"run_with_deadline": lambda self, runner, deadline: codex_view})()
     orchestrator = V2ExecutionOrchestrator(
@@ -226,7 +226,7 @@ def test_cleanup_complete_requires_all_worker_evidence():
     worker = type("Worker", (), {"record": record, "run_with_deadline": lambda self, request, deadline: (job.close_with_deadline(deadline) or ProviderView(ProviderKey.OPENCODE_GO, ProviderState.SUCCESS))})()
     events = []; lease = Lease(events); acquired = []
     SerialGuard = type("SerialGuard", (), {"acquire": lambda self, path, deadline: (_ for _ in ()).throw(GuardError("guard_wait_timeout")) if acquired else (acquired.append(True) or lease)})
-    config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": True}})
+    config = LocalConfig.from_mapping({"codex": {}, "opencode_go": {"enabled": True}})
     orchestrator = V2ExecutionOrchestrator(guard_factory=SerialGuard, opencode_factory=lambda: worker)
     result = orchestrator.run(config, {"LIMITORA_OPENCODE_API_KEY": "key"}, context(), "config")
     assert job.calls == 2 and not record.job_closed and record.process_closed and not cleanup_complete([record]) and result.document_error.code.value == "cleanup_failed" and events == [] and lease.owned
@@ -352,7 +352,7 @@ def test_prestart_deadline_exhaustion_retries_pending_codex_cleanup():
     executor._pending_supervisor = Supervisor()
     clock = iter((0, 200))
     expiring = DeadlineContext(t0_ns=0, deadline_ns=100, reserve_ns=0, clock_ns=lambda: next(clock))
-    config = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": r"C:\codex.exe"}, "opencode_go": {}})
+    config = LocalConfig.from_mapping({"codex": {"enabled": True, "runner": r"C:\codex.exe"}, "opencode_go": {}})
 
     document = V2ExecutionOrchestrator(
         guard_factory=lambda: Guard(Lease([])),
@@ -367,11 +367,11 @@ def test_prestart_deadline_exhaustion_retries_pending_codex_cleanup():
 
 
 def test_codex_exhaustion_skips_opencode_request_construction_and_returns_not_run():
-    clock = [0]; Codex = type("Codex", (), {"run_with_deadline": lambda self, runner, deadline: (clock.__setitem__(0, 2_000) or ProviderView(ProviderKey.CODEX, ProviderState.SUCCESS))}); config = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {"enabled": True}}); context = DeadlineContext(0, 1_000, 0, lambda: clock[0])
+    clock = [0]; Codex = type("Codex", (), {"run_with_deadline": lambda self, runner, deadline: (clock.__setitem__(0, 2_000) or ProviderView(ProviderKey.CODEX, ProviderState.SUCCESS))}); config = LocalConfig.from_mapping({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {"enabled": True}}); context = DeadlineContext(0, 1_000, 0, lambda: clock[0])
     document = V2ExecutionOrchestrator(guard_factory=lambda: Guard(Lease([])), codex_executor=Codex(), opencode_factory=lambda: pytest.fail("OpenCode worker constructed after deadline exhaustion")).run(config, {"LIMITORA_OPENCODE_API_KEY": "key"}, context, r"C:\\config.json")
     assert (document.providers[1].outcome, document.providers[1].not_run_reason) == (ProviderOutcome.NOT_RUN, "deadline_exhausted")
 def test_opencode_budget_sampling_handles_clock_expiry_race():
-    clock = iter((0, 0, 1)); requests = []; Worker = type("Worker", (), {"record": None, "run_with_deadline": lambda self, request, context: (requests.append(request) or ProviderView(ProviderKey.OPENCODE_GO, ProviderState.SUCCESS))}); config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": True}})
+    clock = iter((0, 0, 1)); requests = []; Worker = type("Worker", (), {"record": None, "run_with_deadline": lambda self, request, context: (requests.append(request) or ProviderView(ProviderKey.OPENCODE_GO, ProviderState.SUCCESS))}); config = LocalConfig.from_mapping({"codex": {}, "opencode_go": {"enabled": True}})
     document = V2ExecutionOrchestrator(guard_factory=lambda: Guard(Lease([])), opencode_factory=Worker).run(config, {"LIMITORA_OPENCODE_API_KEY": "key"}, DeadlineContext(0, 1, 0, lambda: next(clock)), "config")
     assert document.providers[1].state is ProviderState.SUCCESS
     assert requests and requests[0].timeout_seconds > 0
@@ -428,7 +428,7 @@ def test_started_opencode_overrun_remains_provider_timeout():
 def test_orchestrator_preserves_outcomes_when_mutex_cleanup_fails():
     events, lease = [], Lease([], close=False)
     lease.events = events
-    config = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": r"C:\codex.exe"}, "opencode_go": {}})
+    config = LocalConfig.from_mapping({"codex": {"enabled": True, "runner": r"C:\codex.exe"}, "opencode_go": {}})
     now = datetime(2026, 8, 1, tzinfo=timezone.utc)
     snapshot = ProviderSnapshotView(
         PublicProviderState.PARTIAL,
@@ -481,7 +481,7 @@ def test_retries_only_lease_close_after_release_succeeds():
     first = FirstLease()
     later = Lease([])
     leases = iter((first, later))
-    config = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}})
+    config = LocalConfig.from_mapping({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}})
     executor = type(
         "Executor",
         (),
@@ -500,7 +500,7 @@ def test_retries_only_lease_close_after_release_succeeds():
 def test_unexpected_provider_exception_is_not_relabelled_as_guard_failure():
     events, lease = [], Lease([])
     lease.events = events
-    config = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": r"C:\codex.exe"}, "opencode_go": {}})
+    config = LocalConfig.from_mapping({"codex": {"enabled": True, "runner": r"C:\codex.exe"}, "opencode_go": {}})
 
     class ExplodingExecutor:
         def run_with_deadline(self, runner, deadline):

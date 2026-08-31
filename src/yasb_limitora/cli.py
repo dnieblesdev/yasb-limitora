@@ -102,7 +102,7 @@ def _load_v2_explicit(path: str, context: DeadlineContext | None = None) -> tupl
     except Exception as error:
         raise ConfigError("invalid local configuration") from error
     provider_errors: set[ProviderKey] = set()
-    return LocalConfig.from_v2_mapping(value, provider_errors=provider_errors), frozenset(provider_errors)
+    return LocalConfig.from_mapping(value, provider_errors=provider_errors), frozenset(provider_errors)
 
 
 def _load_v2_path(path: str | None, context: DeadlineContext | None = None) -> tuple[LocalConfig, frozenset[ProviderKey]]:

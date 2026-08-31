@@ -96,6 +96,7 @@ The failed `feature/137-json-projection@13f63d6` is excluded and is not in this 
 ### Semantic RED → GREEN → TRIANGULATE → REFACTOR
 
 - [x] RED: add/update current-only projection, schema, CLI, cache, runtime, and consumer tests while retaining v2 filenames.
+- [x] Strict config grammar child: make the current `from_mapping` parser sole, isolate provider errors, reject string timeouts, and migrate direct consumers.
 - [ ] GREEN: implement contract/cache/CLI/runtime semantics in dependency order; migrate consumers before any provider rename or deletion.
 - [ ] TRIANGULATE: run focused success, failure, not-run, malformed, ordering, size, redaction, LF, stream/exit, precedence, deadline, stale-cache, import, process, guard, jobs, and spawn checks; require collection to remain clean.
 - [ ] REFACTOR: remove duplicate `project_bytes` and any behavior-slice lint debt introduced by the work; distinguish pre-existing named worker/test lint debt.

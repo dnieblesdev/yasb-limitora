@@ -644,3 +644,62 @@ This child is one focused dead-routing work unit on `refactor/137-cli-dead-routi
 - **Deviations:** None; no renames, aliases, v2-module changes, or identity changes.
 - **Remaining:** Later active-name normalization, docs/examples, rename exceptions, and final verification.
 - **Workload / PR boundary:** `git diff --no-renames --numstat` is **397 changed lines**, below the 400-line limit after artifact/task updates. One local commit only; no push or PR.
+
+## Progress: strict current configuration grammar child
+
+### Status
+
+- **Change:** `single-supported-json-output`
+- **Slice:** Semantic 2 bounded child — make current configuration parsing the sole grammar
+- **Branch:** `refactor/137-unify-config-grammar`
+- **Base:** `b711c92`
+- **Recovery:** remediates failed evidence `sha256:d708a1915a74e6ebc3885ee0fddd87e84a2b36c7c6dc33166b2cd2fa2535710b`; this entry uses distinct apply-progress evidence.
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local commit, no push, rename, docs, or PR
+- **No-rename budget:** 138 changed source/test lines before this progress entry; below 400
+
+### Completed tasks
+
+- Made `CodexConfig.from_mapping`, `OpenCodeGoConfig.from_mapping`, and `LocalConfig.from_mapping` enforce the strict current grammar.
+- Added provider-local isolation through the sole `LocalConfig.from_mapping` parser while retaining fail-closed top-level grammar and credential rejection.
+- Removed `from_v2_mapping`, nested provider-credential helper, and all string timeout coercion; numeric timeout and deadline validation remain bounded.
+- Migrated the CLI and direct cache/worker test consumers to `LocalConfig.from_mapping`.
+- Removed the legacy string-timeout compatibility test and added absence coverage for the deleted parser names.
+
+### TDD Cycle Evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Updated current parser tests and direct consumers before production edits; `python -m pytest -q tests/test_contracts.py tests/test_v2_cache.py tests/test_v2_worker.py` | **8 failed, 130 passed**; failures were the expected missing `provider_errors`, permissive string timeout, and legacy parser-name mismatches |
+| GREEN | Implemented strict shared timeout validation, provider-isolated `from_mapping`, parser deletion, CLI migration, and direct consumer migration | Focused suite: **212 passed** |
+| TRIANGULATE | `python -m pytest -q --strict-markers tests/test_contracts.py tests/test_cli_output_version.py tests/test_runtime_cli.py tests/test_v2_cache.py tests/test_v2_worker.py tests/test_windows_native_proof.py` | **223 passed** |
+| TRIANGULATE / native proof | `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` | **11 passed** |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **585 tests collected**, 0 collection errors |
+| REFACTOR / full strict suite | `python -m pytest -q --strict-markers` | **581 passed, 3 skipped, 1 pre-existing environment failure** in `test_isolated_cli_ignores_forged_dist_info_from_cwd` because this Python 3.10 environment lacks isolated safe-path support |
+| REFACTOR / lint and diff | Ruff on changed files; `git diff --check` | Config/CLI/contracts/cache clean; six worker Ruff findings reproduce unchanged from `HEAD`; diff check passed |
+| Residue | grep for deleted parser/helper names in `src` and `tests` | No active `from_v2_mapping`, `_strict_timeout`, or `_reject_nested_provider_credentials` residue |
+
+### Files changed
+
+- `src/yasb_limitora/config.py`
+- `src/yasb_limitora/cli.py`
+- `tests/test_contracts.py`
+- `tests/test_v2_cache.py`
+- `tests/test_v2_worker.py`
+- `openspec/changes/single-supported-json-output/tasks.md`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- No deviations. V2 module/symbol names, model error enums, immutable identities, runtime behavior, docs, and examples were preserved as required by this bounded child.
+- The six Ruff findings in `tests/test_v2_worker.py` are pre-existing and match `HEAD`; no unrelated lint debt was changed.
+
+### Remaining tasks
+
+- Continue remaining semantic cleanup, active docs/examples work, mechanical normalization rename exceptions, and final verification.
+- The full-suite isolated safe-path provenance failure remains an environment limitation and must be rechecked in the supported verification environment.
+
+### Workload / PR boundary
+
+This child is limited to strict configuration grammar and direct consumers. Its no-rename implementation diff is below 400 lines. Commit locally after this evidence; do not push, rename, publish, or create a PR.
+
+Apply-progress content hash (excluding this line): sha256:1f725c3df717ccc7f262628088f5851bbad6c0693be334f4cf35e6809be8cf6c
