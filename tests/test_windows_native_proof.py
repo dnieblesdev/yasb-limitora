@@ -321,7 +321,7 @@ def test_native_v2_default_configuration_reads_localappdata() -> None:
     stdout, stderr = io.BytesIO(), io.StringIO()
     try:
         assert main(
-            ["--output-version", "2"],
+            [],
             environment={"LOCALAPPDATA": str(temp_localappdata)},
             stdout=stdout,
             stderr=stderr,
@@ -351,7 +351,7 @@ def test_native_yasb_limitora_launcher_contract(tmp_path: Path) -> None:
             check=False,
         )
 
-    valid = invoke("--output-version", "2")
+    valid = invoke()
     expected = (
         Path(__file__).parents[1] / "examples/customwidget/fixtures/providers-disabled.json"
     ).read_bytes()
@@ -377,9 +377,9 @@ def test_native_yasb_limitora_launcher_contract(tmp_path: Path) -> None:
     invalid_config = tmp_path / "invalid.json"
     invalid_config.write_text('{"codex":{"enabled":true}}', encoding="utf-8")
     environment["YASB_LIMITORA_CONFIG"] = str(invalid_config)
-    invalid = invoke("--output-version", "2")
+    invalid = invoke()
     environment["YASB_LIMITORA_CONFIG"] = str(config)
-    invocation = invoke("--output-version", "2", "--unsupported")
+    invocation = invoke("--unsupported")
     assert invalid.returncode == 1
     assert json.loads(invalid.stdout)["providers"][0]["execution_error"] == {
         "code": "provider_failed",

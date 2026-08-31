@@ -251,7 +251,7 @@ def test_v2_default_resolution_reads_injected_localappdata(monkeypatch):
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     assert main(
-        ("--output-version", "2"),
+        (),
         environment={"LOCALAPPDATA": localappdata},
         coordinator=coordinator,
         stdout=stdout,
@@ -296,7 +296,7 @@ def test_v2_cli_missing_opencode_credentials_is_clean_not_run(monkeypatch, tmp_p
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     code = main(
-        ("--output-version", "2", "--config", str(path)),
+        ("--config", str(path)),
         environment={},
         stdout=stdout,
         stderr=stderr,
@@ -360,7 +360,7 @@ def test_v2_cli_consumes_private_opencode_evidence_sidecar(evidence, expected, m
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     code = main(
-        ("--output-version", "2", "--config", str(path)),
+        ("--config", str(path)),
         environment={"LOCALAPPDATA": str(tmp_path), "LIMITORA_OPENCODE_API_KEY": "private-key"},
         stdout=stdout,
         stderr=stderr,
@@ -408,7 +408,7 @@ def test_v2_provider_config_error_bypasses_cache_and_preserves_usable_peer(monke
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     code = main(
-        ("--output-version", "2", "--config", str(path)),
+        ("--config", str(path)),
         environment={"LIMITORA_OPENCODE_API_KEY": "key"},
         stdout=stdout,
         stderr=stderr,
@@ -439,7 +439,7 @@ def test_v2_configuration_failure_starts_no_provider(monkeypatch):
     monkeypatch.setattr(cli, "_read_config", read_config)
     stdout, stderr = io.BytesIO(), io.StringIO()
     assert main(
-        ("--output-version", "2"),
+        (),
         environment={"LOCALAPPDATA": r"C:\Users\runtime-test\AppData\Local"},
         coordinator=cast(RuntimeCoordinator, UnexpectedCoordinator()),
         stdout=stdout,
@@ -538,7 +538,7 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
 
     monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
-    code = main(("--output-version", "2", "--config", str(path)), environment={"LOCALAPPDATA": str(tmp_path), "LIMITORA_OPENCODE_API_KEY": "key"}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
+    code = main(("--config", str(path)), environment={"LOCALAPPDATA": str(tmp_path), "LIMITORA_OPENCODE_API_KEY": "key"}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
 
     assert code == 2
     assert stdout.getvalue() == expected
@@ -608,7 +608,7 @@ def test_v2_cli_second_invocation_uses_published_cache_without_rerunning_produce
     for _ in range(2):
         stdout, stderr = io.BytesIO(), io.StringIO()
         assert main(
-            ("--output-version", "2", "--config", str(path)),
+            ("--config", str(path)),
             environment=environment,
             stdout=stdout,
             stderr=stderr,
@@ -648,7 +648,7 @@ def test_v2_cli_cache_producer_failure_fails_closed_without_direct_run(monkeypat
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     code = main(
-        ("--output-version", "2", "--config", str(path)),
+        ("--config", str(path)),
         environment={"LOCALAPPDATA": str(tmp_path)},
         stdout=stdout,
         stderr=stderr,
@@ -688,7 +688,7 @@ def test_v2_cli_cache_constructor_failure_runs_orchestrator(monkeypatch, tmp_pat
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     code = main(
-        ("--output-version", "2", "--config", str(path)),
+        ("--config", str(path)),
         environment={"LOCALAPPDATA": str(tmp_path)},
         stdout=stdout,
         stderr=stderr,
@@ -722,7 +722,7 @@ def test_v2_cli_cache_guard_timeout_preserves_diagnostic_without_running_produce
     monkeypatch.setattr(cli, "V2ExecutionOrchestrator", Orchestrator)
     monkeypatch.setattr(cli, "V2QuotaCache", lambda *args: Cache())
     stdout, stderr = io.BytesIO(), io.StringIO()
-    code = main(("--output-version", "2", "--config", str(path)), environment={"LOCALAPPDATA": str(tmp_path)}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
+    code = main(("--config", str(path)), environment={"LOCALAPPDATA": str(tmp_path)}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
 
     assert code == 2
     assert stdout.getvalue() == project_v2_not_run_bytes("guard_wait_timeout")

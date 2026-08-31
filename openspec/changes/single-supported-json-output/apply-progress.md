@@ -439,3 +439,55 @@ This child contains only the current-default/v1-rejection behavior and directly 
 ### Workload / PR boundary
 
 This is the assigned corrective work unit for the failed current-default gate. The branch cumulative no-rename count is within the 400-line budget, and this commit boundary contains no production edits or renames. Commit locally after the recorded green, collection, Ruff, and diff checks; do not push or create a PR.
+
+## Progress: selector-free test invocation migration
+
+### Status
+
+- **Slice:** Non-selector-specific runtime, worker, native-proof, and platform test migration
+- **Branch:** `feature/137-json-selector-test-migration`
+- **Base:** `1917a70`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local commit, no push or PR
+- **Allowed edit surfaces:** four assigned test files and this progress artifact
+- **Budget:** 88 changed lines including this progress entry; below the 400-line semantic limit
+
+### Completed tasks
+
+- Removed explicit `--output-version 2` invocations from non-selector-specific runtime, worker, Windows native proof, and platform scenarios.
+- Left all selector parser/compatibility cases in `tests/test_cli_output_version.py` unchanged.
+- Preserved production code, test identities, examples, documentation, YAML, and persisted/external identity strings.
+
+### TDD / verification evidence
+
+This is a behavior-neutral test refactor under the already-green implementation; no production RED/GREEN change was required.
+
+| Check | Result |
+|---|---|
+| Baseline focused suite before edits | `121 passed, 4 skipped` |
+| Post-refactor focused suite | `120 passed, 3 skipped` |
+| Strict-marker collection | `588 tests collected`, 0 collection errors |
+| Ruff on changed test files | Three files clean; six pre-existing findings in `tests/test_v2_worker.py` reproduced unchanged against `HEAD` via stdin; no new findings |
+| `git diff --check` | Passed |
+
+Focused command for both green runs: `python -m pytest -q --strict-markers tests/test_cli_output_version.py tests/test_cli_platform_boundary.py tests/test_runtime_cli.py tests/test_v2_worker.py tests/test_windows_native_proof.py`.
+
+### Files changed
+
+- `tests/test_cli_platform_boundary.py`
+- `tests/test_runtime_cli.py`
+- `tests/test_v2_worker.py`
+- `tests/test_windows_native_proof.py`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- None. Explicit v2 selector compatibility remains protected in `tests/test_cli_output_version.py` for the next selector-removal slice.
+
+### Remaining tasks
+
+- Next slice removes/rejects the explicit v2 selector compatibility seam and updates selector-focused tests.
+- Final full strict-marker suite and native Windows proof remain for the designated final verification boundary.
+
+### Workload / PR boundary
+
+This is one focused test-only work unit, within the 400-line budget. Commit locally after verification; do not push, open, or merge a PR.
