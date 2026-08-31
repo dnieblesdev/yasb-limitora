@@ -8,6 +8,7 @@ from typing import cast
 import pytest
 
 from yasb_limitora import cli
+from yasb_limitora.cache import RefreshCoordinator, SingleFlightResult
 from yasb_limitora.cli import main
 from yasb_limitora.config import LocalConfig
 from yasb_limitora.limitora_api import (
@@ -30,7 +31,6 @@ from yasb_limitora.projection import (
     project_failure_bytes,
     project_not_run_bytes,
 )
-from yasb_limitora.v2_cache import SingleFlightResult, V2QuotaCache
 from yasb_limitora.v2_deadline import DeadlineContext
 from yasb_limitora.v2_guard import GuardError, V2Guard
 from yasb_limitora.v2_worker import OpenCodeWorkerProcess, V2ExecutionOrchestrator
@@ -278,7 +278,7 @@ def test_v2_cli_consumes_private_opencode_evidence_sidecar(evidence, expected, m
     assert document["execution_error"] == {"code": "provider_failed", "phase": "provider"}
 
 
-def test_v2_provider_config_error_bypasses_cache_and_preserves_usable_peer(monkeypatch, tmp_path):
+def test_provider_config_error_bypasses_cache_and_preserves_usable_peer(monkeypatch, tmp_path):
     path = tmp_path / "config.json"
     path.write_text(
         json.dumps({"codex": {"enabled": True}, "opencode_go": {"enabled": True}}),
@@ -307,7 +307,7 @@ def test_v2_provider_config_error_bypasses_cache_and_preserves_usable_peer(monke
                 ),
             )
 
-    monkeypatch.setattr(cli, "V2QuotaCache", Cache)
+    monkeypatch.setattr(cli, "RefreshCoordinator", Cache)
     monkeypatch.setattr(cli, "V2ExecutionOrchestrator", Orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
 
@@ -455,12 +455,12 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
         assert codex.runners == [(r"C:\\codex.exe", "app-server")]
 
 
-def test_v2_cli_second_invocation_uses_published_cache_without_rerunning_producer(monkeypatch, tmp_path):
+def test_cli_second_invocation_uses_published_cache_without_rerunning_producer(monkeypatch, tmp_path):
     path = tmp_path / "config.json"
     path.write_text(json.dumps({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}}), encoding="utf-8")
-    from yasb_limitora import v2_cache
+    from yasb_limitora import cache
 
-    monkeypatch.setattr(v2_cache, "_bounded_call", lambda function, args, context: function(*args))
+    monkeypatch.setattr(cache, "_bounded_call", lambda function, args, context: function(*args))
     lock = threading.Lock()
     cache_results = []
 
@@ -478,7 +478,7 @@ def test_v2_cli_second_invocation_uses_published_cache_without_rerunning_produce
             return Lease()
 
     def cache_factory(config, environment, config_path):
-        cache = V2QuotaCache(config, environment, config_path)
+        cache = RefreshCoordinator(config, environment, config_path)
         object.__setattr__(cache, "_guard_factory", Guard)
         original = cache.get_or_refresh
 
@@ -490,7 +490,7 @@ def test_v2_cli_second_invocation_uses_published_cache_without_rerunning_produce
         monkeypatch.setattr(cache, "get_or_refresh", get_or_refresh)
         return cache
 
-    monkeypatch.setattr(cli, "V2QuotaCache", cache_factory)
+    monkeypatch.setattr(cli, "RefreshCoordinator", cache_factory)
 
     class RunLease:
         def release(self):
@@ -529,7 +529,7 @@ def test_v2_cli_second_invocation_uses_published_cache_without_rerunning_produce
     assert not cache_results[1].produced and cache_results[1].cached_public_bytes == outputs[1]
 
 
-def test_v2_cli_cache_producer_failure_fails_closed_without_direct_run(monkeypatch, tmp_path):
+def test_cli_cache_producer_failure_fails_closed_without_direct_run(monkeypatch, tmp_path):
     path = tmp_path / "config.json"
     path.write_text(json.dumps({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}}), encoding="utf-8")
     attempts, direct_runs = [], []
@@ -550,7 +550,7 @@ def test_v2_cli_cache_producer_failure_fails_closed_without_direct_run(monkeypat
             return producer(context)
 
     monkeypatch.setattr(cli, "V2ExecutionOrchestrator", FailingOrchestrator)
-    monkeypatch.setattr(cli, "V2QuotaCache", lambda config, environment, config_path: Cache())
+    monkeypatch.setattr(cli, "RefreshCoordinator", lambda config, environment, config_path: Cache())
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     code = main(
@@ -568,7 +568,7 @@ def test_v2_cli_cache_producer_failure_fails_closed_without_direct_run(monkeypat
     assert direct_runs == []
 
 
-def test_v2_cli_cache_constructor_failure_runs_orchestrator(monkeypatch, tmp_path):
+def test_cli_cache_constructor_failure_runs_orchestrator(monkeypatch, tmp_path):
     path = tmp_path / "config.json"
     config = {"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}}
     path.write_text(json.dumps(config), encoding="utf-8")
@@ -590,7 +590,7 @@ def test_v2_cli_cache_constructor_failure_runs_orchestrator(monkeypatch, tmp_pat
 
     monkeypatch.setattr(cli, "read_v2_config", lambda path, context: json.dumps(config).encode())
     monkeypatch.setattr(cli, "V2ExecutionOrchestrator", Orchestrator)
-    monkeypatch.setattr(cli, "V2QuotaCache", fail_cache)
+    monkeypatch.setattr(cli, "RefreshCoordinator", fail_cache)
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     code = main(
@@ -607,7 +607,7 @@ def test_v2_cli_cache_constructor_failure_runs_orchestrator(monkeypatch, tmp_pat
     assert direct_runs == [True]
 
 
-def test_v2_cli_cache_guard_timeout_preserves_diagnostic_without_running_producer(monkeypatch, tmp_path):
+def test_cli_cache_guard_timeout_preserves_diagnostic_without_running_producer(monkeypatch, tmp_path):
     path = tmp_path / "config.json"
     config = {"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}}
     path.write_text(json.dumps(config), encoding="utf-8")
@@ -626,7 +626,7 @@ def test_v2_cli_cache_guard_timeout_preserves_diagnostic_without_running_produce
 
     monkeypatch.setattr(cli, "read_v2_config", lambda path, context: json.dumps(config).encode())
     monkeypatch.setattr(cli, "V2ExecutionOrchestrator", Orchestrator)
-    monkeypatch.setattr(cli, "V2QuotaCache", lambda *args: Cache())
+    monkeypatch.setattr(cli, "RefreshCoordinator", lambda *args: Cache())
     stdout, stderr = io.BytesIO(), io.StringIO()
     code = main(("--config", str(path)), environment={"LOCALAPPDATA": str(tmp_path)}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
 

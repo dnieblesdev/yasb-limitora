@@ -1,19 +1,19 @@
-"""Bounded, sanitized shared JSON v2 quota cache."""
+"""Bounded, sanitized shared JSON quota cache."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import hashlib
 import json
 import ntpath
 import os
 import re
-import time
 import stat
 import tempfile
+import time
 import zlib
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import Protocol, cast
@@ -21,21 +21,21 @@ from unicodedata import normalize
 
 from .config import LocalConfig
 from .model import (
+    ProviderKey,
+    ProviderSnapshotView,
+    PublicProviderState,
     QuotaAvailability,
     QuotaMetricKind,
     QuotaQuantity,
     QuotaWindowKind,
     QuotaWindowView,
-    ProviderSnapshotView,
-    ProviderKey,
-    PublicProviderState,
     SnapshotFreshness,
 )
-from .projection import _presentation as _project_presentation, _window_sort_key
+from .projection import _presentation as _project_presentation
+from .projection import _window_sort_key
 from .v2_deadline import DeadlineContext
 from .v2_guard import GuardError, V2Guard
 from .v2_path import V2DeadlineError, V2FileError, canonicalize_v2_path, path_identity
-
 
 CACHE_SCHEMA = 3
 CACHE_TTL_SECONDS = 180
@@ -1246,8 +1246,6 @@ class RefreshCoordinator:
         except Exception:
             return False
 
-# Keep the established cache name for callers while exposing the lifecycle role.
-V2QuotaCache = RefreshCoordinator
 
 __all__ = (
     "CACHE_FILENAME",
@@ -1259,7 +1257,6 @@ __all__ = (
     "RefreshDecision",
     "RefreshState",
     "SingleFlightResult",
-    "V2QuotaCache",
     "cache_path",
     "config_fingerprint",
 )

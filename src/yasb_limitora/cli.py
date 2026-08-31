@@ -12,6 +12,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TextIO, cast
 
+from .cache import RefreshCoordinator
 from .codex_helper import (
     _INTERNAL_HELPER_FLAG,
     _has_internal_helper_environment,
@@ -33,7 +34,6 @@ from .projection import (
     project_failure_bytes,
     project_not_run_bytes,
 )
-from .v2_cache import V2QuotaCache
 from .v2_deadline import DeadlineContext
 from .v2_path import V2DeadlineError, read_v2_config
 from .v2_worker import V2ExecutionOrchestrator
@@ -113,7 +113,7 @@ def _resolve_config_path(argv: Sequence[str], environment: Mapping[str, str]) ->
     return explicit if explicit is not None else _env_or_default(environment)
 
 
-def _v2_cache_eligible(config: LocalConfig, environment: Mapping[str, str]) -> bool:
+def _cache_eligible(config: LocalConfig, environment: Mapping[str, str]) -> bool:
     return bool(
         (config.codex.enabled and config.codex.runner)
         or (
@@ -160,7 +160,7 @@ def _v2_exit_code(document: DocumentView, enabled: frozenset[ProviderKey]) -> in
     return 0 if has_usable_provider else 1
 
 
-def _v2_cache_failure(code: str | None) -> bytes:
+def _cache_failure(code: str | None) -> bytes:
     if code in {"guard_wait_timeout", "deadline_exhausted"}:
         return project_not_run_bytes(code)
     if code == "guard_acquisition_failed":
@@ -234,9 +234,9 @@ def main(
             orchestrator = V2ExecutionOrchestrator()
             runtime_context = DeadlineContext.from_seconds(config.deadline_seconds, t0_ns=t0_ns)
             result = None
-            if not provider_errors and _v2_cache_eligible(config, effective_environment):
+            if not provider_errors and _cache_eligible(config, effective_environment):
                 try:
-                    cache = V2QuotaCache(config, effective_environment, resolved_v2_path or "")
+                    cache = RefreshCoordinator(config, effective_environment, resolved_v2_path or "")
                 except Exception:  # noqa: BLE001 - cache setup is optional infrastructure
                     cache = None
                 if cache is not None:
@@ -253,16 +253,16 @@ def main(
                         )
                     except Exception:  # noqa: BLE001 - cache coordination must fail closed
                         result = None
-                        coordination_data = _v2_cache_failure(
+                        coordination_data = _cache_failure(
                             "deadline_exhausted" if runtime_context.usable_ns() <= 0 else "internal_error"
                         )
                     if result is not None:
                         if result.cached_public_bytes is not None:
                             cached_data = result.cached_public_bytes
                         elif result.deadline_exhausted:
-                            coordination_data = _v2_cache_failure("deadline_exhausted")
+                            coordination_data = _cache_failure("deadline_exhausted")
                         elif result.coordination_failed:
-                            coordination_data = _v2_cache_failure(result.coordination_error)
+                            coordination_data = _cache_failure(result.coordination_error)
                             coordination_diagnostic = (
                                 "guard_wait_timeout"
                                 if result.coordination_error == "guard_wait_timeout"
@@ -271,7 +271,7 @@ def main(
                         else:
                             value = result.value
                             if not isinstance(value, DocumentView):
-                                raise TypeError("v2 cache did not return a document")
+                                raise TypeError("cache did not return a document")
                             document = value
             if cached_data is None and coordination_data is None and result is None:
                 document = orchestrator.run(

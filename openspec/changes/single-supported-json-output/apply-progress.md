@@ -1352,3 +1352,50 @@ Native/no-rename count is **3,778 changed lines** (1,911 additions + 1,867 delet
 - **Diagnostics:** Ruff reports 9 pre-existing findings in unchanged projection imports/validation/Decimal expressions; the strict-zip edit introduces none.
 - **Accounting:** `git diff --no-renames --numstat c1aa29c` is **2,786** changed lines after this record, within the 2,800 ceiling.
 - **Boundary:** No rename, test, docs, push, or PR change; parent owns the required local commit.
+
+## Progress: size:exception 3 — cache source/tests rename
+
+### Status
+
+- **Slice:** Mechanical cache normalization on `refactor/137-rename-cache`.
+- **Authorization:** Maintainer-approved `size:exception 3`; native/no-rename ceiling 4,500 lines.
+- **Delivery:** Feature-branch-chain / auto-chain; one local commit only, no push or PR.
+
+### Completed tasks
+
+- Renamed `src/yasb_limitora/v2_cache.py` to `src/yasb_limitora/cache.py` and `tests/test_v2_cache.py` to `tests/test_cache.py` with `git mv`.
+- Removed the `V2QuotaCache` alias and export; active callers now use `RefreshCoordinator`.
+- Migrated static/lazy cache imports and monkeypatch targets in CLI, worker, cache, and runtime tests.
+- Normalized cache-specific CLI helpers and directly coupled cache test labels; preserved v2 modules, source IDs, schema 3, filename, and coordination literals.
+
+### Strict TDD Cycle Evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | `python -m pytest -q --strict-markers tests/test_cache.py` immediately after `git mv` | Expected collection failure: old `yasb_limitora.v2_cache` import was unresolved |
+| GREEN | `python -m pytest -q --strict-markers tests/test_cache.py` | **65 passed** |
+| TRIANGULATE | Cache/CLI/worker/runtime/native/contracts focused suite | **224 passed** |
+| TRIANGULATE / native | `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` | **11 passed** |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **593 tests collected**, 0 errors |
+| REFACTOR | `python -m py_compile` on changed Python files; `git diff --check` | Passed |
+| Diagnostics | Ruff and `npx pyright` on changed files | Existing cache/worker Ruff findings and environment/pre-existing Pyright findings only; no actionable rename finding |
+| Residue | Active search for old cache module, alias, helper, and cache-test labels | No active matches; immutable `quota-v2-cache.json` and `.quota-v2-` literals retained |
+
+### Files changed
+
+- `src/yasb_limitora/cache.py` (renamed from `v2_cache.py`)
+- `src/yasb_limitora/cli.py`
+- `src/yasb_limitora/v2_worker.py`
+- `tests/test_cache.py` (renamed from `test_v2_cache.py`)
+- `tests/test_runtime_cli.py`
+- `openspec/changes/single-supported-json-output/tasks.md`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations and remaining tasks
+
+- No behavior, persisted identity, external source ID, coordination literal, or non-cache module/test rename was changed.
+- Remaining work is parent-owned: later rename exceptions and final full-suite verification.
+
+### Workload / PR boundary
+
+Native/no-rename accounting is **4,490 changed lines** including this progress/task evidence; Git rename-aware accounting is **200 changed lines** (123 additions + 77 deletions). This remains within the approved **4,500-line** exception ceiling. Rollback is limited to this cache source/test rename and direct cache reference updates. Commit locally only; do not push or open a PR.

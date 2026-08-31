@@ -570,9 +570,9 @@ class RefreshAttempt:
         context: DeadlineContext,
         config_path: str,
     ):
-        """Run one normal v2 attempt and prepare its public cache bytes."""
+        """Run one normal refresh attempt and prepare its public cache bytes."""
+        from .cache import SingleFlightResult
         from .projection import ProjectionInput, project_bytes
-        from .v2_cache import SingleFlightResult
 
         document = self.run(config, environment, context, config_path)
         evidence = self.last_record.opencode_evidence if self.last_record is not None else None
@@ -665,8 +665,8 @@ class V2ExecutionOrchestrator:
         provider_errors: frozenset[ProviderKey] | set[ProviderKey] = frozenset(),
     ):
         """Run one provider attempt and prepare its authoritative publication payload."""
+        from .cache import SingleFlightResult
         from .projection import ProjectionInput, project_bytes
-        from .v2_cache import SingleFlightResult
 
         document = self.run(config, environment, context, config_path, provider_errors=provider_errors)
         record = self.last_record
