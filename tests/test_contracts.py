@@ -1,5 +1,6 @@
 import json
 import math
+from pathlib import Path
 
 import pytest
 
@@ -18,6 +19,13 @@ from yasb_limitora import (
 from yasb_limitora.config import CodexConfig, DEFAULT_TIMEOUT_SECONDS, MAX_CODEX_TIMEOUT_SECONDS
 from yasb_limitora.model import ProviderOutcome
 from yasb_limitora.projection_v2 import V2ProjectionInput, project_v2_bytes
+
+
+def test_v1_golden_artifacts_are_absent() -> None:
+    root = Path(__file__).parents[1]
+
+    assert not (root / "tests/test_v1_golden_fixtures.py").exists()
+    assert not tuple((root / "tests/fixtures").glob("json_v1_*.json"))
 
 
 def test_config_is_immutable_and_repr_redacts_private_values() -> None:

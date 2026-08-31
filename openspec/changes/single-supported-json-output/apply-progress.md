@@ -58,3 +58,54 @@
 ## Workload / PR boundary
 
 This attempt is limited to the contract/projection/cache compatibility slice on the current chain branch. It remains below the 400-line provider/no-rename budget. No commit has been created yet; commit only after the required verification remains green.
+
+## Progress: bounded v1 golden artifact deletion child
+
+### Status
+
+- **Slice:** Semantic 3 prerequisite — remove v1-only golden tests and fixtures
+- **Branch:** `feature/137-json-remove-v1-fixtures`
+- **Base:** `feature/137-json-contract-projection`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local commit only, no push or PR
+- **Provider/no-rename budget:** 231 test/artifact changed lines versus the base; 280 including 3 task lines and 51 progress lines, below the 400-line limit
+
+### Completed tasks
+
+- Added a repository-hygiene assertion in `tests/test_contracts.py` covering the v1-only golden test path and `tests/fixtures/json_v1_*.json` paths.
+- Deleted `tests/test_v1_golden_fixtures.py` and the four dedicated `tests/fixtures/json_v1_*.json` files.
+- Left legacy production projection/coordinator code and all explicitly protected CLI, export, example, and active documentation surfaces unchanged.
+- Marked only this bounded legacy-deletion child complete in `tasks.md`.
+
+### TDD cycle evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | `python -m pytest -q tests/test_contracts.py::test_v1_golden_artifacts_are_absent` while the v1 artifacts existed | **1 failed** on the existing `tests/test_v1_golden_fixtures.py` path |
+| GREEN | Deleted only the v1 golden test and dedicated fixture files; reran the focused assertion | **1 passed** |
+| TRIANGULATE | `python -m pytest -q tests/test_contracts.py` | **45 passed** |
+| TRIANGULATE / collection | `python -m pytest -q --collect-only` | **590 tests collected**, 0 collection errors |
+| REFACTOR | Reviewed the bounded diff and confirmed no protected runtime/CLI/example/docs surfaces changed | No additional changes required |
+
+### Files changed in this child
+
+- `tests/test_contracts.py`
+- `tests/test_v1_golden_fixtures.py` (deleted)
+- `tests/fixtures/json_v1_safe_error.json` (deleted)
+- `tests/fixtures/json_v1_success.json` (deleted)
+- `tests/fixtures/json_v1_unavailable.json` (deleted)
+- `tests/fixtures/json_v1_unicode_label.json` (deleted)
+- `openspec/changes/single-supported-json-output/tasks.md`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- None. This child intentionally does not remove legacy production projection/coordinator code or alter CLI behavior, exports, examples, active docs, or protected names.
+
+### Remaining tasks
+
+- Continue the remaining Semantic 3 runtime cleanup children and later current-only examples/docs and rename exception slices.
+- Run the final full strict-marker suite and native Windows proof at the designated final verification boundary.
+
+### Workload / PR boundary
+
+This is one bounded deletion-only prerequisite child under the feature-branch chain. The provider/no-rename diff is 231 test/artifact changed lines versus the base (280 including task/progress artifacts), within budget. One local commit is authorized after verification; no push or PR.
