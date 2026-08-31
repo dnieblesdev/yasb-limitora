@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -16,7 +16,7 @@ import tempfile
 import zlib
 from decimal import Decimal
 from enum import Enum
-from typing import cast
+from typing import Protocol, cast
 from unicodedata import normalize
 
 from .config import LocalConfig
@@ -96,6 +96,16 @@ class CacheValidationError(ValueError):
     """Raised internally when a cache entry is not safe to consume."""
 
 
+class _GuardLease(Protocol):
+    def release(self) -> bool: ...
+
+    def close(self) -> bool: ...
+
+
+class _KeyGuard(Protocol):
+    def acquire_key(self, key: bytes, context: DeadlineContext) -> _GuardLease: ...
+
+
 class OwnerState(str, Enum):
     ALIVE = "alive"
     DEAD = "dead"
@@ -130,7 +140,7 @@ class RefreshState:
     cached_public_bytes: bytes | None = None
     marker: dict[str, object] | None = None
     owner_state: OwnerState | None = None
-    lease: object | None = None
+    lease: _GuardLease | None = None
     coordination_error: str | None = None
 
 
@@ -242,6 +252,18 @@ def _safe_text(value: object, maximum: int, *, multiline: bool = False) -> str:
     return value
 
 
+def _required_text(value: object) -> str:
+    if type(value) is not str:
+        raise CacheValidationError("invalid cache text")
+    return value
+
+
+def _optional_text(value: object) -> str | None:
+    if value is None:
+        return None
+    return _required_text(value)
+
+
 def _timestamp(value: object) -> str:
     if type(value) is not str or not _CACHE_TIME.fullmatch(value):
         raise CacheValidationError("invalid cache timestamp")
@@ -256,14 +278,14 @@ def _timestamp(value: object) -> str:
 
 def _quantity(value: object, expected_metric: str | None) -> QuotaQuantity:
     quantity = _safe_mapping(value, _QUANTITY_FIELDS)
-    _safe_text(quantity["unit"], 64)
+    unit = _safe_text(quantity["unit"], 64)
     rendered = quantity["value"]
 
     if type(rendered) is not str or not _DECIMAL.fullmatch(rendered) or len(rendered) > 256:
         raise CacheValidationError("invalid cache quantity")
     try:
         metric = QuotaMetricKind(quantity["metric"])
-        parsed = QuotaQuantity(Decimal(rendered), metric, quantity["unit"])
+        parsed = QuotaQuantity(Decimal(rendered), metric, unit)
     except (ArithmeticError, TypeError, ValueError):
         raise CacheValidationError("invalid cache quantity") from None
     if format(parsed.value, "f") != rendered or parsed.metric.value != quantity["metric"] or parsed.unit != quantity["unit"]:
@@ -280,12 +302,14 @@ def _window(value: object, provider: str) -> QuotaWindowView:
         availability = QuotaAvailability(window["availability"])
     except ValueError:
         raise CacheValidationError("invalid cache window vocabulary") from None
-    _safe_text(window["scope"], 64)
-    _safe_text(window["period"], 64)
-    if window["plan_id"] is not None:
-        _safe_text(window["plan_id"], 64)
+    scope = _safe_text(window["scope"], 64)
+    period = _safe_text(window["period"], 64)
+    plan_id = _optional_text(window["plan_id"])
+    if plan_id is not None:
+        _safe_text(plan_id, 64)
+    source_id = _optional_text(window["source_id"])
     expected_source = "codex-app-server-v2" if provider == "codex" else "opencode-go-api"
-    if window["source_id"] not in (None, expected_source):
+    if source_id not in (None, expected_source):
         raise CacheValidationError("invalid cache source")
     expected_metric = None if kind is QuotaWindowKind.OTHER else kind.value
     quantities = (window["limit"], window["used"], window["remaining"])
@@ -299,7 +323,7 @@ def _window(value: object, provider: str) -> QuotaWindowView:
         raise CacheValidationError("non-known cache window has reset")
     if availability is QuotaAvailability.KNOWN and not any(quantity is not None for quantity in quantities):
         raise CacheValidationError("known cache window has no quantity")
-    if window["source_id"] is None and (
+    if source_id is None and (
         availability is not QuotaAvailability.UNAVAILABLE
         or any(quantity is not None for quantity in quantities)
         or window["reset_at"] is not None
@@ -311,11 +335,11 @@ def _window(value: object, provider: str) -> QuotaWindowView:
         ).replace(tzinfo=timezone.utc)
         return QuotaWindowView(
             kind,
-            window["scope"],
-            window["period"],
-            window["plan_id"],
+            scope,
+            period,
+            plan_id,
             availability,
-            window["source_id"],
+            source_id,
             parsed_quantities[0],
             parsed_quantities[1],
             parsed_quantities[2],
@@ -336,14 +360,18 @@ def _presentation_candidate(
 ) -> tuple[list[dict[str, object]], int]:
     expected_items: list[dict[str, object]] = []
     for item, windows in providers:
+        outcome = _required_text(item["outcome"])
+        public_state = _optional_text(item["public_state"])
+        freshness = _optional_text(item["freshness"])
+        not_run_reason = _optional_text(item["not_run_reason"])
         expected_items.append(
             _project_presentation(
-                ProviderKey(item["provider"]),
-                item["outcome"],
+                ProviderKey(_required_text(item["provider"])),
+                outcome,
                 windows,
-                item["public_state"],
-                item["freshness"],
-                item["not_run_reason"],
+                public_state,
+                freshness,
+                not_run_reason,
                 tooltip_limit,
             )
         )
@@ -398,35 +426,47 @@ def _validate_document(document: object) -> dict[str, object]:
     presentation_inputs: list[tuple[dict[str, object], list[dict[str, object]]]] = []
     for provider in providers:
         item = _safe_mapping(provider, _PROVIDER_FIELDS)
-        key = item["provider"]
+        key = _required_text(item["provider"])
         if key not in {"codex", "opencode_go"} or key in provider_keys:
             raise CacheValidationError("invalid cache provider order")
         provider_keys.append(key)
-        outcome = item["outcome"]
+        outcome = _required_text(item["outcome"])
         if outcome not in {"snapshot", "undetected", "not_run", "execution_error"}:
             raise CacheValidationError("invalid cache provider outcome")
         outcomes.append(outcome)
         for field in ("public_state", "freshness", "status_observed_at", "fetched_at", "data_at", "source_id"):
-            if item[field] is not None and type(item[field]) is not str:
-                raise CacheValidationError("invalid cache provider scalar")
+            _optional_text(item[field])
+        source_id = _optional_text(item["source_id"])
         expected_source = "codex-app-server-v2" if key == "codex" else "opencode-go-api"
-        if item["source_id"] not in (None, expected_source):
+        if source_id not in (None, expected_source):
             raise CacheValidationError("inconsistent cache provider source")
+
+        windows: list[dict[str, object]]
         if outcome == "snapshot":
+            public_state_value = _optional_text(item["public_state"])
+            freshness_value = _optional_text(item["freshness"])
+            if public_state_value is None or freshness_value is None:
+                raise CacheValidationError("invalid cache snapshot metadata")
             try:
-                public_state = PublicProviderState(item["public_state"])
-                freshness = SnapshotFreshness(item["freshness"])
+                public_state = PublicProviderState(public_state_value)
+                freshness = SnapshotFreshness(freshness_value)
             except ValueError:
                 raise CacheValidationError("invalid cache snapshot metadata") from None
             timestamps = tuple(_parsed_timestamp(_timestamp(item[field])) for field in ("status_observed_at", "fetched_at", "data_at"))
-            windows = item["windows"]
-            if type(windows) is not list or len(windows) > 32:
+            raw_windows = item["windows"]
+            if type(raw_windows) is not list or len(raw_windows) > 32:
                 raise CacheValidationError("invalid cache windows")
+            windows = []
             model_windows: list[QuotaWindowView] = []
             identities: set[tuple[str, str, str]] = set()
-            for window in windows:
+            for raw_window in raw_windows:
+                window = _safe_mapping(raw_window, _WINDOW_FIELDS)
                 model_window = _window(window, key)
-                identity = (window["kind"], window["scope"], window["period"])
+                window_kind = _required_text(window["kind"])
+                window_scope = _safe_text(window["scope"], 64)
+                window_period = _safe_text(window["period"], 64)
+                windows.append(window)
+                identity = (window_kind, window_scope, window_period)
                 if identity in identities:
                     raise CacheValidationError("duplicate cache window")
                 identities.add(identity)
@@ -435,7 +475,9 @@ def _validate_document(document: object) -> dict[str, object]:
                 raise CacheValidationError("unordered cache windows")
             if key == "opencode_go" and public_state in (PublicProviderState.AVAILABLE, PublicProviderState.PARTIAL):
                 commercial_periods = [
-                    window["period"] for window in windows if window["kind"] == QuotaWindowKind.COMMERCIAL_QUOTA.value
+                    _safe_text(window["period"], 64)
+                    for window in windows
+                    if _required_text(window["kind"]) == QuotaWindowKind.COMMERCIAL_QUOTA.value
                 ]
                 if sorted(commercial_periods) != ["five_hour", "monthly", "weekly"]:
                     raise CacheValidationError("invalid OpenCode commercial slots")
@@ -446,7 +488,7 @@ def _validate_document(document: object) -> dict[str, object]:
                     timestamps[0],
                     timestamps[1],
                     timestamps[2],
-                    item["source_id"],
+                    source_id,
                     tuple(model_windows),
                 )
             except (TypeError, ValueError):
@@ -554,6 +596,8 @@ def _process_creation_token(pid: int) -> str | object | None:
         except (OSError, IndexError, ValueError):
             return None
     handle = None
+    kernel32 = None
+    close_handle: Callable[[object], object] | None = None
     try:
         import ctypes
 
@@ -561,6 +605,7 @@ def _process_creation_token(pid: int) -> str | object | None:
             _fields_ = (("low", ctypes.c_uint32), ("high", ctypes.c_uint32))
 
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        close_handle = kernel32.CloseHandle
         kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
         kernel32.OpenProcess.restype = ctypes.c_void_p
         kernel32.GetProcessTimes.argtypes = [
@@ -589,15 +634,16 @@ def _process_creation_token(pid: int) -> str | object | None:
     except Exception:
         return None
     finally:
-        if handle:
+        if handle and close_handle is not None:
             try:
-                kernel32.CloseHandle(handle)
+                close_handle(handle)
             except Exception:
                 pass
 
 
 def _owner_token() -> str | None:
-    return _process_creation_token(os.getpid())
+    token = _process_creation_token(os.getpid())
+    return token if isinstance(token, str) else None
 
 
 def _marker_document(marker: object) -> dict[str, object]:
@@ -618,7 +664,7 @@ def _marker_document(marker: object) -> dict[str, object]:
     return value
 
 
-def _refresh_marker_read_child(path: str) -> bytes:
+def _refresh_marker_read_child(path: str) -> bytes | None:
     try:
         data = _cache_read_child(path)
     except FileNotFoundError:
@@ -880,15 +926,16 @@ class RefreshCoordinator:
     def _owner_is_live(self, marker: Mapping[str, object]) -> bool:
         return self._owner_state(marker) is OwnerState.ALIVE
 
-    def _coordination_lease(self, context: DeadlineContext):
-        guard = self._guard_factory()
+    def _coordination_lease(self, context: DeadlineContext) -> _GuardLease:
+        guard: _KeyGuard = self._guard_factory()
         return guard.acquire_key(self.fingerprint.encode("ascii"), context)
 
     @staticmethod
-    def _close_lease(lease: object) -> bool:
+    def _close_lease(lease: _GuardLease) -> bool:
         def marked(name: str) -> bool:
             try:
-                return getattr(lease, name) is True
+                value = getattr(lease, name)
+                return type(value) is bool and value
             except Exception:
                 return False
 
@@ -902,7 +949,7 @@ class RefreshCoordinator:
             try:
                 setattr(lease, name, True)
             except Exception:
-                pass
+                return
 
         finalized = marked("_yasb_finalized")
         released = finalized or marked("_yasb_release_complete") or observed("owned", False)
@@ -911,7 +958,7 @@ class RefreshCoordinator:
             try:
                 released = bool(lease.release())
             except Exception:
-                pass
+                released = False
             released = released or observed("owned", False)
         if released:
             mark("_yasb_release_complete")
@@ -919,7 +966,7 @@ class RefreshCoordinator:
             try:
                 closed = bool(lease.close())
             except Exception:
-                pass
+                closed = False
             closed = closed or observed("closed", True)
         if closed:
             mark("_yasb_close_complete")
@@ -1012,8 +1059,12 @@ class RefreshCoordinator:
                 state.marker, readable = self._read_marker_state(context)
                 if not readable:
                     state.coordination_error = "deadline_exhausted" if context.usable_ns() <= 0 else "internal_error"
-                elif state.marker is not None and state.marker.get("owner_pid", 0) > 0:
-                    state.owner_state = self._owner_state(state.marker)
+                elif state.marker is not None:
+                    owner_pid = state.marker.get("owner_pid", 0)
+                    if type(owner_pid) is not int:
+                        raise TypeError("invalid refresh owner")
+                    if owner_pid > 0:
+                        state.owner_state = self._owner_state(state.marker)
         except GuardError as error:
             state.coordination_error = error.code if error.code in {"guard_wait_timeout", "guard_acquisition_failed"} else "internal_error"
             if not self._release_inspection(state):
@@ -1153,10 +1204,9 @@ class RefreshCoordinator:
             self._pending_claim = claim
             published = False
         finally:
-            if lease is not None:
-                if not self._close_lease(lease):
-                    self._retain_lease(lease)
-                    published = False
+            if lease is not None and not self._close_lease(lease):
+                self._retain_lease(lease)
+                published = False
         return published
 
     def _publish_unlocked(self, document_bytes: bytes, context: DeadlineContext) -> bool:
@@ -1164,7 +1214,7 @@ class RefreshCoordinator:
             if not isinstance(document_bytes, bytes) or len(document_bytes) > MAX_CACHE_DOCUMENT_BYTES:
                 return False
             document = json.loads(document_bytes.decode("utf-8"), object_pairs_hook=_unique_pairs, parse_constant=_reject_constant)
-            if document_bytes.endswith(b"\n") is False:
+            if not document_bytes.endswith(b"\n"):
                 return False
             document = _validate_document(document)
             if document["execution_error"] is not None:

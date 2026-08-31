@@ -151,3 +151,48 @@ This is one bounded deletion-only prerequisite child under the feature-branch ch
 ### Workload / PR boundary
 
 This is the assigned Semantic 1B consumer correction: one focused test/progress work unit, far below the 400-line budget. Commit locally after verification; do not push, open, or merge a PR.
+
+## Progress: v2 cache typing blocker slice
+
+### Status
+
+- **Slice:** Mandatory auxiliary Pyright diagnostic remediation in `v2_cache.py`
+- **Branch:** `feature/137-json-cache-typing`
+- **Base:** `feature/137-json-cli-cache` at `2094ec0`
+- **Delivery boundary:** feature-branch-chain / auto-chain; assigned blocker work-unit slice, no commit, push, PR, or rename
+- **Provider/no-rename budget:** 101 additions + 51 deletions in the permitted source file; below the 400-line slice limit
+
+### Completed tasks
+
+- Narrowed validated cache text, quantity units, window identity fields, provider keys/outcomes, source IDs, presentation metadata, and snapshot metadata at their validation boundaries.
+- Added small structural Protocols for key leases/guards so cleanup calls are typed without changing the lifecycle contract.
+- Narrowed the process-token owner result, made the refresh-marker read's existing missing-file result explicit, and initialized the Windows cleanup handle before the guarded call.
+- Narrowed marker owner PID before comparison; cache schema 3, three-root document handling, canonical bytes, bounds, security checks, single-flight, cleanup, deadlines, and persisted identities are unchanged.
+
+### TDD cycle evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Supplied automated diagnostic list reporting 22 auxiliary Pyright errors in `v2_cache.py`; local `pyright` executable/module was unavailable | Type-narrowing blockers reproduced by the parent gate; authoritative LSP remains pending |
+| GREEN | Added precise local annotations/helpers/Protocols only at already-validated boundaries | Parent authoritative LSP: primary clean and no auxiliary findings; runtime behavior unchanged |
+| TRIANGULATE | `python -m pytest -q tests/test_v2_cache.py tests/test_runtime_cli.py` | **91 passed** |
+| REFACTOR | `python -m py_compile src/yasb_limitora/v2_cache.py` and `git diff --check` | Passed; no unrelated files changed |
+| LINT | `ruff check src/yasb_limitora/v2_cache.py` before and after the slice | Existing findings decreased from 29 to 25; no new Ruff findings introduced |
+
+### Files changed
+
+- `src/yasb_limitora/v2_cache.py`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- None. This is a typing-only blocker remediation; no tests, CLI, docs, names, schema values, or persisted identities were modified.
+- The repository's standalone Pyright command was unavailable; parent authoritative LSP supplied the required primary and auxiliary diagnostic evidence.
+
+### Remaining tasks
+
+- Continue remaining SDD semantic/rename slices after this blocker is accepted.
+
+### Workload / PR boundary
+
+This is the assigned `feature/137-json-cache-typing` blocker slice under the auto-chain delivery path. It stays below 400 changed provider/no-rename lines and is intentionally left uncommitted for the parent.
