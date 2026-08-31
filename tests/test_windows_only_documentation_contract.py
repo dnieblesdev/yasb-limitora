@@ -132,7 +132,8 @@ def test_opencode_operator_contract_documents_the_copy_ready_flow():
         assert f"`{state}`" in windows
     for distinction in ("`unavailable` is a state inside a returned snapshot", "`provider_unavailable` is an attempted-provider execution error", "`invalid_data` is a public state", "`invalid_provider_data` is a sanitized"):
         assert distinction in windows
-    v1, v2 = windows.split("### v1 commands (frozen)", 1)[1].split("### v2 commands", 1); v2 = v2.split("## Availability and fail-safe behavior", 1)[0]
+    v1, v2 = windows.split("### v1 commands (frozen)", 1)[1].split("### v2 commands", 1)
+    v2 = v2.split("## Availability and fail-safe behavior", 1)[0]
     assert all(term in v1 and term not in v2 for term in ("loading", "success", "unavailable", "safe_error"))
     assert all(term in v2 for term in ("execution_state", "execution_error", "snapshot", "undetected", "not_run"))
     assert "exit code `1`" in v2 and all(code in v2 for code in ("guard_acquisition_failed", "guard_wait_timeout", "deadline_exhausted"))

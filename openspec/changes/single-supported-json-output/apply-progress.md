@@ -853,3 +853,46 @@ This corrective child contains one explicit type-narrowing invariant and cumulat
 ### Workload / PR boundary
 
 This is the assigned bounded CustomWidget examples/docs child on `docs/137-customwidget-current-output`. The no-rename diff is below 400 lines and contains only the allowed surfaces. Commit locally as one reviewable work unit; do not push, open, merge, or close the issue/change from this child.
+
+## Progress: CustomWidget documentation lint remediation
+
+### Status
+
+- **Slice:** Corrective gate remediation for the CustomWidget current-output examples/docs child
+- **Delivery boundary:** feature-branch-chain / auto-chain; one corrective local commit, no push or PR
+- **Allowed edit surfaces:** `tests/test_windows_only_documentation_contract.py` and this artifact
+- **Cumulative diff:** 2 test lines plus this evidence entry; below the 400-line budget
+
+### Completed tasks
+
+- Split the compound semicolon statement in the CustomWidget documentation-contract test into two assignments without changing assertions or behavior.
+- Preserved all documentation contract coverage and made no runtime, content, rename, or unrelated test changes.
+
+### TDD Cycle Evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED / lint | `ruff check --select E702 tests/test_windows_only_documentation_contract.py` before the edit | **1 E702 finding** at line 135 for multiple statements on one line |
+| GREEN | Split the assignment statement; `python -m pytest -q --strict-markers tests/test_customwidget_examples.py tests/test_windows_only_documentation_contract.py` | **14 passed** |
+| TRIANGULATE / lint | `ruff check tests/test_windows_only_documentation_contract.py` and `ruff check --select E702 tests/test_windows_only_documentation_contract.py` | All checks passed |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **587 tests collected**, 0 collection errors |
+| REFACTOR / LSP | `pyright tests/test_windows_only_documentation_contract.py`; `python -m pyright tests/test_windows_only_documentation_contract.py` | Local Pyright executable/module unavailable; no LSP result available |
+| REFACTOR / diff | `git diff --check` | Passed |
+
+### Files changed
+
+- `tests/test_windows_only_documentation_contract.py`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- None. This is a behavior-neutral formatting correction limited to the rejected CustomWidget child evidence.
+
+### Remaining tasks
+
+- Parent gate: settle the fresh native acquisition using this corrected evidence.
+- Continue the remaining chain work and final full/native verification at the designated boundary.
+
+### Workload / PR boundary
+
+This is one bounded corrective test-quality work unit. The cumulative diff remains below 400 changed lines and contains no runtime edits, content expansion, renames, push, or PR activity. One corrective local commit is required.
