@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 from decimal import Decimal, ROUND_HALF_EVEN, localcontext
-from typing import Any
+from typing import Any, Callable
 from unicodedata import normalize
 
 from .limitora_api import OpenCodeFailureEvidence
@@ -47,6 +47,15 @@ _FAILURES = {
 }
 _MAX_DOCUMENT_BYTES = 65_536
 _MAX_TOOLTIP_SCALARS = 4_096
+_PROVIDER_DISPLAY_NAMES = {
+    ProviderKey.CODEX: "Codex",
+    ProviderKey.OPENCODE_GO: "OpenCode Go",
+}
+_PERIOD_DISPLAY_NAMES = {
+    "five_hour": "5-hour",
+    "monthly": "Monthly",
+    "weekly": "Weekly",
+}
 
 class _TooManyWindows(ValueError): pass
 _NOT_RUN_TEXT = {
@@ -259,22 +268,59 @@ def _bounded_summary(base: str, qualifier: str) -> str:
     if len(base) + len(qualifier) <= 128:
         return base + qualifier
     return base[: 128 - len(qualifier)] + qualifier
-def _evidenced_unit(window: dict[str, Any]) -> str | None:
-    units = {
-        quantity["unit"]
-        for quantity in (window["limit"], window["used"], window["remaining"])
-        if quantity is not None
-    }
-    return next(iter(units)) if len(units) == 1 else None
+
+
+def _tooltip_period(period: str) -> str:
+    return _PERIOD_DISPLAY_NAMES.get(period, period.replace("_", " ").capitalize())
+
+
+def _locale_datetime_format(value: datetime) -> str:
+    return value.strftime("%x %X")
+
+
+def _stable_datetime_format(value: datetime) -> str:
+    return f"{value.year:04d}-{value.month:02d}-{value.day:02d} {value.hour:02d}:{value.minute:02d}:{value.second:02d}"
+
+
+def _format_local_datetime(value: datetime, *, local_zone: tzinfo | None = None) -> str:
+    local = value.astimezone() if local_zone is None else value.astimezone(local_zone)
+    try:
+        formatted = _locale_datetime_format(local)
+    except (OverflowError, OSError, UnicodeError, ValueError):
+        formatted = ""
+    return formatted or _stable_datetime_format(local)
+
+
+def _tooltip_timestamp(
+    value: object,
+    formatter: Callable[[datetime], str] = _format_local_datetime,
+) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    try:
+        formatted = formatter(parsed)
+    except (OverflowError, OSError, TypeError, UnicodeError, ValueError):
+        return None
+    return formatted if isinstance(formatted, str) and formatted else None
+
+
+def _tooltip_state(value: str) -> str:
+    return value.replace("_", " ").capitalize()
 
 
 def _presentation(
+    provider: ProviderKey,
     outcome: str,
     windows: list[dict[str, Any]],
     public_state: str | None,
     freshness: str | None,
     reason: str | None = None,
     tooltip_limit: int = _MAX_TOOLTIP_SCALARS,
+    timestamp_formatter: Callable[[datetime], str] = _format_local_datetime,
 ) -> dict[str, Any]:
     if outcome != ProviderOutcome.SNAPSHOT.value:
         fallback = _fallback(outcome)
@@ -305,37 +351,42 @@ def _presentation(
     qualifier = f"; state={public_state}; freshness={freshness}"
     compact = _bounded_summary(compact_base, qualifier)
     alternate = _bounded_summary(alternate_base, qualifier)
-    lines = [f"State: {public_state}", f"Freshness: {freshness}", f"Quota: {value}"]
-    if depleted is None:
-        lines.append("No eligible percentage basis")
+    lines = [
+        _PROVIDER_DISPLAY_NAMES[provider],
+        f"State: {_tooltip_state(public_state)} · {_tooltip_state(freshness)}",
+        f"Lowest quota: {value if depleted is not None else 'Quota unavailable'}",
+    ]
+    reset_lines: list[str] = []
     for window in ordered_windows:
         percentage = _percentage(window)
+        reset = _tooltip_timestamp(window["reset_at"], timestamp_formatter)
         if percentage is not None:
-            result = f"{percentage}% remaining"
-        elif window["availability"] == QuotaAvailability.KNOWN.value:
-            result = "percentage unavailable"
+            line = f"{_tooltip_period(window['period'])}: {percentage}% remaining"
         else:
-            result = f"availability={window['availability']}"
-        unit = _evidenced_unit(window)
-        line = (
-            f"Window: kind={window['kind']}; scope={_presentation_identity(window['scope'])}; "
-            f"period={_presentation_identity(window['period'])}; "
-            f"plan_id={json.dumps(window['plan_id'], ensure_ascii=False)}; "
-            f"unit={_presentation_identity(unit) if unit is not None else 'null'}; "
-            f"source_id={json.dumps(window['source_id'], ensure_ascii=False)}; result={result}"
-        )
+            line = f"{_tooltip_period(window['period'])}: Quota unavailable"
+        if reset is not None:
+            if provider is ProviderKey.OPENCODE_GO:
+                line += f" · resets {reset}"
+            else:
+                reset_lines.append(f"Resets: {reset}")
         lines.append(line)
-        if window["reset_at"] is not None:
-            lines.append(f"Reset: {window['reset_at']}")
-    prefix_lines = 4 if depleted is None else 3
-    tooltip = "\n".join(lines[:prefix_lines])
-    for line in lines[prefix_lines:]:
+    if not ordered_windows:
+        lines.append("No quota windows")
+    lines.extend(reset_lines)
+    tooltip = "\n".join(lines[:3])
+    for line in lines[3:]:
         candidate = line if not tooltip else f"{tooltip}\n{line}"
         if len(candidate) > tooltip_limit:
             break
         tooltip = candidate
     return {"most_depleted_window": depleted, "compact_text": compact, "alternate_text": alternate, "tooltip_text": tooltip}
-def _provider(view: ProviderView, enabled: frozenset[ProviderKey], tooltip_limit: int, opencode_evidence: object | None = None) -> tuple[dict[str, Any], str]:
+def _provider(
+    view: ProviderView,
+    enabled: frozenset[ProviderKey],
+    tooltip_limit: int,
+    opencode_evidence: object | None = None,
+    timestamp_formatter: Callable[[datetime], str] = _format_local_datetime,
+) -> tuple[dict[str, Any], str]:
     provider = _enum(ProviderKey, view.provider, "invalid v2 provider")
     state = _enum(ProviderState, view.state, "invalid v2 provider state")
     outcome = view.outcome
@@ -394,11 +445,26 @@ def _provider(view: ProviderView, enabled: frozenset[ProviderKey], tooltip_limit
         if view.snapshot is not None or view.error is None:
             raise ValueError("invalid v2 execution-error outcome")
         item["execution_error"] = _error(view.error.code, opencode_evidence if provider is ProviderKey.OPENCODE_GO else None)
-    item.update(_presentation(outcome.value, item["windows"], item["public_state"], item["freshness"], item["not_run_reason"], tooltip_limit))
+    item.update(
+        _presentation(
+            provider,
+            outcome.value,
+            item["windows"],
+            item["public_state"],
+            item["freshness"],
+            item["not_run_reason"],
+            tooltip_limit,
+            timestamp_formatter,
+        )
+    )
     return item, outcome.value
 
 
-def _project_v2_document(input: V2ProjectionInput, tooltip_limit: int) -> dict[str, Any]:
+def _project_v2_document(
+    input: V2ProjectionInput,
+    tooltip_limit: int,
+    timestamp_formatter: Callable[[datetime], str] = _format_local_datetime,
+) -> dict[str, Any]:
     """Build the ordered JSON-compatible v2 document without encoding it."""
 
     if not isinstance(input, V2ProjectionInput):
@@ -413,6 +479,7 @@ def _project_v2_document(input: V2ProjectionInput, tooltip_limit: int) -> dict[s
                 input.enabled_providers,
                 tooltip_limit,
                 input.opencode_evidence if provider is ProviderKey.OPENCODE_GO else None,
+                timestamp_formatter,
             )
             for provider in PROVIDER_ORDER
         )
@@ -457,19 +524,27 @@ def project_v2_not_run_bytes(reason: str) -> bytes:
     return project_v2_bytes(V2ProjectionInput(document))
 
 
-def project_v2_document(input: V2ProjectionInput) -> dict[str, Any]:
+def project_v2_document(
+    input: V2ProjectionInput,
+    *,
+    timestamp_formatter: Callable[[datetime], str] = _format_local_datetime,
+) -> dict[str, Any]:
     """Build the ordered JSON-compatible v2 document without encoding it."""
 
-    return _project_v2_document(input, _MAX_TOOLTIP_SCALARS)
+    return _project_v2_document(input, _MAX_TOOLTIP_SCALARS, timestamp_formatter)
 def _encode(document: dict[str, Any]) -> bytes:
     return (json.dumps(document, ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
 
 
-def project_v2_bytes(input: V2ProjectionInput) -> bytes:
+def project_v2_bytes(
+    input: V2ProjectionInput,
+    *,
+    timestamp_formatter: Callable[[datetime], str] = _format_local_datetime,
+) -> bytes:
     """Return one compact UTF-8 v2 document followed by exactly one LF."""
 
     try:
-        encoded = _encode(project_v2_document(input))
+        encoded = _encode(project_v2_document(input, timestamp_formatter=timestamp_formatter))
     except _TooManyWindows:
         return project_v2_failure_bytes("internal_error")
     if len(encoded) <= _MAX_DOCUMENT_BYTES:
@@ -478,7 +553,7 @@ def project_v2_bytes(input: V2ProjectionInput) -> bytes:
     low, high, best = 0, _MAX_TOOLTIP_SCALARS, None
     while low <= high:
         tooltip_limit = (low + high) // 2
-        candidate = _encode(_project_v2_document(input, tooltip_limit))
+        candidate = _encode(_project_v2_document(input, tooltip_limit, timestamp_formatter))
         if len(candidate) <= _MAX_DOCUMENT_BYTES:
             best = candidate
             low = tooltip_limit + 1
@@ -508,7 +583,7 @@ def project_v2_failure_bytes(code: str | SafeErrorCode) -> bytes:
             "execution_error": None,
             "not_run_reason": reason,
         }
-        item.update(_presentation("not_run", [], None, None, reason))
+        item.update(_presentation(provider, "not_run", [], None, None, reason))
         providers.append(item)
     return _encode(
         {

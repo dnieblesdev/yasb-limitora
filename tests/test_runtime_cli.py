@@ -24,6 +24,7 @@ from yasb_limitora.model import (
     V2SafeErrorCode,
 )
 from yasb_limitora.projection_v2 import V2ProjectionInput, project_v2_bytes, project_v2_failure_bytes, project_v2_not_run_bytes
+from yasb_limitora.v2_cache import SingleFlightResult, V2QuotaCache
 from yasb_limitora.v2_deadline import DeadlineContext
 from yasb_limitora.v2_guard import GuardError
 from yasb_limitora.v2_worker import V2ExecutionOrchestrator
@@ -317,7 +318,7 @@ def test_v2_cli_consumes_private_opencode_evidence_sidecar(evidence, expected, m
 
     code = main(
         ("--output-version", "2", "--config", str(path)),
-        environment={"LIMITORA_OPENCODE_API_KEY": "private-key"},
+        environment={"LOCALAPPDATA": str(tmp_path), "LIMITORA_OPENCODE_API_KEY": "private-key"},
         stdout=stdout,
         stderr=stderr,
         platform_is_windows=lambda: True,
@@ -442,7 +443,7 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
 
     monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
-    code = main(("--output-version", "2", "--config", str(path)), environment={"LIMITORA_OPENCODE_API_KEY": "key"}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
+    code = main(("--output-version", "2", "--config", str(path)), environment={"LOCALAPPDATA": str(tmp_path), "LIMITORA_OPENCODE_API_KEY": "key"}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
 
     assert code == 1
     assert stdout.getvalue() == expected
@@ -450,3 +451,181 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
     assert stderr.getvalue() == expected_stderr
     if scenario == "cleanup_failed":
         assert codex.runners == [(r"C:\\codex.exe", "app-server")]
+
+
+def test_v2_cli_second_invocation_uses_published_cache_without_rerunning_producer(monkeypatch, tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}}), encoding="utf-8")
+    from yasb_limitora import v2_cache
+
+    monkeypatch.setattr(v2_cache, "_bounded_call", lambda function, args, context: function(*args))
+    lock = threading.Lock()
+    cache_results = []
+
+    class Lease:
+        def release(self):
+            lock.release()
+            return True
+
+        def close(self):
+            return True
+
+    class Guard:
+        def acquire_key(self, key, context):
+            lock.acquire()
+            return Lease()
+
+    def cache_factory(config, environment, config_path):
+        cache = V2QuotaCache(config, environment, config_path)
+        cache._guard_factory = Guard
+        original = cache.get_or_refresh
+
+        def get_or_refresh(context, producer):
+            result = original(context, producer)
+            cache_results.append(result)
+            return result
+
+        cache.get_or_refresh = get_or_refresh
+        return cache
+
+    monkeypatch.setattr(cli, "V2QuotaCache", cache_factory)
+
+    class RunLease:
+        def release(self):
+            return True
+
+        def close(self):
+            return True
+
+    class RunGuard(Guard):
+        def acquire(self, path, context):
+            return RunLease()
+
+    codex = _MatrixCodex()
+    orchestrator = V2ExecutionOrchestrator(guard_factory=RunGuard, codex_executor=codex)
+    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
+    environment = {"LOCALAPPDATA": str(tmp_path)}
+    outputs = []
+    for _ in range(2):
+        stdout, stderr = io.BytesIO(), io.StringIO()
+        assert main(
+            ("--output-version", "2", "--config", str(path)),
+            environment=environment,
+            stdout=stdout,
+            stderr=stderr,
+            platform_is_windows=lambda: True,
+        ) == 0
+        assert stderr.getvalue() == ""
+        outputs.append(stdout.getvalue())
+
+    assert codex.runners == [(r"C:\\codex.exe", "app-server")]
+    assert outputs[0] == outputs[1]
+    assert cache_results[0].produced and cache_results[0].cached_public_bytes is not None
+    assert not cache_results[1].produced and cache_results[1].cached_public_bytes == outputs[1]
+
+
+def test_v2_cli_cache_producer_failure_fails_closed_without_direct_run(monkeypatch, tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}}), encoding="utf-8")
+    attempts, direct_runs = [], []
+
+    class FailingOrchestrator:
+        last_record = None
+
+        def run_refresh_attempt(self, config, environment, context, config_path):
+            attempts.append(True)
+            raise RuntimeError("provider failure")
+
+        def run(self, config, environment, context, config_path):
+            direct_runs.append(True)
+            raise AssertionError("direct run bypassed single-flight")
+
+    class Cache:
+        def get_or_refresh(self, context, producer):
+            return producer(context)
+
+    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", FailingOrchestrator)
+    monkeypatch.setattr(cli, "V2QuotaCache", lambda config, environment, config_path: Cache())
+    stdout, stderr = io.BytesIO(), io.StringIO()
+
+    code = main(
+        ("--output-version", "2", "--config", str(path)),
+        environment={"LOCALAPPDATA": str(tmp_path)},
+        stdout=stdout,
+        stderr=stderr,
+        platform_is_windows=lambda: True,
+    )
+
+    assert code == 1
+    assert stdout.getvalue() == project_v2_failure_bytes("internal_error")
+    assert stderr.getvalue() == "yasb-limitora: runtime_error\n"
+    assert len(attempts) == 1
+    assert direct_runs == []
+
+
+def test_v2_cli_cache_constructor_failure_runs_orchestrator(monkeypatch, tmp_path):
+    path = tmp_path / "config.json"
+    config = {"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}}
+    path.write_text(json.dumps(config), encoding="utf-8")
+    direct_runs = []
+    expected_document = DocumentView.ordered(
+        ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED),
+        ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason="disabled"),
+    )
+
+    class Orchestrator:
+        last_record = None
+
+        def run(self, config, environment, context, config_path):
+            direct_runs.append(True)
+            return expected_document
+
+    def fail_cache(config, environment, config_path):
+        raise OSError("private cache setup failure")
+
+    monkeypatch.setattr(cli, "read_v2_config", lambda path, context: json.dumps(config).encode())
+    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", Orchestrator)
+    monkeypatch.setattr(cli, "V2QuotaCache", fail_cache)
+    stdout, stderr = io.BytesIO(), io.StringIO()
+
+    code = main(
+        ("--output-version", "2", "--config", str(path)),
+        environment={"LOCALAPPDATA": str(tmp_path)},
+        stdout=stdout,
+        stderr=stderr,
+        platform_is_windows=lambda: True,
+    )
+
+    assert code == 0, stderr.getvalue()
+    assert stdout.getvalue() == project_v2_bytes(V2ProjectionInput(expected_document, frozenset({ProviderKey.CODEX})))
+    assert stderr.getvalue() == ""
+    assert direct_runs == [True]
+
+
+def test_v2_cli_cache_guard_timeout_preserves_diagnostic_without_running_producer(monkeypatch, tmp_path):
+    path = tmp_path / "config.json"
+    config = {"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}}
+    path.write_text(json.dumps(config), encoding="utf-8")
+    producer_calls = []
+
+    class Orchestrator:
+        last_record = None
+        def run_refresh_attempt(self, *args):
+            producer_calls.append(True)
+        def run(self, *args):
+            pytest.fail("direct run bypassed cache coordination")
+
+    class Cache:
+        def get_or_refresh(self, context, producer):
+            return SingleFlightResult(coordination_failed=True, coordination_error="guard_wait_timeout")
+
+    monkeypatch.setattr(cli, "read_v2_config", lambda path, context: json.dumps(config).encode())
+    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", Orchestrator)
+    monkeypatch.setattr(cli, "V2QuotaCache", lambda *args: Cache())
+    stdout, stderr = io.BytesIO(), io.StringIO()
+    code = main(("--output-version", "2", "--config", str(path)), environment={"LOCALAPPDATA": str(tmp_path)}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
+
+    assert code == 1
+    assert stdout.getvalue() == project_v2_not_run_bytes("guard_wait_timeout")
+    assert stderr.getvalue() == "yasb-limitora: guard_wait_timeout\n"
+    assert producer_calls == []

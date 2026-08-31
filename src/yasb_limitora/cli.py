@@ -16,7 +16,8 @@ from .config import ConfigError, LocalConfig
 from .coordinator import RuntimeCoordinator
 from .model import DocumentView, ProviderKey, ProviderState, ProviderView, SafeError, SafeErrorCode, V2SafeErrorCode
 from .projection import project_bytes
-from .projection_v2 import V2ProjectionInput, project_v2_bytes, project_v2_failure_bytes
+from .projection_v2 import V2ProjectionInput, project_v2_bytes, project_v2_failure_bytes, project_v2_not_run_bytes
+from .v2_cache import V2QuotaCache
 from .v2_deadline import DeadlineContext
 from .v2_path import V2DeadlineError, read_v2_config
 from .v2_worker import V2ExecutionOrchestrator
@@ -155,6 +156,25 @@ def _resolve_config_path(argv: Sequence[str], environment: Mapping[str, str]) ->
     return explicit if explicit is not None else _env_or_default(environment)
 
 
+def _v2_cache_eligible(config: LocalConfig, environment: Mapping[str, str]) -> bool:
+    return bool(
+        (config.codex.enabled and config.codex.runner)
+        or (
+            config.opencode_go.enabled
+            and isinstance(environment.get("LIMITORA_OPENCODE_API_KEY"), str)
+            and bool(environment["LIMITORA_OPENCODE_API_KEY"])
+        )
+    )
+
+
+def _v2_cache_failure(code: str | None) -> bytes:
+    if code in {"guard_wait_timeout", "deadline_exhausted"}:
+        return project_v2_not_run_bytes(code)
+    if code == "guard_acquisition_failed":
+        return project_v2_failure_bytes(code)
+    return project_v2_failure_bytes("internal_error")
+
+
 def _load(argv: Sequence[str]) -> LocalConfig:
     return _load_path(_config_path(argv))
 
@@ -232,15 +252,50 @@ def main(
         return 2
     else:
         opencode_evidence = None
+        cached_data = None
+        coordination_data = None
+        coordination_diagnostic = None
         try:
             if version == 2 and coordinator is None and _read_config is _LEGACY_READ_CONFIG:
                 orchestrator = V2ExecutionOrchestrator()
-                document = orchestrator.run(
-                    config,
-                    effective_environment,
-                    DeadlineContext.from_seconds(config.deadline_seconds, t0_ns=t0_ns),
-                    resolved_v2_path or "",
-                )
+                runtime_context = DeadlineContext.from_seconds(config.deadline_seconds, t0_ns=t0_ns)
+                result = None
+                if _v2_cache_eligible(config, effective_environment):
+                    try:
+                        cache = V2QuotaCache(config, effective_environment, resolved_v2_path or "")
+                    except Exception:  # noqa: BLE001 - cache setup is optional infrastructure
+                        cache = None
+                    if cache is not None:
+                        try:
+                            result = cache.get_or_refresh(
+                                runtime_context,
+                                lambda attempt_context: orchestrator.run_refresh_attempt(
+                                    config,
+                                    effective_environment,
+                                    attempt_context,
+                                    resolved_v2_path or "",
+                                ),
+                            )
+                        except Exception:  # noqa: BLE001 - cache coordination must fail closed
+                            result = None
+                            coordination_data = _v2_cache_failure("deadline_exhausted" if runtime_context.usable_ns() <= 0 else "internal_error")
+                        if result is not None:
+                            if result.cached_public_bytes is not None:
+                                cached_data = result.cached_public_bytes
+                            elif result.deadline_exhausted:
+                                coordination_data = _v2_cache_failure("deadline_exhausted")
+                            elif result.coordination_failed:
+                                coordination_data = _v2_cache_failure(result.coordination_error)
+                                coordination_diagnostic = "guard_wait_timeout" if result.coordination_error == "guard_wait_timeout" else "runtime_error"
+                            else:
+                                document = result.value
+                if cached_data is None and coordination_data is None and result is None:
+                    document = orchestrator.run(
+                        config,
+                        effective_environment,
+                        runtime_context,
+                        resolved_v2_path or "",
+                    )
                 if orchestrator.last_record is not None:
                     opencode_evidence = orchestrator.last_record.opencode_evidence
             else:
@@ -256,24 +311,29 @@ def main(
             err.flush()
             return 1
         if version == 2:
-            try:
-                exit_code = 1 if document.document_error is not None or any(view.state is ProviderState.SAFE_ERROR for view in document.providers) else 0
-                diagnostic = (
-                    "guard_wait_timeout"
-                    if document.document_error is not None and document.document_error.code is V2SafeErrorCode.GUARD_WAIT_TIMEOUT
-                    else "runtime_error" if exit_code else ""
-                )
-                enabled = frozenset(
-                    provider
-                    for provider, enabled_flag in (
-                        (ProviderKey.CODEX, config.codex.enabled),
-                        (ProviderKey.OPENCODE_GO, config.opencode_go.enabled),
+            if cached_data is not None:
+                data, exit_code, diagnostic = cached_data, 0, ""
+            elif coordination_data is not None:
+                data, exit_code, diagnostic = coordination_data, 1, coordination_diagnostic or "runtime_error"
+            else:
+                try:
+                    exit_code = 1 if document.document_error is not None or any(view.state is ProviderState.SAFE_ERROR for view in document.providers) else 0
+                    diagnostic = (
+                        "guard_wait_timeout"
+                        if document.document_error is not None and document.document_error.code is V2SafeErrorCode.GUARD_WAIT_TIMEOUT
+                        else "runtime_error" if exit_code else ""
                     )
-                    if enabled_flag
-                )
-                data = project_v2_bytes(V2ProjectionInput(document, enabled, opencode_evidence))
-            except Exception:  # noqa: BLE001 - v2 projection failures are safe
-                data, exit_code, diagnostic = project_v2_failure_bytes("internal_error"), 1, "runtime_error"
+                    enabled = frozenset(
+                        provider
+                        for provider, enabled_flag in (
+                            (ProviderKey.CODEX, config.codex.enabled),
+                            (ProviderKey.OPENCODE_GO, config.opencode_go.enabled),
+                        )
+                        if enabled_flag
+                    )
+                    data = project_v2_bytes(V2ProjectionInput(document, enabled, opencode_evidence))
+                except Exception:  # noqa: BLE001 - v2 projection failures are safe
+                    data, exit_code, diagnostic = project_v2_failure_bytes("internal_error"), 1, "runtime_error"
         else:
             exit_code = 1 if any(view.state is ProviderState.SAFE_ERROR for view in document.providers) else 0
             diagnostic = "runtime_error" if exit_code else ""
