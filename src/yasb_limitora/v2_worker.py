@@ -1,18 +1,34 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import multiprocessing
 import os
 import sys
-from collections.abc import Mapping
-from typing import Any, Callable
+from collections.abc import Callable, Mapping
+from contextlib import ExitStack, suppress
+from dataclasses import dataclass
+from typing import Any
 
 from .config import LocalConfig
-from .limitora_api import OPENCODE_API_KEY_ENV, OpenCodeFailureEvidence, OpenCodeReadResult, OpenCodeRequest, read_opencode_go
-from .model import DocumentView, ProviderKey, ProviderOutcome, ProviderState, ProviderView, SafeError, SafeErrorCode, V2SafeErrorCode
+from .isolation.windows_job import WindowsJobBoundary
+from .limitora_api import (
+    OPENCODE_API_KEY_ENV,
+    OpenCodeFailureEvidence,
+    OpenCodeReadResult,
+    OpenCodeRequest,
+    read_opencode_go,
+)
+from .model import (
+    DocumentView,
+    ProviderKey,
+    ProviderOutcome,
+    ProviderState,
+    ProviderView,
+    SafeError,
+    SafeErrorCode,
+    V2SafeErrorCode,
+)
 from .v2_deadline import DeadlineContext
 from .v2_guard import GuardError, GuardLease, V2Guard
-from .isolation.windows_job import WindowsJobBoundary
 from .v2_path import _child_process, _start_quiet_child
 
 
@@ -24,29 +40,51 @@ def _not_run(provider: ProviderKey, reason: str) -> ProviderView:
     return ProviderView(provider, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason=reason)
 
 
+def _capture_call(function: Callable[[], Any], fallback: Any = None) -> tuple[Exception | None, Any]:
+    """Capture ordinary failures while leaving interrupt signals untouched."""
+    error: Exception | None = None
+    result = fallback
+
+    def capture(exception_type: Any, exception: BaseException | None, traceback: Any) -> bool:
+        nonlocal error
+        if isinstance(exception, Exception):
+            error = exception
+            return True
+        return False
+
+    with ExitStack() as resources:
+        resources.push(capture)
+        result = function()
+    return error, result
+
+
+def _try_call(function: Callable[[], Any], fallback: Any = None) -> tuple[bool, Any]:
+    error, result = _capture_call(function, fallback)
+    return error is None, result
+
+
 def _opencode_bootstrap(reader: Callable[[OpenCodeRequest], OpenCodeReadResult], request: OpenCodeRequest, output: Any, authorized: Any = None) -> None:
-    original_stderr, sink = sys.stderr, None
-    try:
+    original_stderr = sys.stderr
+    with ExitStack() as resources:
         try:
-            sink = open(os.devnull, "w", encoding="ascii")
-            sys.stderr = sink
-        except Exception:
-            pass
-        if authorized is not None:
-            authorized.wait()
+            sys.stderr = resources.enter_context(open(os.devnull, "w", encoding="ascii"))
+        except OSError:
+            sys.stderr = original_stderr
         try:
-            output.put(reader(request))
-        except Exception:
-            pass
-    except Exception:
-        try:
-            output.put(OpenCodeReadResult(_safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR), OpenCodeFailureEvidence.UNAVAILABLE))
-        except Exception:
-            pass
-    finally:
-        sys.stderr = original_stderr
-        if sink is not None:
-            sink.close()
+            with suppress(Exception):
+                if authorized is not None:
+                    authorized.wait()
+                output.put(reader(request))
+                return
+            with suppress(Exception):
+                output.put(
+                    OpenCodeReadResult(
+                        _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR),
+                        OpenCodeFailureEvidence.UNAVAILABLE,
+                    )
+                )
+        finally:
+            sys.stderr = original_stderr
 
 
 @dataclass(slots=True)
@@ -113,7 +151,9 @@ class OpenCodeWorkerProcess:
             view = _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR)
             self.last_result = OpenCodeReadResult(view, OpenCodeFailureEvidence.UNAVAILABLE)
             return view
-        try:
+
+        def attempt() -> ProviderView:
+            nonlocal authorized, process, queue
             process_context = self.context_factory("spawn")
             queue = process_context.Queue()
             record = self.record = WorkerRecord(None, None, queue_closed=False, queue=queue, authorized_closed=False)
@@ -132,7 +172,7 @@ class OpenCodeWorkerProcess:
             record.job = job
             pid = process.pid
             if not isinstance(pid, int):
-                raise ValueError("worker process has no pid")
+                raise TypeError("worker process has no pid")
             job.assign_process(pid, allow_nested=True)
             if context.usable_ns() <= 0:
                 view = _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.TIMEOUT)
@@ -161,18 +201,25 @@ class OpenCodeWorkerProcess:
             if isinstance(result, ProviderView):
                 return result
             return _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR)
-        except Exception:
-            if self.record is not None and self.record.job is not None:
-                try:
-                    self._close_job(self.record.job, context)
-                    self.record.job_active_zero = self._job_zero(self.record.job)
-                    self.record.job_closed = self._job_closed(self.record.job)
-                except Exception:
-                    pass
-            if process is not None:
-                self._reap_process(process, context, terminate=True)
-            self.last_result = OpenCodeReadResult(_safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR), OpenCodeFailureEvidence.UNAVAILABLE)
-            return self.last_result.view
+
+        try:
+            error, view = _capture_call(attempt)
+            if error is not None:
+                def recover_job() -> None:
+                    if self.record is not None and self.record.job is not None:
+                        self._close_job(self.record.job, context)
+                        self.record.job_active_zero = self._job_zero(self.record.job)
+                        self.record.job_closed = self._job_closed(self.record.job)
+
+                _try_call(recover_job)
+                if process is not None:
+                    self._reap_process(process, context, terminate=True)
+                self.last_result = OpenCodeReadResult(
+                    _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR),
+                    OpenCodeFailureEvidence.UNAVAILABLE,
+                )
+                return self.last_result.view
+            return view
         finally:
             if process is not None and self.record is not None and not self.record.reaped:
                 self._reap_process(process, context, terminate=False)
@@ -182,25 +229,27 @@ class OpenCodeWorkerProcess:
             if self.record is not None and authorized is None:
                 self.record.authorized_closed = True
             if queue is not None:
-                try:
+                def close_queue() -> None:
                     self._close_queue(queue)
                     if self.record is not None:
                         self.record.queue_closed = True
                         self.record.queue = None
-                except Exception:
-                    if self.record is not None:
-                        self.record.queue_closed = False
+
+                closed, _ = _try_call(close_queue)
+                if not closed and self.record is not None:
+                    self.record.queue_closed = False
             if authorized is not None:
-                try:
+                def close_authorized() -> None:
                     close = getattr(authorized, "close", None)
                     if close is not None:
                         close()
                     if self.record is not None:
                         self.record.authorized_closed = True
                         self.record.authorized = None
-                except Exception:
-                    if self.record is not None:
-                        self.record.authorized_closed = False
+
+                closed, _ = _try_call(close_authorized)
+                if not closed and self.record is not None:
+                    self.record.authorized_closed = False
 
     @staticmethod
     def _close_queue(queue: Any) -> None:
@@ -218,24 +267,19 @@ class OpenCodeWorkerProcess:
         if record.started:
             alive = getattr(process, "is_alive", lambda: False)()
             if alive and terminate:
-                try:
-                    process.terminate()
-                except Exception:
-                    pass
+                _try_call(process.terminate)
             if alive:
-                try:
-                    process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
-                except Exception:
-                    pass
+                _try_call(lambda: process.join(max(0.0, context.cleanup_ns() / 1_000_000_000)))
             alive = getattr(process, "is_alive", lambda: False)()
             if alive:
                 kill = getattr(process, "kill", None)
                 if kill is not None:
-                    try:
-                        kill()
-                        process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
-                    except Exception:
-                        pass
+                    _try_call(
+                        lambda: (
+                            kill(),
+                            process.join(max(0.0, context.cleanup_ns() / 1_000_000_000)),
+                        )
+                    )
             alive = getattr(process, "is_alive", lambda: False)()
             record.exit_code = getattr(process, "exitcode", None)
             record.reaped = not alive
@@ -247,12 +291,8 @@ class OpenCodeWorkerProcess:
         if close is None:
             record.process_closed = True
             return
-        try:
-            close()
-        except Exception:
-            record.process_closed = False
-        else:
-            record.process_closed = True
+        closed, _ = _try_call(close)
+        record.process_closed = closed
 
     def _close_job(self, job: Any, context: DeadlineContext) -> None:
         close = getattr(job, "close_with_deadline", None)
@@ -292,35 +332,42 @@ class RefreshAttempt:
                 self.worker_records.append(record)
         for record in self.worker_records:
             if not record.job_closed and record.job is not None:
-                try:
+                def close_record_job(record: WorkerRecord = record) -> None:
                     self._close_job(record.job, context)
                     worker_process_type: type[OpenCodeWorkerProcess] = OpenCodeWorkerProcess
                     record.job_active_zero = worker_process_type._job_zero(record.job)
                     record.job_closed = worker_process_type._job_closed(record.job)
-                except Exception:
+
+                closed, _ = _try_call(close_record_job)
+                if not closed:
                     cleanup_error = True
             if not record.queue_closed and record.queue is not None:
-                try:
+                def close_record_queue(record: WorkerRecord = record) -> None:
                     OpenCodeWorkerProcess._close_queue(record.queue)
                     record.queue_closed = True
                     record.queue = None
-                except Exception:
+
+                closed, _ = _try_call(close_record_queue)
+                if not closed:
                     cleanup_error = True
             if not record.authorized_closed and record.authorized is not None:
-                try:
+                def close_record_authorized(record: WorkerRecord = record) -> None:
                     close = getattr(record.authorized, "close", None)
                     if close is not None:
                         close()
                     record.authorized_closed = True
                     record.authorized = None
-                except Exception:
+
+                closed, _ = _try_call(close_record_authorized)
+                if not closed:
                     cleanup_error = True
             owner = next((worker for worker in self.workers if getattr(worker, "record", None) is record), None)
             reap = getattr(owner, "_reap_process", None)
             if callable(reap) and (not record.reaped or not record.process_closed):
-                try:
-                    reap(record.worker, context, terminate=not record.reaped)
-                except Exception:
+                reaped, _ = _try_call(
+                    lambda reap=reap, record=record: reap(record.worker, context, terminate=not record.reaped)
+                )
+                if not reaped:
                     cleanup_error = True
             if not record.reaped or not record.process_closed or not record.queue_closed or not record.authorized_closed:
                 cleanup_error = True
@@ -332,15 +379,14 @@ class RefreshAttempt:
             if not callable(retry):
                 cleanup_error = True
                 continue
-            try:
-                if not retry(context):
-                    cleanup_error = True
-            except Exception:
+            retried, retry_result = _try_call(lambda retry=retry: retry(context))
+            if not retried or not retry_result:
                 cleanup_error = True
-        if self.worker_records or self.codex_helpers:
-            try:
-                cleanup_error = cleanup_error or not cleanup_complete(self.worker_records, helpers=self.codex_helpers)
-            except Exception:
+        if (self.worker_records or self.codex_helpers) and not cleanup_error:
+            checked, complete = _try_call(
+                lambda: cleanup_complete(self.worker_records, helpers=self.codex_helpers)
+            )
+            if not checked or not complete:
                 cleanup_error = True
         return not cleanup_error
 
@@ -364,30 +410,20 @@ class RefreshAttempt:
         if isinstance(closed_state, bool):
             closed = closed or closed_state
         if not released:
-            try:
-                released = bool(lease.release())
-            except Exception:
-                released = False
+            released_ok, release_result = _try_call(lambda: bool(lease.release()), False)
+            released = release_result if released_ok else False
             if released:
-                try:
-                    setattr(lease, "_yasb_release_complete", True)
-                except Exception:
-                    pass
+                with suppress(Exception):
+                    lease._yasb_release_complete = True
         if released and not closed:
-            try:
-                closed = bool(lease.close())
-            except Exception:
-                closed = False
+            closed_ok, close_result = _try_call(lambda: bool(lease.close()), False)
+            closed = close_result if closed_ok else False
             if closed:
-                try:
-                    setattr(lease, "_yasb_close_complete", True)
-                except Exception:
-                    pass
+                with suppress(Exception):
+                    lease._yasb_close_complete = True
         if released and closed:
-            try:
-                setattr(lease, "_yasb_finalized", True)
-            except Exception:
-                pass
+            with suppress(Exception):
+                lease._yasb_finalized = True
         return released and closed
 
     def _retry_unfinalized_leases(self) -> bool:
@@ -442,7 +478,8 @@ class RefreshAttempt:
         current_opencode_result: OpenCodeReadResult | None = None
         current_worker: Any | None = None
         self.authority_acquired = self.guard_factory is None
-        try:
+        def execute() -> None:
+            nonlocal current_opencode_result, current_worker, lease, result, views
             if self.guard_factory is not None:
                 guard = self.guard_factory()
                 lease = guard.acquire(config_path, context)
@@ -492,19 +529,20 @@ class RefreshAttempt:
                         )
                         views[ProviderKey.OPENCODE_GO] = current_worker.run_with_deadline(request, context)
                         current_opencode_result = getattr(current_worker, "last_result", None)
-                        if current_worker.record is not None:
-                            if current_worker.record not in self.worker_records:
-                                self.worker_records.append(current_worker.record)
+                        if current_worker.record is not None and current_worker.record not in self.worker_records:
+                            self.worker_records.append(current_worker.record)
             if result is None:
                 result = self._document(views)
-        except GuardError as error:
-            code = V2SafeErrorCode.GUARD_WAIT_TIMEOUT if error.code == "guard_wait_timeout" else V2SafeErrorCode.GUARD_ACQUISITION_FAILED
-            reason = "guard_wait_timeout" if error.code == "guard_wait_timeout" else "document_aborted"
-            result = self._document({key: _not_run(key, reason) for key in views}, code)
-        except Exception as error:
-            current_opencode_result = getattr(current_worker, "last_result", None)
-            views = {key: view if key in provider_errors else _not_run(key, "document_aborted") for key, view in views.items()}
-            unexpected_error = error
+        try:
+            error, _ = _capture_call(execute)
+            if isinstance(error, GuardError):
+                code = V2SafeErrorCode.GUARD_WAIT_TIMEOUT if error.code == "guard_wait_timeout" else V2SafeErrorCode.GUARD_ACQUISITION_FAILED
+                reason = "guard_wait_timeout" if error.code == "guard_wait_timeout" else "document_aborted"
+                result = self._document({key: _not_run(key, reason) for key in views}, code)
+            elif error is not None:
+                current_opencode_result = getattr(current_worker, "last_result", None)
+                views = {key: view if key in provider_errors else _not_run(key, "document_aborted") for key, view in views.items()}
+                unexpected_error = error
         finally:
             cleanup_safe = self._cleanup_resources(context)
             lease_released = lease is None
@@ -547,10 +585,10 @@ class RefreshAttempt:
             )
             if enabled_flag
         )
-        try:
-            public_bytes = project_v2_bytes(V2ProjectionInput(document, enabled, evidence))
-        except Exception:  # noqa: BLE001 - projection failure must not expose provider details
-            public_bytes = None
+        _, public_bytes = _try_call(
+            lambda: project_v2_bytes(V2ProjectionInput(document, enabled, evidence)),
+            None,
+        )
         return SingleFlightResult(value=document, cached_public_bytes=public_bytes, produced=True)
 
     @staticmethod

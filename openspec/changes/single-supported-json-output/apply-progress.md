@@ -196,3 +196,51 @@ This is the assigned Semantic 1B consumer correction: one focused test/progress 
 ### Workload / PR boundary
 
 This is the assigned `feature/137-json-cache-typing` blocker slice under the auto-chain delivery path. It stays below 400 changed provider/no-rename lines and is intentionally left uncommitted for the parent.
+
+## Progress: JSON worker lint blocker slice
+
+### Status
+
+- **Slice:** Mandatory diagnostic remediation in `v2_worker.py`
+- **Branch:** `feature/137-json-worker-lint`
+- **Base:** `feature/137-json-cache-typing` at `d238394`
+- **Delivery boundary:** feature-branch-chain / auto-chain; assigned work-unit slice, no commit, push, PR, or rename
+- **Provider/no-rename budget:** 158 additions + 120 deletions in the permitted source file; below the 400-line slice limit
+
+### Completed tasks
+
+- Sorted imports and moved `Callable` to `collections.abc`.
+- Replaced the bootstrap devnull open with managed lifetime handling and explicit safe fallbacks.
+- Replaced swallowed cleanup `try`/`except` paths with captured-call fallback state while preserving retry ownership and cleanup ordering.
+- Replaced constant `setattr` cleanup markers with direct assignment under reviewed suppression and combined nested conditionals.
+- Changed the invalid process PID failure to `TypeError`, matching the diagnostic without changing fail-closed behavior.
+- Preserved child authorization, job/process/queue/Event closure order, shared deadlines, bounded cleanup, retained owners, and frozen Windows spawn behavior.
+
+### TDD cycle evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | `ruff check src/yasb_limitora/v2_worker.py` before edits | **42 findings**, including I001, UP035, SIM115, S110/BLE001 cleanup paths, B010, SIM102, and TRY004 |
+| GREEN | Refactored only `src/yasb_limitora/v2_worker.py` and reran Ruff | `ruff check src/yasb_limitora/v2_worker.py` → **All checks passed** |
+| TRIANGULATE | `python -m pytest -q tests/test_v2_worker.py tests/test_runtime_cli.py tests/test_windows_native_proof.py` | **58 passed** |
+| TRIANGULATE / collection | `python -m pytest -q --collect-only` | **590 tests collected**, 0 collection errors |
+| REFACTOR | `git diff --check` and final Ruff run; focused worker suite rerun after cleanup indentation correction | Passed; worker suite **21 passed**; no noqa/type-ignore added |
+
+### Files changed
+
+- `src/yasb_limitora/v2_worker.py`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- None. The worker lifecycle and safety design remains unchanged; the implementation uses a small captured-call helper to express ordinary exception fallbacks without empty handlers or broad diagnostic suppressions.
+- The focused command included `tests/test_windows_native_proof.py`; it completed with 58 passed and no reported skips.
+
+### Remaining tasks
+
+- Parent authoritative LSP/lens diagnostics passed: primary clean and no auxiliary findings.
+- No source or test changes remain assigned in this slice.
+
+### Workload / PR boundary
+
+This is the assigned `feature/137-json-worker-lint` blocker slice under the auto-chain delivery path. The 326-line total no-rename diff is below the 400-line budget, and no files outside the two allowed surfaces were modified.
