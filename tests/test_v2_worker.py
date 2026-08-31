@@ -1,5 +1,6 @@
 import io
 import json
+import pickle
 import queue
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -8,6 +9,7 @@ import pytest
 
 from yasb_limitora.cli import main
 from yasb_limitora.config import LocalConfig
+import yasb_limitora.limitora_api as limitora_api, yasb_limitora.v2_worker as v2_worker
 from yasb_limitora.model import (
     ProviderKey,
     ProviderOutcome,
@@ -24,18 +26,18 @@ from yasb_limitora.model import (
     SnapshotFreshness,
 )
 from yasb_limitora.v2_deadline import DeadlineContext
-from yasb_limitora.v2_worker import V2ExecutionOrchestrator, WorkerRecord, cleanup_complete
+from yasb_limitora.v2_guard import GuardError
+from yasb_limitora.v2_worker import OpenCodeWorkerProcess, V2ExecutionOrchestrator, WorkerRecord, cleanup_complete
+from yasb_limitora.limitora_api import OpenCodeReadResult, OpenCodeRequest
 
 
 class Lease:
     def __init__(self, events, close=True):
         self.events, self.close_ok, self.owned = events, close, True
     def close(self):
-        self.events.append("close-mutex")
-        return self.close_ok
+        self.events.append("close-mutex"); self.owned = not self.close_ok; return self.close_ok
     def release(self):
-        self.events.append("release-mutex")
-        return True
+        self.events.append("release-mutex"); self.owned = False; return True
 
 
 class Guard:
@@ -47,25 +49,201 @@ def context():
     return DeadlineContext(t0_ns=0, deadline_ns=10_000_000_000, reserve_ns=250_000_000, clock_ns=lambda: 0)
 
 
+def test_opencode_request_is_the_only_secret_bearing_spawn_carrier():
+    request = OpenCodeRequest("sentinel-api-key", 7.0)
+    payload = pickle.dumps(request)
+    assert b"sentinel-api-key" in payload and "sentinel-api-key" not in repr(request) and "sentinel-api-key" not in str(request)
+    assert "sentinel-api-key" not in repr(OpenCodeReadResult(ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))) and b"sentinel-api-key" not in pickle.dumps(OpenCodeReadResult(ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
+def test_private_result_queue_and_v2_record_retention():
+    result = OpenCodeReadResult(ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE), limitora_api.OpenCodeFailureEvidence.RATE_LIMITED)
+    queued, output = [], type("Output", (), {"put": lambda self, value: queued.append(value)})()
+    v2_worker._opencode_bootstrap(lambda request: result, OpenCodeRequest("sentinel-api-key", 7), output)
+    assert queued == [result] and "sentinel-api-key" not in repr(queued[0])
+    worker = type("Worker", (), {"record": None, "last_result": result, "run_with_deadline": lambda self, request, deadline: result.view})()
+    config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": True}})
+    orchestrator = V2ExecutionOrchestrator(guard_factory=lambda: Guard(Lease([])), opencode_factory=lambda: worker)
+    document = orchestrator.run(config, {"LIMITORA_OPENCODE_API_KEY": "key"}, context(), "config")
+    assert document.providers[1] is result.view and orchestrator.last_record.opencode_evidence is result.evidence
+
+
+def test_opencode_child_start_uses_private_frozen_environment_without_mutating_parent(monkeypatch):
+    import multiprocessing
+    import multiprocessing.popen_spawn_win32 as spawn_popen
+
+    from yasb_limitora import v2_path
+
+    environment = {
+        "PATH": "public-path",
+        "_PYI_ARCHIVE_FILE": "archive-sentinel",
+        "_PYI_APPLICATION_HOME_DIR": "home-sentinel",
+        "_PYI_PARENT_PROCESS_LEVEL": "1",
+        "LIMITORA_OPENCODE_API_KEY": "opencode-secret",
+        "OPENAI_API_KEY": "openai-secret",
+        "AWS_SECRET_ACCESS_KEY": "aws-secret",
+    }
+    monkeypatch.setattr(v2_worker.os, "environ", environment)
+    monkeypatch.setattr(v2_path._PRIVATE_SYS, "frozen", True, raising=False)
+    observed = {}
+
+    def recording_popen(process_obj):
+        observed["environ_is_parent"] = v2_worker.os.environ is environment
+        observed["environ"] = dict(v2_worker.os.environ)
+        observed["child_environment"] = dict(getattr(process_obj, "_child_environment", None) or {})
+        raise RuntimeError("spawn intercepted")
+
+    monkeypatch.setattr(v2_path, "_windows_spawn_popen", recording_popen)
+    monkeypatch.setattr(spawn_popen, "Popen", recording_popen)
+
+    class Job:
+        active_processes = 0
+        state = "assigned"
+        def assign_process(self, pid, *, allow_nested=False):
+            pytest.fail("job assigned before spawn completed")
+        def close_with_deadline(self, deadline):
+            self.state = "closed"
+
+    view = OpenCodeWorkerProcess(
+        job_factory=Job,
+        context_factory=lambda _: multiprocessing.get_context("spawn"),
+    ).run_with_deadline(OpenCodeRequest("request-secret", 7), context())
+
+    assert observed["environ_is_parent"] is True
+    assert observed["environ"] == environment
+    assert observed["child_environment"] == {
+        "PATH": "public-path",
+        "_PYI_ARCHIVE_FILE": "archive-sentinel",
+        "_PYI_APPLICATION_HOME_DIR": "home-sentinel",
+        "_PYI_PARENT_PROCESS_LEVEL": "1",
+    }
+    assert not any("SECRET" in key or "API_KEY" in key for key in observed["child_environment"])
+    assert view.outcome is ProviderOutcome.EXECUTION_ERROR
+    assert v2_worker.os.environ is environment
+    assert environment["LIMITORA_OPENCODE_API_KEY"] == "opencode-secret"
+
+
+def test_provider_configuration_error_skips_only_invalid_provider():
+    launches = []
+    config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": True}})
+
+    class Worker:
+        record = None
+        last_result = None
+        def run_with_deadline(self, request, deadline):
+            launches.append(ProviderKey.OPENCODE_GO)
+            return ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED)
+
+    document = V2ExecutionOrchestrator(
+        guard_factory=lambda: Guard(Lease([])),
+        opencode_factory=Worker,
+    ).run(
+        config,
+        {"LIMITORA_OPENCODE_API_KEY": "key"},
+        context(),
+        "config",
+        provider_errors={ProviderKey.CODEX},
+    )
+
+    assert launches == [ProviderKey.OPENCODE_GO]
+    assert document.providers[0].error.code is SafeErrorCode.CONFIGURATION_INVALID
+
+
+def test_reused_orchestrator_retains_only_current_opencode_evidence():
+    view = ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)
+    results = [
+        OpenCodeReadResult(view, limitora_api.OpenCodeFailureEvidence.RATE_LIMITED),
+        OpenCodeReadResult(view, limitora_api.OpenCodeFailureEvidence.TIMEOUT),
+        OpenCodeReadResult(view),
+    ]
+
+    class Worker:
+        record = None
+
+        def __init__(self, result):
+            self.result = result
+            self.last_result = None
+
+        def run_with_deadline(self, request, deadline):
+            self.last_result = self.result
+            return self.result.view
+
+    workers = [Worker(result) for result in results]
+    config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": True}})
+    orchestrator = V2ExecutionOrchestrator(
+        guard_factory=lambda: Guard(Lease([])),
+        opencode_factory=lambda: workers.pop(0),
+    )
+
+    for expected in (results[0], results[1], results[2]):
+        orchestrator.run(config, {"LIMITORA_OPENCODE_API_KEY": "key"}, context(), "config")
+        assert orchestrator.last_record.opencode_evidence is expected.evidence
+
+    assert len(orchestrator.workers) == 3
+
+
+def test_disabled_or_codex_only_run_clears_previous_opencode_evidence():
+    result = OpenCodeReadResult(
+        ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE),
+        limitora_api.OpenCodeFailureEvidence.RATE_LIMITED,
+    )
+    worker = type(
+        "Worker",
+        (),
+        {
+            "record": None,
+            "last_result": result,
+            "run_with_deadline": lambda self, request, deadline: result.view,
+        },
+    )
+    open_config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": True}})
+    disabled_config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": False}})
+    codex_config = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}})
+    codex_view = ProviderView(ProviderKey.CODEX, ProviderState.SUCCESS)
+    codex = type("Codex", (), {"run_with_deadline": lambda self, runner, deadline: codex_view})()
+    orchestrator = V2ExecutionOrchestrator(
+        guard_factory=lambda: Guard(Lease([])),
+        codex_executor=codex,
+        opencode_factory=lambda: worker(),
+    )
+
+    orchestrator.run(open_config, {"LIMITORA_OPENCODE_API_KEY": "key"}, context(), "config")
+    assert orchestrator.last_record.opencode_evidence is result.evidence
+
+    orchestrator.run(disabled_config, {}, context(), "config")
+    assert orchestrator.last_record is not None and orchestrator.last_record.opencode_evidence is None
+
+    orchestrator.run(codex_config, {}, context(), "config")
+    assert orchestrator.last_record.opencode_evidence is None
+    assert len(orchestrator.workers) == 1
+
+
 def test_cleanup_complete_requires_all_worker_evidence():
-    record = WorkerRecord(object(), object(), reaped=True, exit_code=0, job_active_zero=True, handles_closed=True)
+    record = WorkerRecord(object(), object(), reaped=True, exit_code=0, job_active_zero=True, job_closed=True, process_closed=True)
     assert cleanup_complete([record])
-    record.handles_closed = False
+    record.process_closed = False
     assert not cleanup_complete([record])
-
-
+    job = type("Job", (), {"active_processes": 0, "state": "assigned", "calls": 0, "close_with_deadline": lambda self, _: setattr(self, "calls", self.calls + 1)})()
+    record = WorkerRecord(object(), job, reaped=True, exit_code=0, job_active_zero=True, process_closed=True)
+    worker = type("Worker", (), {"record": record, "run_with_deadline": lambda self, request, deadline: (job.close_with_deadline(deadline) or ProviderView(ProviderKey.OPENCODE_GO, ProviderState.SUCCESS))})()
+    events = []; lease = Lease(events); acquired = []
+    SerialGuard = type("SerialGuard", (), {"acquire": lambda self, path, deadline: (_ for _ in ()).throw(GuardError("guard_wait_timeout")) if acquired else (acquired.append(True) or lease)})
+    config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": True}})
+    orchestrator = V2ExecutionOrchestrator(guard_factory=SerialGuard, opencode_factory=lambda: worker)
+    result = orchestrator.run(config, {"LIMITORA_OPENCODE_API_KEY": "key"}, context(), "config")
+    assert job.calls == 2 and not record.job_closed and record.process_closed and not cleanup_complete([record]) and result.document_error.code.value == "cleanup_failed" and events == [] and lease.owned
+    later = orchestrator.run(config, {"LIMITORA_OPENCODE_API_KEY": "key"}, context(), "config")
+    assert later.document_error.code.value == "cleanup_failed"
+    job.state = "closed"; record.job_closed = True
+    assert cleanup_complete([record])
 def test_cleanup_complete_requires_opencode_and_codex_quiescence():
     records = [
-        WorkerRecord(object(), object(), reaped=True, exit_code=0, job_active_zero=True, handles_closed=True),
-        WorkerRecord(object(), object(), reaped=True, exit_code=0, job_active_zero=True, handles_closed=True),
+        WorkerRecord(object(), object(), reaped=True, exit_code=0, job_active_zero=True, job_closed=True, process_closed=True),
+        WorkerRecord(object(), object(), reaped=True, exit_code=0, job_active_zero=True, job_closed=True, process_closed=True),
     ]
     supervisor = type("Supervisor", (), {"_state": "closed", "_pending": None, "_prepared": None, "_helper": None, "_gate": None, "_data": None})()
     helper = type("Helper", (), {"_pending_supervisor": None, "_active": False, "_retrying": False, "_last_supervisor": supervisor})()
     assert cleanup_complete(records, supervisors=(supervisor,), helpers=(helper,))
     supervisor._pending = object()
     assert not cleanup_complete(records, supervisors=(supervisor,), helpers=(helper,))
-
-
 def test_opencode_authorizes_job_before_releasing_provider_start():
     events = []
 
@@ -79,6 +257,7 @@ def test_opencode_authorizes_job_before_releasing_provider_start():
         def start(self): events.append("process-start")
         def join(self, timeout=None): events.append("process-join")
         def is_alive(self): return False
+        def close(self): events.append("process-close"); raise OSError("close failed")
 
     class Context:
         def Queue(self): return queue.Queue()
@@ -88,17 +267,66 @@ def test_opencode_authorizes_job_before_releasing_provider_start():
     class Job:
         active_processes = 0
         state = "assigned"
-        def assign_process(self, pid): events.append("job-assign")
+        def assign_process(self, pid, *, allow_nested=False):
+            assert allow_nested is True
+            events.append("job-assign")
         def close_with_deadline(self, context): events.append("job-close"); self.state = "closed"
 
     worker = __import__("yasb_limitora.v2_worker", fromlist=["OpenCodeWorkerProcess"]).OpenCodeWorkerProcess(
-        reader=lambda workspace, environment: (_ for _ in ()).throw(AssertionError("provider ran")),
+        reader=lambda request: (_ for _ in ()).throw(AssertionError("provider ran")),
         process_factory=lambda **kwargs: Process(kwargs["target"], kwargs["args"]),
         job_factory=Job,
         context_factory=lambda _name: Context(),
     )
-    worker.run_with_deadline("workspace", {}, context())
-    assert events[:3] == ["process-start", "job-assign", "provider-release"]
+    worker.run_with_deadline(OpenCodeRequest("secret", 7), context())
+    assert events[:3] == ["process-start", "job-assign", "provider-release"] and events.index("process-close") > events.index("job-close") and worker.record is not None and worker.record.reaped and worker.record.job_closed and not worker.record.process_closed
+def test_opencode_invalid_process_pid_fails_closed_before_job_assignment():
+    events = []
+
+    class Process:
+        pid, exitcode = None, 0
+
+        def __init__(self, target, args):
+            pass
+
+        def start(self):
+            events.append("process-start")
+
+        def is_alive(self):
+            return False
+
+        def close(self):
+            events.append("process-close")
+
+    class Job:
+        active_processes = 0
+        state = "assigned"
+
+        def assign_process(self, pid, *, allow_nested=False):
+            pytest.fail(f"invalid pid assigned: {pid!r}")
+
+        def close_with_deadline(self, deadline):
+            events.append("job-close")
+            self.state = "closed"
+
+    class Context:
+        def Queue(self):
+            return queue.Queue()
+
+        def Event(self):
+            return type("Event", (), {"close": lambda self: None})()
+
+    worker = OpenCodeWorkerProcess(
+        process_factory=lambda **kwargs: Process(kwargs["target"], kwargs["args"]),
+        job_factory=Job,
+        context_factory=lambda _: Context(),
+    )
+
+    result = worker.run_with_deadline(OpenCodeRequest("secret", 7), context())
+
+    assert result.error is not None and result.error.code is SafeErrorCode.PROVIDER_ERROR
+    assert events == ["process-start", "job-close", "process-close"]
+    assert worker.record is not None and worker.record.reaped and worker.record.job_closed and worker.record.process_closed
 
 
 def test_prestart_deadline_exhaustion_marks_opencode_not_run_without_spawning():
@@ -107,12 +335,10 @@ def test_prestart_deadline_exhaustion_marks_opencode_not_run_without_spawning():
         process_factory=lambda **kwargs: (_ for _ in ()).throw(AssertionError("provider spawned")),
     )
 
-    result = worker.run_with_deadline("workspace", {}, expired)
+    result = worker.run_with_deadline(OpenCodeRequest("secret", 7), expired)
 
     assert result.outcome is ProviderOutcome.NOT_RUN
     assert result.not_run_reason == "deadline_exhausted"
-
-
 def test_prestart_deadline_exhaustion_retries_pending_codex_cleanup():
     closed = []
 
@@ -140,6 +366,19 @@ def test_prestart_deadline_exhaustion_retries_pending_codex_cleanup():
     assert executor._pending_supervisor is None
 
 
+def test_codex_exhaustion_skips_opencode_request_construction_and_returns_not_run():
+    clock = [0]; Codex = type("Codex", (), {"run_with_deadline": lambda self, runner, deadline: (clock.__setitem__(0, 2_000) or ProviderView(ProviderKey.CODEX, ProviderState.SUCCESS))}); config = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {"enabled": True}}); context = DeadlineContext(0, 1_000, 0, lambda: clock[0])
+    document = V2ExecutionOrchestrator(guard_factory=lambda: Guard(Lease([])), codex_executor=Codex(), opencode_factory=lambda: pytest.fail("OpenCode worker constructed after deadline exhaustion")).run(config, {"LIMITORA_OPENCODE_API_KEY": "key"}, context, r"C:\\config.json")
+    assert (document.providers[1].outcome, document.providers[1].not_run_reason) == (ProviderOutcome.NOT_RUN, "deadline_exhausted")
+def test_opencode_budget_sampling_handles_clock_expiry_race():
+    clock = iter((0, 0, 1)); requests = []; Worker = type("Worker", (), {"record": None, "run_with_deadline": lambda self, request, context: (requests.append(request) or ProviderView(ProviderKey.OPENCODE_GO, ProviderState.SUCCESS))}); config = LocalConfig.from_v2_mapping({"codex": {}, "opencode_go": {"enabled": True}})
+    document = V2ExecutionOrchestrator(guard_factory=lambda: Guard(Lease([])), opencode_factory=Worker).run(config, {"LIMITORA_OPENCODE_API_KEY": "key"}, DeadlineContext(0, 1, 0, lambda: next(clock)), "config")
+    assert document.providers[1].state is ProviderState.SUCCESS
+    assert requests and requests[0].timeout_seconds > 0
+def test_opencode_start_failure_closes_unstarted_process_and_queue_handles():
+    events = []; Queue = type("Queue", (), {"cancel_join_thread": lambda self: events.append("queue-cancel"), "close": lambda self: events.append("queue-close")}); Process = type("Process", (), {"pid": 42, "exitcode": None, "start": lambda self: (events.append("process-start") or (_ for _ in ()).throw(RuntimeError("start failed"))), "is_alive": lambda self: (_ for _ in ()).throw(AssertionError("unstarted process queried")), "join": lambda self, timeout=None: (_ for _ in ()).throw(AssertionError("unstarted process joined")), "close": lambda self: events.append("process-close")})
+    Context = type("Context", (), {"Queue": lambda self: Queue(), "Event": lambda self: type("Event", (), {})()}); worker = OpenCodeWorkerProcess(process_factory=lambda **kwargs: Process(), context_factory=lambda _name: Context()); result = worker.run_with_deadline(OpenCodeRequest("secret", 7), context())
+    assert result.error.code is SafeErrorCode.PROVIDER_ERROR and events == ["process-start", "process-close", "queue-cancel", "queue-close"] and worker.record is not None and worker.record.reaped and worker.record.process_closed and not worker.record.started and worker.record.exit_code is None
 def test_started_opencode_overrun_remains_provider_timeout():
     class Process:
         pid, exitcode = 42, None
@@ -156,11 +395,16 @@ def test_started_opencode_overrun_remains_provider_timeout():
         def is_alive(self):
             return self.alive
 
+        def terminate(self):
+            self.alive = False
+        def close(self):
+            self.closed = True
     class Job:
         active_processes = 0
         state = "assigned"
 
-        def assign_process(self, pid):
+        def assign_process(self, pid, *, allow_nested=False):
+            assert allow_nested is True
             pass
 
         def close_with_deadline(self, context):
@@ -172,11 +416,13 @@ def test_started_opencode_overrun_remains_provider_timeout():
         context_factory=lambda _name: type("Context", (), {"Queue": lambda self: queue.Queue(), "Event": lambda self: type("Event", (), {"set": lambda self: None})()})(),
     )
 
-    result = worker.run_with_deadline("workspace", {}, context())
+    result = worker.run_with_deadline(OpenCodeRequest("secret", 7), context())
 
     assert result.outcome is ProviderOutcome.EXECUTION_ERROR
     assert result.error is not None
     assert result.error.code is SafeErrorCode.TIMEOUT
+    assert worker.record is not None and worker.record.reaped and worker.record.job_closed and worker.record.process_closed
+    assert worker.last_result is not None and worker.last_result.evidence.value == "timeout"
 
 
 def test_orchestrator_preserves_outcomes_when_mutex_cleanup_fails():
@@ -210,6 +456,47 @@ def test_orchestrator_preserves_outcomes_when_mutex_cleanup_fails():
     assert events == ["release-mutex", "close-mutex"]
 
 
+def test_retries_only_lease_close_after_release_succeeds():
+    class FirstLease:
+        __slots__ = ("release_calls", "close_calls", "owned", "closed")
+
+        def __init__(self):
+            self.release_calls = 0
+            self.close_calls = 0
+            self.owned = True
+            self.closed = False
+
+        def release(self):
+            self.release_calls += 1
+            if self.release_calls > 1:
+                raise AssertionError("released lease must not be released again")
+            self.owned = False
+            return True
+
+        def close(self):
+            self.close_calls += 1
+            self.closed = self.close_calls == 2
+            return self.closed
+
+    first = FirstLease()
+    later = Lease([])
+    leases = iter((first, later))
+    config = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}})
+    executor = type(
+        "Executor",
+        (),
+        {"run_with_deadline": lambda self, runner, deadline: ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED)},
+    )()
+    orchestrator = V2ExecutionOrchestrator(guard_factory=lambda: Guard(next(leases)), codex_executor=executor)
+
+    first_document = orchestrator.run(config, {}, context(), "config")
+    second_document = orchestrator.run(config, {}, context(), "config")
+
+    assert first_document.document_error.code.value == "cleanup_failed"
+    assert second_document.document_error is None
+    assert (first.release_calls, first.close_calls) == (1, 2)
+
+
 def test_unexpected_provider_exception_is_not_relabelled_as_guard_failure():
     events, lease = [], Lease([])
     lease.events = events
@@ -240,7 +527,7 @@ def test_unexpected_provider_exception_emits_schema_safe_internal_document(monke
     )
     stdout, stderr = io.BytesIO(), io.StringIO()
 
-    assert main(("--output-version", "2", "--config", str(config_path)), stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 1
+    assert main(("--output-version", "2", "--config", str(config_path)), environment={"LOCALAPPDATA": str(tmp_path)}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 2
     document = json.loads(stdout.getvalue())
     assert document["execution_error"] == {"code": "internal_error", "phase": "document"}
     assert all(provider["not_run_reason"] == "document_aborted" for provider in document["providers"])

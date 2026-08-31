@@ -18,6 +18,16 @@ environment, configuration, provider, native-process, or clock activity.
 Hermetic test injection does not offer non-Windows compatibility or replace the
 separate R10 automated native proof and maintainer manual YASB acceptance.
 
+The shared cache refresh contract is intentionally minimal. A Windows
+cross-process mutex protects only short cache-key state inspection, marker
+transitions, and the atomic publication decision. It MUST NOT span provider
+execution or cleanup.
+Each key's marker contains exactly `generation`, `owner_pid`, `owner_token`, and
+`started_at`; `owner_token` is a non-reusable process-creation identity. One live
+owner is serviced by bounded waiter retries. A dead or mismatched owner is
+reclaimed with a higher generation, and a producer MUST verify its exact claim
+before publication. Unknown account identity MUST fail closed for cache reuse.
+
 ## 1. Normative Language
 
 The terms **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** are
@@ -109,6 +119,24 @@ Every provider object has exactly these fields:
 may be unknown to the safe allowlist. The raw reference MUST NOT be copied into
 the output.
 
+Source identity is provider-bound. Codex accepts only `codex-app-server-v2`;
+OpenCode accepts only `opencode-go-api`. Every provider root source and window
+source is normalized independently before evidence validation. A wrong,
+unknown, or absent source becomes `null`, and numeric quantities from a window
+without its provider-bound source MUST NOT remain trusted; the window is
+projected as unavailable with null quantities and reset.
+
+OpenCode `available`/`partial` snapshots contain exactly one commercial slot for
+each `five_hour`, `monthly`, and `weekly` period. Completion uses provider
+identity/state, not nullable root `source_id`: valid provider-bound numeric
+windows remain `known`; missing, duplicate, invalid, non-known, or extra
+commercial windows become fixed unavailable/null slots or are discarded, while
+non-commercial windows remain subject to the general rules. A `rate_limited`
+snapshot is provider-level HTTP 429 taxonomy, preserving only technical windows
+(including an empty array) without embedded per-window provenance. #55 is released upstream in
+Limitora v0.3.0, while yasb-limitora #133 remains a separate follow-up; this v2 contract does
+not consume per-window rate-limit provenance.
+
 ### 3.2 Window object
 
 Every item in `windows` has exactly these fields:
@@ -158,7 +186,7 @@ closed.
 
 | Outcome | Meaning | Public state/freshness | Window rule |
 |---------|---------|-----------------------|-------------|
-| `snapshot` | A provider call returned a validated public snapshot | Both are present and exact | Preserve all safe quota windows, including an empty array when none is present |
+| `snapshot` | A provider call returned a validated public snapshot | Both are present and exact | Preserve all safe quota windows; OpenCode `available`/`partial` snapshots use the fixed commercial slots defined in section 6 |
 | `undetected` | No usable provider source was detected | Both are `null`; no public provider state exists | `[]`; no snapshot context or raw detection message |
 | `not_run` | No provider call was attempted | Both are `null` | `[]`; `not_run_reason` is required |
 | `execution_error` | A provider call or provider-bound execution failed before a valid snapshot existed | Both are `null` | `[]`; sanitized `execution_error` is required |
@@ -214,7 +242,7 @@ An execution error has exactly `code` and `phase`:
 
 | Field | Closed values |
 |-------|---------------|
-| `code` | `invocation_invalid`, `configuration_invalid`, `guard_acquisition_failed`, `guard_wait_timeout`, `deadline_exhausted`, `provider_timeout`, `provider_failed`, `ipc_failed`, `cleanup_failed`, `invalid_provider_data`, `unknown_provider_state`, `internal_error` |
+| `code` | `invocation_invalid`, `configuration_invalid`, `guard_acquisition_failed`, `guard_wait_timeout`, `deadline_exhausted`, `credential_invalid`, `provider_timeout`, `provider_rate_limited`, `provider_unavailable`, `provider_failed`, `ipc_failed`, `cleanup_failed`, `invalid_provider_data`, `unknown_provider_state`, `internal_error` |
 | `phase` | `configuration`, `guard_wait`, `provider`, `ipc`, `cleanup`, `document` |
 
 An execution error MUST NOT contain a message, exception text, path, provider
@@ -229,7 +257,7 @@ The code-to-phase mapping is exact:
 | `invocation_invalid`, `configuration_invalid` | `configuration` |
 | `guard_acquisition_failed`, `guard_wait_timeout` | `guard_wait` |
 | `deadline_exhausted`, `internal_error` | `document` |
-| `provider_timeout`, `provider_failed`, `invalid_provider_data`, `unknown_provider_state` | `provider` |
+| `credential_invalid`, `provider_timeout`, `provider_rate_limited`, `provider_unavailable`, `provider_failed`, `invalid_provider_data`, `unknown_provider_state` | `provider` |
 | `ipc_failed` | `ipc` |
 | `cleanup_failed` | `cleanup` |
 
@@ -286,7 +314,9 @@ failures. Provider fields not shown as variable MUST follow section 4.5.
 | Document condition | `execution_state` | Top-level error | Allowed provider outcomes | Required provider reason/error |
 |--------------------|-------------------|----------------|----------------------------|--------------------------------|
 | All selected providers disabled | `not_run` | `null` | Every provider `not_run` | Every `not_run_reason: disabled` |
-| Valid v2 invocation, configuration missing/malformed | `execution_error` | `configuration_invalid/configuration` | Every provider `not_run` | `not_run_reason: invalid_configuration` |
+| Valid v2 invocation, document/global configuration missing/malformed | `execution_error` | `configuration_invalid/configuration` | Every provider `not_run` | `not_run_reason: invalid_configuration` |
+| One provider object is invalid and a peer is usable | `partial` | `null` | One `execution_error`, one `snapshot`/`undetected` | Invalid provider has `provider_failed/provider`; usable peer keeps its own outcome |
+| One provider object is invalid and no provider is usable | `execution_error` | `provider_failed/provider` | One `execution_error`, one `not_run` or `execution_error` | Invalid provider has `provider_failed/provider`; peers retain their own truthful outcome |
 | Valid v2 selection, invalid flag combination | `execution_error` | `invocation_invalid/configuration` | Every provider `not_run` | `not_run_reason: invocation_invalid` |
 | Guard wait expires | `not_run` | `guard_wait_timeout/guard_wait` | Every provider `not_run` | `not_run_reason: guard_wait_timeout` |
 | All provider calls are prevented by the absolute deadline | `not_run` | `deadline_exhausted/document` | Every provider `not_run` | At least one `deadline_exhausted`; other unattempted providers may be `disabled` |
@@ -314,10 +344,11 @@ The identity of a window is exactly:
 ```
 
 A provider MUST NOT emit two windows with the same identity, even when their
-plans or sources differ. Consumers MUST NOT assume a fixed number, name, or
-order of provider windows. An open/future `period` is valid when it meets the
-sanitized string limits; unknown period names MUST NOT be rejected merely
-because they are new.
+plans or sources differ. Codex and non-commercial windows remain open to future
+period names when they meet the sanitized string limits. OpenCode
+`available`/`partial` snapshots are the explicit exception: their commercial
+windows are exactly `five_hour`, `monthly`, and `weekly`; unknown commercial
+periods are discarded rather than passed through.
 
 Mathematical cross-provider compatibility requires equal:
 
@@ -385,7 +416,7 @@ lookahead over `[\\s\\S]`; it does not rely on `$` alone, because JSON Schema
 
 1. Convert the public source reference to NFC and trim it.
 2. Emit it only when it is exactly one of the current allowlisted IDs
-   `codex-app-server-v2` or `opencode-go-dashboard`.
+   `codex-app-server-v2` or `opencode-go-api`.
 3. Emit JSON `null` for every other value. Never emit the raw rejected value.
 
 The provider source and each window source are sanitized independently. A
@@ -516,28 +547,31 @@ qualifier order is normative. An ineligible snapshot therefore says
 Partial snapshots preserve `state=partial`; stale snapshots preserve
 `freshness=stale` in every form, including when no eligible basis exists.
 
-`tooltip_text` begins exactly with
-`State: <public_state>\nFreshness: <freshness>\n`. With an eligible window the
-next line is `Quota: <percentage>% remaining`; otherwise the next lines are
-`Quota: percentage unavailable\nNo eligible percentage basis`. A snapshot then
-appends its windows in section 9 order, using complete lines in this exact
-form:
+`tooltip_text` begins exactly with the provider display name, followed by
+`State: <display_state> · <display_freshness>\nLowest quota: <value>\n`. The
+display state and freshness are capitalized English labels. `<value>` is
+`<percentage>% remaining` when an eligible window exists and `Quota unavailable`
+otherwise. A snapshot then appends every window in section 9 order using a
+human-readable period label:
 
 ```text
-Window: kind=<kind>; scope=<scope>; period=<period>; plan_id=<JSON string|null>; unit=<unit>; source_id=<JSON string|null>; result=<percentage>% remaining|percentage unavailable|availability=<availability>
+<period>: <percentage>% remaining [· resets <local date/time>]
+<period>: Quota unavailable
 ```
 
-`plan_id` and `source_id` in that line always use JSON string syntax; missing
-identities use the literal `null`. For `scope`, `period`, and `unit`, a safe
-identity is rendered as its existing raw text. An identity containing `;`, `=`,
-or backslash is instead rendered as a JSON string using the same
-Unicode-preserving escaping as canonical JSON (for example,
-`scope="team;west"` and `period="five\\nhour"`). This conditional form keeps
-normal-case tooltip bytes unchanged while making every `key=value;` boundary
-unambiguous; it does not alter the underlying identity or invent a replacement
-value. The same escaped representation is used for those identities in
-`alternate_text` so its bounded presentation uses the same identity form. A known
-`reset_at` appends `Reset: <timestamp>` immediately after its window line.
+Known periods use `5-hour`, `Monthly`, and `Weekly`; other periods are rendered
+by replacing underscores with spaces and capitalizing the first letter. OpenCode
+renders each valid reset inline, including when that window's percentage is
+unavailable. Codex renders valid reset times as `Resets: <local date/time>`
+lines after its window lines, also independent of percentage availability.
+The canonical `reset_at` value remains UTC in JSON. For tooltip presentation, the
+aware timestamp is converted with the machine's local timezone and formatted
+with the process locale's `%x %X` date/time format, without changing global
+locale state. Fractional seconds are omitted. If locale formatting is
+unavailable, the stable `YYYY-MM-DD HH:MM:SS` fallback is used. Internal
+identities such as kind, scope, plan ID, unit, and source ID are never included
+in the tooltip. Missing reset evidence is omitted, and unavailable or unknown
+windows remain `Quota unavailable` rather than becoming zero.
 Tooltip lines are appended whole, in order, only while the complete result
 remains within 4096 Unicode scalars. Missing evidence remains missing: no
 synthetic value, zero, reset, identity, or raw error is allowed.
@@ -580,8 +614,10 @@ the trio; `not_run` uses `Quota not run` in compact/alternate and
 invalid`, `invocation_invalid -> invocation invalid`, and `document_aborted ->
 document aborted`. Safe-error mappings are `timeout -> provider_timeout`,
 `invalid_provider_data -> invalid_provider_data`,
-`unknown_provider_state -> unknown_provider_state`, and every other published
-safe-error code -> `provider_failed`. Raw reasons and errors MUST NOT appear.
+`unknown_provider_state -> unknown_provider_state`. PR2A sidecar mappings are
+`credential_invalid -> credential_invalid`, `timeout -> provider_timeout`,
+`rate_limited -> provider_rate_limited`, and `unavailable -> provider_unavailable`;
+the aggregate remains `provider_failed`. Raw reasons and errors MUST NOT appear.
 
 `execution_error.code: cleanup_failed` MUST remain independently visible while
 each provider's recorded presentation remains truthful; a valid snapshot is
@@ -671,21 +707,27 @@ not equivalent to omission and is invalid.
 | top-level `opencode_go` | object | `{}` | Only the provider keys in the next table |
 | provider `enabled` | boolean | `false` | Required only when supplied; no numeric/string coercion |
 | Codex `runner` | string or `null` | `null` | Absolute Windows drive or UNC path; required when Codex is enabled; empty/relative is invalid |
-| provider `timeout_seconds` | finite JSON number, not boolean | `7` | Exclusive lower bound `0`, inclusive upper bound `120`; it is only an upper hint and cannot extend the document deadline |
-| provider `workspace_id` | string or `null` | `null` | When non-null, non-empty after trimming; local-only and never projected |
+| Codex `timeout_seconds` | finite JSON number; no string, boolean, `null`, NaN, or infinity | `7` | `(0,120]`; it is only an upper hint and cannot extend the document deadline |
+| OpenCode `timeout_seconds` | finite JSON number; no string, boolean, `null`, NaN, or infinity | `7` | `(0,10]`; it is only an upper hint and cannot extend the document deadline |
 
 The exact provider key sets are:
 
 | Provider object | Allowed keys |
 |-----------------|--------------|
-| `codex` | `enabled`, `runner`, `timeout_seconds`, `workspace_id` |
-| `opencode_go` | `enabled`, `timeout_seconds`, `workspace_id` |
+| `codex` | `enabled`, `runner`, `timeout_seconds` |
+| `opencode_go` | `enabled`, `timeout_seconds` |
 
-The v2 environment-only OpenCode Go credential remains `LIMITORA_AUTH_COOKIE`;
-it is not a configuration key. Credential-like keys are rejected recursively.
+The v2 environment-only OpenCode Go credential is `LIMITORA_OPENCODE_API_KEY`; it is not a
+configuration key. It MUST NOT be supplied in JSON or CLI arguments and MUST NOT appear in
+v2 JSON, diagnostics, or other output. Credential-like keys are rejected recursively.
 Provider defaults are applied before validation of dependent rules: an enabled
 Codex with omitted `runner` is invalid, while an omitted/disabled provider is a
-legal `not_run` provider.
+legal `not_run` provider. A malformed provider object is provider-scoped: that
+provider is not launched and is projected as `provider_failed/provider`; any
+valid peer remains eligible to run. Top-level grammar, path, JSON decoding, and
+deadline errors remain document/global configuration failures. Provider-scoped
+configuration errors bypass the v2 cache so stale data cannot replace the error
+or change provider order/markers.
 
 ### 12.3 v1 explicit-config compatibility
 
@@ -762,8 +804,9 @@ other combination is legal.
 | v1 safe runtime error | Exact v1 JSON plus LF | `yasb-limitora: runtime_error\n` | 1 |
 | v1 invocation/config error | Exact v1 safe-error JSON plus LF | `yasb-limitora: invocation_invalid\n` or `yasb-limitora: configuration_invalid\n` | 2 |
 | v2 successful snapshot/undetected/disabled result | Canonical v2 JSON plus LF | Empty | 0 |
-| v2 provider/document execution failure | Canonical v2 safe envelope plus LF | `yasb-limitora: runtime_error\n` | 1 |
-| v2 guard wait expiry | Canonical v2 `not_run` document plus LF | `yasb-limitora: guard_wait_timeout\n` | 1 |
+| v2 mixed usable result plus provider-scoped failure | Canonical v2 JSON plus LF | Empty | 0 |
+| v2 provider-owned failure with no usable provider | Canonical v2 safe envelope plus LF | `yasb-limitora: runtime_error\n` | 1 |
+| v2 global/document execution failure, including guard or deadline expiry | Canonical v2 safe envelope or `not_run` document plus LF | Safe diagnostic for the global failure | 2 |
 | v2 invocation/configuration error | Canonical v2 safe envelope plus LF | `yasb-limitora: invocation_invalid\n` or `yasb-limitora: configuration_invalid\n` | 2 |
 
 Stdout MUST contain only one JSON document and its final LF. Stderr MUST never
@@ -795,7 +838,11 @@ The guard rules are:
   `guard_wait_timeout`, and all providers `not_run` with
   `guard_wait_timeout`. It MUST NOT emit provider failure states.
 - The owner MUST attempt release in a `finally` path. Release failure becomes
-  sanitized document `cleanup_failed` and prevents a success result.
+  sanitized document `cleanup_failed` and prevents a success result. The
+  provider lease is finalized only after both release and close succeed. A
+  failed release or close remains owned/non-finalized and is retried at the
+  start of the next bounded invocation; a retry failure remains
+  `cleanup_failed` and cannot start another provider attempt.
 
 One absolute monotonic wall-clock deadline starts at CLI entry as `T0`, before
 configuration path resolution/read/parse, and covers configuration I/O, guard
@@ -817,6 +864,21 @@ provider `not_run_reason: deadline_exhausted`.
 Cleanup means bounded eventual termination within the absolute deadline. It
 does not mean instantaneous process death when YASB closes CustomWidget. The
 current CustomWidget `stop()` behavior is not a process-termination primitive.
+
+The shared quota cache is an optional, non-authoritative output artifact, not a
+second execution boundary. It uses a per-config/fingerprint filename and
+strictly validated schema-2 bytes. Publication occurs only after the provider
+guard has been released and closed and a clean provider result has been
+projected. It uses an atomic same-directory replace with a bounded temporary
+file; a failure is non-fatal and only the current operation's temporary file
+may be cleaned up. Uncoordinated cache reads and fallback never acquire a
+mutex; coordinated refresh inspection may hold the per-key mutex only for the
+short cache/marker state transition. After a guard wait timeout, the runtime
+performs one bounded read of the atomically
+replaced cache file and keeps `guard_wait_timeout` when the entry is absent,
+corrupt, expired, or incompatible. Provider errors, timeouts, cleanup-failed,
+and all-disabled results do not publish; an older valid entry is not deleted by
+a failed publication.
 
 ## 14. YASB Validation
 
@@ -911,7 +973,14 @@ R2 excludes:
 
 - native or upstream YASB work, plugin/extension maintainer approval, and native
   popovers or tabs;
-- fixed assumptions about provider window count or names;
+- generic fixed assumptions about provider window count or names. The approved
+  OpenCode 0.2 contract is the explicit exception: `available` and `partial`
+  snapshots MUST contain one commercial slot for each `five_hour`, `monthly`,
+  and `weekly` period. Missing, invalid, or non-known slots remain unavailable
+  with null quantities and reset data. `rate_limited` is provider-level and
+  technical-only; it MUST NOT carry per-window commercial provenance. Limitora
+  #55's per-window rate-limit signal is released upstream in v0.3.0, but
+  yasb-limitora does not consume it until #133;
 - absent-as-zero, percentages as a replacement for quantities, and incompatible
   cross-provider minima;
 - Claude and Gemini;
@@ -1020,15 +1089,39 @@ this R2 unit.
       "status_observed_at": "2026-08-01T12:00:01.000000Z",
       "fetched_at": "2026-08-01T12:00:01.000000Z",
       "data_at": "2026-08-01T12:00:01.000000Z",
-      "source_id": "opencode-go-dashboard",
+      "source_id": "opencode-go-api",
       "windows": [
+        {
+          "kind": "commercial_quota",
+          "scope": "account",
+          "period": "five_hour",
+          "plan_id": null,
+          "availability": "unavailable",
+          "source_id": null,
+          "limit": null,
+          "used": null,
+          "remaining": null,
+          "reset_at": null
+        },
+        {
+          "kind": "commercial_quota",
+          "scope": "account",
+          "period": "monthly",
+          "plan_id": null,
+          "availability": "unavailable",
+          "source_id": null,
+          "limit": null,
+          "used": null,
+          "remaining": null,
+          "reset_at": null
+        },
         {
           "kind": "commercial_quota",
           "scope": "account",
           "period": "weekly",
           "plan_id": null,
           "availability": "known",
-          "source_id": "opencode-go-dashboard",
+          "source_id": "opencode-go-api",
           "limit": {"value": "100", "metric": "commercial_quota", "unit": "percentage_points"},
           "used": {"value": "40", "metric": "commercial_quota", "unit": "percentage_points"},
           "remaining": {"value": "60", "metric": "commercial_quota", "unit": "percentage_points"},
@@ -1043,12 +1136,12 @@ this R2 unit.
         "period": "weekly",
         "plan_id": null,
         "unit": "percentage_points",
-        "source_id": "opencode-go-dashboard",
+        "source_id": "opencode-go-api",
         "remaining_percentage": "60"
       },
       "compact_text": "Quota 60% remaining; state=available; freshness=fresh",
       "alternate_text": "Quota account / weekly: 60% remaining; state=available; freshness=fresh",
-      "tooltip_text": "State: available\nFreshness: fresh\nQuota: 60% remaining\nWindow: kind=commercial_quota; scope=account; period=weekly; plan_id=null; unit=percentage_points; source_id=\"opencode-go-dashboard\"; result=60% remaining\nReset: 2026-08-08T12:00:01.000000Z"
+      "tooltip_text": "State: available\nFreshness: fresh\nQuota: 60% remaining\nWindow: kind=commercial_quota; scope=account; period=five_hour; plan_id=null; unit=null; source_id=null; result=availability=unavailable\nWindow: kind=commercial_quota; scope=account; period=monthly; plan_id=null; unit=null; source_id=null; result=availability=unavailable\nWindow: kind=commercial_quota; scope=account; period=weekly; plan_id=null; unit=percentage_points; source_id=\"opencode-go-api\"; result=60% remaining\nReset: 2026-08-08T12:00:01.000000Z"
     }
   ]
 }
@@ -1258,7 +1351,7 @@ this R2 unit.
       "status_observed_at": "2026-08-01T12:02:00.000000Z",
       "fetched_at": "2026-08-01T12:02:00.000000Z",
       "data_at": "2026-08-01T12:02:00.000000Z",
-      "source_id": "opencode-go-dashboard",
+      "source_id": "opencode-go-api",
       "windows": [],
       "execution_error": null,
       "not_run_reason": null,

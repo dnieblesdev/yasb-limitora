@@ -12,7 +12,7 @@ from typing import Any, Callable
 
 from .codex_helper import CodexHelperExecutor
 from .config import ConfigError, LocalConfig
-from .limitora_api import AUTH_COOKIE_ENV, read_opencode_go
+from .limitora_api import OPENCODE_API_KEY_ENV, OpenCodeReadResult, OpenCodeRequest, read_opencode_go
 from .model import DocumentView, ProviderKey, ProviderState, ProviderView, SafeError, SafeErrorCode
 
 
@@ -80,7 +80,7 @@ class RuntimeCoordinator:
     def __init__(
         self,
         codex_executor: Any | None = None,
-        opencode_reader: Callable[[str, Mapping[str, str]], ProviderView] = read_opencode_go,
+        opencode_reader: Callable[[OpenCodeRequest], OpenCodeReadResult] = read_opencode_go,
     ) -> None:
         self._codex = codex_executor if codex_executor is not None else CodexHelperExecutor()
         self._opencode_reader = opencode_reader
@@ -105,20 +105,17 @@ class RuntimeCoordinator:
                 ProviderKey.CODEX, lambda: executor.run((runner, "app-server")), config.codex.timeout_seconds
             )
 
-        workspace = config.opencode_go.workspace_id
-        cookie = environment.get(AUTH_COOKIE_ENV)
+        api_key = environment.get(OPENCODE_API_KEY_ENV)
         if (
             not config.opencode_go.enabled
-            or not isinstance(workspace, str)
-            or not workspace
-            or not isinstance(cookie, str)
-            or not cookie
+            or not isinstance(api_key, str)
+            or not api_key
         ):
             views[ProviderKey.OPENCODE_GO] = _unavailable(ProviderKey.OPENCODE_GO)
         else:
             calls[ProviderKey.OPENCODE_GO] = _Invocation(
                 ProviderKey.OPENCODE_GO,
-                lambda: self._opencode_reader(workspace, environment),
+                lambda: self._opencode_reader(OpenCodeRequest(api_key, config.opencode_go.timeout_seconds)).view,
                 config.opencode_go.timeout_seconds,
             )
 
@@ -141,7 +138,7 @@ def coordinate(
     environment: Mapping[str, str] | None = None,
     *,
     codex_executor: Any | None = None,
-    opencode_reader: Callable[[str, Mapping[str, str]], ProviderView] = read_opencode_go,
+    opencode_reader: Callable[[OpenCodeRequest], OpenCodeReadResult] = read_opencode_go,
 ) -> DocumentView:
     return RuntimeCoordinator(codex_executor, opencode_reader).run(config, environment)
 

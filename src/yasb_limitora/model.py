@@ -6,7 +6,9 @@ from decimal import Decimal
 from enum import Enum
 from unicodedata import normalize
 
-SAFE_SOURCE_IDS = frozenset({"codex-app-server-v2", "opencode-go-dashboard"})
+CODEX_SOURCE_ID = "codex-app-server-v2"
+OPENCODE_SOURCE_ID = "opencode-go-api"
+SAFE_SOURCE_IDS = frozenset({CODEX_SOURCE_ID, OPENCODE_SOURCE_ID})
 MAX_DISPLAY_LABEL_LENGTH = 64
 MAX_QUOTA_WINDOWS = 32
 MAX_QUANTITY_SIGNIFICANT_DIGITS = 128

@@ -1,10 +1,13 @@
 import json
+import locale
 import re
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
 
+import yasb_limitora.projection_v2 as projection_module
+from yasb_limitora.limitora_api import OpenCodeFailureEvidence
 from yasb_limitora.model import (DocumentView, ProviderKey, ProviderOutcome, ProviderSnapshotView, ProviderState, ProviderView, PublicProviderState, QuotaAvailability, QuotaMetricKind, QuotaQuantity, QuotaWindowKind, QuotaWindowView, SafeError, SafeErrorCode, SnapshotFreshness)
 from yasb_limitora.projection_v2 import (
     V2ProjectionInput, project_v2_bytes, project_v2_document, project_v2_failure_bytes,
@@ -16,18 +19,26 @@ WKEYS = {"kind", "scope", "period", "plan_id", "availability", "source_id", "lim
 QKEYS = {"value", "metric", "unit"}
 EKEYS = {"code", "phase"}
 TIME = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$")
-ERROR_PHASE = {"invocation_invalid": "configuration", "configuration_invalid": "configuration", "internal_error": "document", "provider_failed": "provider", "provider_timeout": "provider", "invalid_provider_data": "provider", "unknown_provider_state": "provider"}
-def _window(period, plan=None, source=None, *, values=True, kind=QuotaWindowKind.COMMERCIAL_QUOTA, scope="account", reset=STAMP, unit="percentage_points"):
+ERROR_PHASE = {"invocation_invalid": "configuration", "configuration_invalid": "configuration", "internal_error": "document", "provider_failed": "provider", "provider_timeout": "provider", "credential_invalid": "provider", "provider_rate_limited": "provider", "provider_unavailable": "provider", "invalid_provider_data": "provider", "unknown_provider_state": "provider"}
+TEST_LOCAL_ZONE = timezone(timedelta(hours=2))
+
+
+def _format_test_timestamp(value):
+    return value.astimezone(TEST_LOCAL_ZONE).strftime("%d/%m/%Y %H:%M:%S")
+
+
+def _window(period, plan=None, source="codex-app-server-v2", *, values=True, kind=QuotaWindowKind.COMMERCIAL_QUOTA, scope="account", reset=STAMP, unit="percentage_points", remaining_value="75"):
     metric = QuotaMetricKind.COMMERCIAL_QUOTA if kind is QuotaWindowKind.OTHER else QuotaMetricKind(kind.value)
     quantity = QuotaQuantity(Decimal("100.00"), metric, unit)
-    fields = {"limit": quantity, "used": QuotaQuantity(Decimal("25"), metric, unit), "remaining": QuotaQuantity(Decimal("75"), metric, unit), "reset_at": reset}
+    remaining = Decimal(remaining_value)
+    fields = {"limit": quantity, "used": QuotaQuantity(Decimal("100") - remaining, metric, unit), "remaining": QuotaQuantity(remaining, metric, unit), "reset_at": reset}
     if not values:
         fields = {"limit": None, "used": None, "remaining": quantity, "reset_at": None}
     return QuotaWindowView(kind, scope, period, plan, QuotaAvailability.KNOWN, source, **fields)
-def _snapshot(provider, windows, *, stamp=STAMP):
+def _snapshot(provider, windows, *, stamp=STAMP, source=None):
     snapshot = ProviderSnapshotView(
         PublicProviderState.AVAILABLE, SnapshotFreshness.FRESH, stamp, stamp, stamp,
-        "codex-app-server-v2" if provider is ProviderKey.CODEX else "opencode-go-dashboard", tuple(windows),
+        ("codex-app-server-v2" if provider is ProviderKey.CODEX else "opencode-go-api") if source is None else source, tuple(windows),
     )
     return ProviderView(provider, ProviderState.SUCCESS, outcome=ProviderOutcome.SNAPSHOT, snapshot=snapshot)
 
@@ -36,14 +47,19 @@ def _large_document(period_length=64):
     limit, used = Decimal("1" + "0" * 127), Decimal("9" * 127)
     def provider(key, source):
         windows = []
+        kind = QuotaWindowKind.COMMERCIAL_QUOTA if key is ProviderKey.CODEX else QuotaWindowKind.TECHNICAL_RATE_LIMIT
+        metric = QuotaMetricKind.COMMERCIAL_QUOTA if key is ProviderKey.CODEX else QuotaMetricKind.TECHNICAL_RATE_LIMIT
         for index in range(32):
             scope = f"scope{index:02}"
             length = period_length if index == 0 else 64
             period = f"{index:02}" + "p" * (length - 2)
-            make_quantity = lambda value: QuotaQuantity(value, QuotaMetricKind.COMMERCIAL_QUOTA, "u" * 64)
-            windows.append(QuotaWindowView(QuotaWindowKind.COMMERCIAL_QUOTA, scope, period, None, QuotaAvailability.KNOWN, source, make_quantity(limit), make_quantity(used), make_quantity(Decimal("1")), STAMP))
-        return _snapshot(key, windows)
-    return _document(provider(ProviderKey.CODEX, "codex-app-server-v2"), provider(ProviderKey.OPENCODE_GO, "opencode-go-dashboard"))
+            make_quantity = lambda value: QuotaQuantity(value, metric, "u" * 56)
+            windows.append(QuotaWindowView(kind, scope, period, None, QuotaAvailability.KNOWN, source, make_quantity(limit), make_quantity(used), make_quantity(Decimal("1")), STAMP))
+        view = _snapshot(key, windows)
+        if key is ProviderKey.OPENCODE_GO:
+            object.__setattr__(view.snapshot, "public_state", PublicProviderState.RATE_LIMITED)
+        return view
+    return _document(provider(ProviderKey.CODEX, "codex-app-server-v2"), provider(ProviderKey.OPENCODE_GO, "opencode-go-api"))
 def _document(codex, opencode):
     return DocumentView.ordered(codex, opencode)
 
@@ -55,7 +71,7 @@ def _near_boundary_document(accent_count):
         for window in provider.snapshot.windows:
             object.__setattr__(window, "plan_id", "p" * 64)
             suffix = "é" if 1 <= index <= accent_count else "s"
-            object.__setattr__(window, "scope", "s" * 60 + suffix)
+            object.__setattr__(window, "scope", "s" * 63 + suffix)
             index += 1
     return document
 def _assert_document(value):
@@ -130,14 +146,157 @@ def test_fresh_snapshot_uses_the_published_grammar_and_nullable_identities():
     )["providers"][0]
     assert set(provider["most_depleted_window"]) == {"kind", "scope", "period", "plan_id", "unit", "source_id", "remaining_percentage"}
     assert provider["most_depleted_window"]["plan_id"] is None
-    assert provider["most_depleted_window"]["source_id"] is None
+    assert provider["most_depleted_window"]["source_id"] == "codex-app-server-v2"
     assert provider["compact_text"] == "Quota 75% remaining; state=available; freshness=fresh"
     assert provider["alternate_text"] == "Quota account / weekly: 75% remaining; state=available; freshness=fresh"
     assert provider["tooltip_text"] == (
-        "State: available\nFreshness: fresh\nQuota: 75% remaining\n"
-        "Window: kind=commercial_quota; scope=account; period=weekly; plan_id=null; "
-        "unit=percentage_points; source_id=null; result=75% remaining"
+        "Codex\nState: Available · Fresh\nLowest quota: 75% remaining\n"
+        "Weekly: 75% remaining"
     )
+
+
+def test_tooltip_formats_utc_resets_injected_local_timezone_and_locale_format():
+    windows = [
+        _window("weekly", source="opencode-go-api", remaining_value="60", reset=datetime(2026, 8, 24, tzinfo=timezone.utc)),
+        _window("monthly", source="opencode-go-api", remaining_value="5", reset=datetime(2026, 9, 6, 18, 35, 42, 123456, tzinfo=timezone.utc)),
+        _window("five_hour", source="opencode-go-api", remaining_value="100", reset=datetime(2026, 8, 18, 11, 42, 59, 999999, tzinfo=timezone.utc)),
+    ]
+    provider = project_v2_document(
+        V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), _snapshot(ProviderKey.OPENCODE_GO, windows))),
+        timestamp_formatter=_format_test_timestamp,
+    )["providers"][1]
+
+    assert provider["tooltip_text"] == (
+        "OpenCode Go\nState: Available · Fresh\nLowest quota: 5% remaining\n"
+        "5-hour: 100% remaining · resets 18/08/2026 13:42:59\n"
+        "Monthly: 5% remaining · resets 06/09/2026 20:35:42\n"
+        "Weekly: 60% remaining · resets 24/08/2026 02:00:00"
+    )
+
+
+def test_tooltip_never_invents_zero_for_unavailable_partial_windows():
+    partial = _snapshot(ProviderKey.OPENCODE_GO, [])
+    object.__setattr__(partial.snapshot, "public_state", PublicProviderState.PARTIAL)
+    tooltip = project_v2_document(
+        V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), partial))
+    )["providers"][1]["tooltip_text"]
+
+    assert tooltip == (
+        "OpenCode Go\nState: Partial · Fresh\nLowest quota: Quota unavailable\n"
+        "5-hour: Quota unavailable\nMonthly: Quota unavailable\nWeekly: Quota unavailable"
+    )
+    assert "0%" not in tooltip
+
+
+@pytest.mark.parametrize(
+    ("provider_key", "source", "expected"),
+    (
+        (
+            ProviderKey.CODEX,
+            "codex-app-server-v2",
+            "Codex\nState: Available · Fresh\nLowest quota: Quota unavailable\nWeekly: Quota unavailable\nResets: 20/08/2026 05:35:00",
+        ),
+        (
+            ProviderKey.OPENCODE_GO,
+            "opencode-go-api",
+            "OpenCode Go\nState: Available · Fresh\nLowest quota: Quota unavailable\n5-hour: Quota unavailable\nMonthly: Quota unavailable\nWeekly: Quota unavailable · resets 20/08/2026 05:35:00",
+        ),
+    ),
+)
+def test_tooltip_keeps_a_valid_reset_when_percentage_basis_is_unavailable(provider_key, source, expected):
+    window = _window("weekly", source=source, values=False)
+    object.__setattr__(window, "reset_at", datetime(2026, 8, 20, 3, 35, tzinfo=timezone.utc))
+    document = _document(
+        _snapshot(ProviderKey.CODEX, [window]) if provider_key is ProviderKey.CODEX else ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE),
+        _snapshot(ProviderKey.OPENCODE_GO, [window]) if provider_key is ProviderKey.OPENCODE_GO else ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE),
+    )
+
+    provider = project_v2_document(
+        V2ProjectionInput(document),
+        timestamp_formatter=_format_test_timestamp,
+    )["providers"][0 if provider_key is ProviderKey.CODEX else 1]
+
+    assert provider["most_depleted_window"] is None
+    assert provider["tooltip_text"] == expected
+
+
+def test_tooltip_reset_converts_non_utc_offset_before_injected_local_formatting():
+    window = _window(
+        "weekly",
+        source="opencode-go-api",
+        reset=datetime(2026, 8, 24, tzinfo=timezone(timedelta(hours=-4))),
+        remaining_value="60",
+    )
+    provider = project_v2_document(
+        V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), _snapshot(ProviderKey.OPENCODE_GO, [window]))),
+        timestamp_formatter=_format_test_timestamp,
+    )["providers"][1]
+
+    assert "Weekly: 60% remaining · resets 24/08/2026 06:00:00" in provider["tooltip_text"]
+
+
+def test_local_timestamp_formatter_uses_stable_fallback_when_locale_format_is_unavailable(monkeypatch):
+    def unavailable_locale_format(_value):
+        raise ValueError("locale formatting unavailable")
+
+    monkeypatch.setattr(projection_module, "_locale_datetime_format", unavailable_locale_format)
+
+    assert projection_module._format_local_datetime(
+        datetime(2026, 8, 24, 0, 0, 59, 999999, tzinfo=timezone.utc),
+        local_zone=TEST_LOCAL_ZONE,
+    ) == "2026-08-24 02:00:59"
+
+
+def test_local_timestamp_fallback_does_not_mutate_process_locale(monkeypatch):
+    before_time = locale.setlocale(locale.LC_TIME)
+    before_all = locale.setlocale(locale.LC_ALL)
+
+    def unavailable_locale_format(_value):
+        raise ValueError("locale formatting unavailable")
+
+    monkeypatch.setattr(projection_module, "_locale_datetime_format", unavailable_locale_format)
+
+    assert projection_module._format_local_datetime(
+        datetime(2026, 8, 24, 0, 0, 59, tzinfo=timezone.utc),
+        local_zone=TEST_LOCAL_ZONE,
+    ) == "2026-08-24 02:00:59"
+    assert locale.setlocale(locale.LC_TIME) == before_time
+    assert locale.setlocale(locale.LC_ALL) == before_all
+
+
+def test_tooltip_marks_partial_stale_codex_data_and_missing_reset_without_zero():
+    snapshot = _snapshot(ProviderKey.CODEX, [_window("weekly", reset=None, remaining_value="0")])
+    object.__setattr__(snapshot.snapshot, "public_state", PublicProviderState.PARTIAL)
+    object.__setattr__(snapshot.snapshot, "freshness", SnapshotFreshness.STALE)
+    tooltip = project_v2_document(
+        V2ProjectionInput(_document(snapshot, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
+    )["providers"][0]["tooltip_text"]
+
+    assert tooltip == "Codex\nState: Partial · Stale\nLowest quota: 0% remaining\nWeekly: 0% remaining"
+    assert "resets" not in tooltip.lower()
+
+
+def test_tooltip_lowest_quota_uses_the_most_depleted_window_not_the_first_window():
+    snapshot = _snapshot(
+        ProviderKey.CODEX,
+        [
+            _window("five_hour", remaining_value="100", reset=None),
+            _window("weekly", remaining_value="0", reset=None),
+        ],
+    )
+    provider = project_v2_document(
+        V2ProjectionInput(_document(snapshot, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
+    )["providers"][0]
+    tooltip = provider["tooltip_text"]
+
+    assert provider["most_depleted_window"]["period"] == "weekly"
+    assert tooltip.splitlines()[:4] == [
+        "Codex",
+        "State: Available · Fresh",
+        "Lowest quota: 0% remaining",
+        "5-hour: 100% remaining",
+    ]
+    assert tooltip.splitlines()[4] == "Weekly: 0% remaining"
 
 
 def test_public_projection_maps_all_disabled_providers_to_not_run():
@@ -157,22 +316,57 @@ def test_public_projection_maps_provider_execution_error_safely():
     assert provider["compact_text"] == provider["alternate_text"] == provider["tooltip_text"] == "Quota error"
 
 
+@pytest.mark.parametrize(
+    ("evidence", "mapped"),
+    (
+        (OpenCodeFailureEvidence.CREDENTIAL_INVALID, "credential_invalid"),
+        (OpenCodeFailureEvidence.TIMEOUT, "provider_timeout"),
+        (OpenCodeFailureEvidence.RATE_LIMITED, "provider_rate_limited"),
+        (OpenCodeFailureEvidence.UNAVAILABLE, "provider_unavailable"),
+    ),
+)
+def test_opencode_private_sidecar_maps_only_the_bounded_v2_taxonomy(evidence, mapped):
+    document = _document(
+        ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE),
+        ProviderView(
+            ProviderKey.OPENCODE_GO,
+            ProviderState.SAFE_ERROR,
+            SafeError(SafeErrorCode.PROVIDER_ERROR),
+            outcome=ProviderOutcome.EXECUTION_ERROR,
+        ),
+    )
+
+    projection = V2ProjectionInput(document, opencode_evidence=evidence)
+    value = project_v2_document(projection)
+
+    assert value["version"] == 2
+    assert "OpenCodeFailureEvidence" not in repr(projection)
+    assert [provider["provider"] for provider in value["providers"]] == ["codex", "opencode_go"]
+    assert value["providers"][1]["execution_error"] == {"code": mapped, "phase": "provider"}
+    assert value["execution_error"] == {"code": "provider_failed", "phase": "provider"}
+
+
 def test_presentation_fallbacks_stale_markers_and_depleted_tie_are_observable():
     stale = _snapshot(ProviderKey.CODEX, [_window("five_hour"), _window("weekly", values=False)])
     object.__setattr__(stale.snapshot, "freshness", SnapshotFreshness.STALE)
-    value = project_v2_document(V2ProjectionInput(_document(stale, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), {ProviderKey.CODEX}))
+    value = project_v2_document(
+        V2ProjectionInput(_document(stale, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), {ProviderKey.CODEX}),
+        timestamp_formatter=_format_test_timestamp,
+    )
     provider = value["providers"][0]
     assert provider["most_depleted_window"]["remaining_percentage"] == "75"
     assert provider["compact_text"] == "Quota 75% remaining; state=available; freshness=stale"
     assert provider["alternate_text"] == "Quota account / five_hour: 75% remaining; state=available; freshness=stale"
-    assert provider["tooltip_text"].startswith("State: available\nFreshness: stale\nQuota: 75% remaining\n")
-    assert "result=percentage unavailable" in provider["tooltip_text"]
+    assert provider["tooltip_text"] == (
+        "Codex\nState: Available · Stale\nLowest quota: 75% remaining\n"
+        "5-hour: 75% remaining\nWeekly: Quota unavailable\nResets: 01/08/2026 14:00:00"
+    )
     tie = project_v2_document(V2ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [_window("z"), _window("a")]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
     assert tie["providers"][0]["most_depleted_window"]["period"] == "a"
     empty = project_v2_document(V2ProjectionInput(_document(_snapshot(ProviderKey.CODEX, []), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
     assert empty["providers"][0]["compact_text"] == "Quota percentage unavailable; state=available; freshness=fresh"
     assert empty["providers"][0]["alternate_text"] == empty["providers"][0]["compact_text"]
-    assert empty["providers"][0]["tooltip_text"] == "State: available\nFreshness: fresh\nQuota: percentage unavailable\nNo eligible percentage basis"
+    assert empty["providers"][0]["tooltip_text"] == "Codex\nState: Available · Fresh\nLowest quota: Quota unavailable\nNo quota windows"
     undetected = project_v2_document(V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), {ProviderKey.CODEX, ProviderKey.OPENCODE_GO}))
     assert all(provider["compact_text"] == "Quota not detected" for provider in undetected["providers"])
 
@@ -189,7 +383,7 @@ def test_public_projection_excludes_numeric_non_known_windows_from_presentation(
     )
     provider = value["providers"][0]
     assert provider["most_depleted_window"]["period"] == "known"
-    assert f"Window: kind=commercial_quota; scope=account; period=non-eligible; plan_id=null; unit=percentage_points; source_id=null; result=availability={availability.value}" in provider["tooltip_text"]
+    assert "Non-eligible: Quota unavailable" in provider["tooltip_text"]
     assert "non-eligible: 10% remaining" not in provider["tooltip_text"]
 
 
@@ -200,7 +394,7 @@ def test_derived_percentage_uses_decimal34_half_even_at_rounding_boundary():
         QuotaWindowKind.COMMERCIAL_QUOTA,
         "account",
         "boundary",
-        None,
+        "codex-app-server-v2",
         QuotaAvailability.KNOWN,
         "codex-app-server-v2",
         QuotaQuantity(limit, QuotaMetricKind.COMMERCIAL_QUOTA, "percentage_points"),
@@ -219,7 +413,7 @@ def test_unrepresentable_derived_percentage_fails_closed_without_synthetic_basis
     projection = V2ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [window]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
     provider = project_v2_document(projection)["providers"][0]
     assert provider["most_depleted_window"] is None
-    assert "result=percentage unavailable" in provider["tooltip_text"]
+    assert "Extreme: Quota unavailable" in provider["tooltip_text"]
 
 
 def test_tooltip_unit_comes_only_from_consistent_quantity_evidence():
@@ -236,7 +430,7 @@ def test_tooltip_unit_comes_only_from_consistent_quantity_evidence():
         "used-only",
         None,
         QuotaAvailability.KNOWN,
-        None,
+        "codex-app-server-v2",
         used=QuotaQuantity(Decimal("7"), QuotaMetricKind.COMMERCIAL_QUOTA, "widgets"),
     )
     missing_limit = QuotaWindowView(
@@ -245,19 +439,20 @@ def test_tooltip_unit_comes_only_from_consistent_quantity_evidence():
         "missing-limit",
         None,
         QuotaAvailability.KNOWN,
-        None,
+        "codex-app-server-v2",
         used=QuotaQuantity(Decimal("3"), QuotaMetricKind.COMMERCIAL_QUOTA, "widgets"),
         remaining=QuotaQuantity(Decimal("7"), QuotaMetricKind.COMMERCIAL_QUOTA, "widgets"),
     )
     mismatched = _window("mismatched", unit="widgets")
     object.__setattr__(mismatched, "used", QuotaQuantity(Decimal("25"), QuotaMetricKind.COMMERCIAL_QUOTA, "requests"))
 
-    assert "unit=widgets;" in tooltip(remaining_only)
-    assert "unit=widgets;" in tooltip(used_only)
-    assert "unit=widgets;" in tooltip(missing_limit)
-    assert "unit=null;" in tooltip(mismatched)
     for window in (remaining_only, used_only, missing_limit, mismatched):
-        assert "unit=percentage_points;" not in tooltip(window)
+        value = tooltip(window)
+        assert "unit=" not in value
+        assert "scope=" not in value
+        assert "source_id" not in value
+        if window is not mismatched:
+            assert "Quota unavailable" in value
 
 
 @pytest.mark.parametrize(
@@ -293,12 +488,12 @@ def test_tooltip_quotes_identity_delimiters_and_backslashes():
     projection = V2ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [window]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
     provider = project_v2_document(projection)["providers"][0]
 
-    assert 'scope="team;west"; period="five=hour"' in provider["tooltip_text"]
-    assert 'unit="requests\\\\hour"; source_id=null;' in provider["tooltip_text"]
+    assert "Five=hour: 75% remaining" in provider["tooltip_text"]
     assert 'Quota "team;west" / "five=hour": 75% remaining' in provider["alternate_text"]
-    assert "scope=team;west;" not in provider["tooltip_text"]
-    assert "period=five=hour;" not in provider["tooltip_text"]
-    assert "unit=requests\\hour;" not in provider["tooltip_text"]
+    assert "scope=" not in provider["tooltip_text"]
+    assert "period=" not in provider["tooltip_text"]
+    assert "unit=" not in provider["tooltip_text"]
+    assert "source_id" not in provider["tooltip_text"]
 
 
 def test_presentation_is_bounded_and_sources_are_reviewed_before_emission():
@@ -316,13 +511,69 @@ def test_presentation_is_bounded_and_sources_are_reviewed_before_emission():
     assert json.loads(encoded)["providers"][0]["source_id"] is None
 
 
+def test_projection_normalizes_root_and_window_sources_per_provider_and_drops_untrusted_quantities():
+    document = _document(
+        _snapshot(ProviderKey.CODEX, [_window("weekly", source=None)], source="opencode-go-api"),
+        _snapshot(ProviderKey.OPENCODE_GO, [_window("weekly", source="codex-app-server-v2")], source="codex-app-server-v2"),
+    )
+    for view in document.providers:
+        object.__setattr__(view.snapshot.windows[0], "availability", "malformed")
+        object.__setattr__(view.snapshot.windows[0], "limit", object())
+        object.__setattr__(view.snapshot.windows[0], "reset_at", object())
+
+    value = project_v2_document(V2ProjectionInput(document))
+
+    for provider in value["providers"]:
+        assert provider["source_id"] is None
+        window = provider["windows"][0]
+        assert window["source_id"] is None
+        assert window["availability"] == "unavailable"
+        assert all(window[field] is None for field in ("limit", "used", "remaining", "reset_at"))
+
+
+def test_opencode_projection_completes_fixed_slots_when_root_source_is_null():
+    known = _window("five_hour", source="opencode-go-api")
+    duplicate = _window("weekly", source="opencode-go-api", scope="team")
+    other_duplicate = _window("weekly", source="opencode-go-api", scope="workspace")
+    snapshot = _snapshot(ProviderKey.OPENCODE_GO, [known, duplicate, other_duplicate])
+    object.__setattr__(snapshot.snapshot, "source_id", None)
+    value = project_v2_document(V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), snapshot)))
+
+    provider = value["providers"][1]
+    assert provider["source_id"] is None
+    commercial = [window for window in provider["windows"] if window["kind"] == "commercial_quota"]
+    assert [window["period"] for window in commercial] == ["five_hour", "monthly", "weekly"]
+    assert commercial[0]["source_id"] == "opencode-go-api"
+    assert commercial[2]["scope"] == "account"
+    for window in commercial[1:]:
+        assert window["availability"] == "unavailable"
+        assert window["source_id"] is None
+        assert all(window[field] is None for field in ("plan_id", "limit", "used", "remaining", "reset_at"))
+    swapped = _snapshot(ProviderKey.OPENCODE_GO, [known, other_duplicate, duplicate]); object.__setattr__(swapped.snapshot, "source_id", None)
+    assert project_v2_bytes(V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), snapshot))) == project_v2_bytes(V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), swapped)))
+
+
+def test_opencode_projection_rate_limited_preserves_only_technical_windows_and_allows_empty():
+    technical = _window("requests", source="opencode-go-api", kind=QuotaWindowKind.TECHNICAL_RATE_LIMIT)
+    rate_limited = _snapshot(ProviderKey.OPENCODE_GO, [technical])
+    object.__setattr__(rate_limited.snapshot, "public_state", PublicProviderState.RATE_LIMITED)
+    empty = _snapshot(ProviderKey.OPENCODE_GO, [])
+    object.__setattr__(empty.snapshot, "public_state", PublicProviderState.RATE_LIMITED)
+
+    for snapshot, expected in ((rate_limited, [("technical_rate_limit", "opencode-go-api")]), (empty, [])):
+        value = project_v2_document(V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), snapshot)))
+        assert [(window["kind"], window["source_id"]) for window in value["providers"][1]["windows"]] == expected
+
+
 def test_summary_truncation_preserves_the_complete_qualifier_and_tooltip_lines():
     document = _document(_snapshot(ProviderKey.CODEX, [_window("p" * 64, "x" * 64)]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))
     provider = project_v2_document(V2ProjectionInput(document))["providers"][0]
     assert len(provider["compact_text"]) <= 128 and len(provider["alternate_text"]) <= 128
     assert provider["compact_text"].endswith("; state=available; freshness=fresh")
     assert provider["alternate_text"].endswith("; state=available; freshness=fresh")
-    assert all(line.startswith(("State: ", "Freshness: ", "Quota: ", "Window: ", "Reset: ")) for line in provider["tooltip_text"].splitlines())
+    lines = provider["tooltip_text"].splitlines()
+    assert lines[:3] == ["Codex", "State: Available · Fresh", "Lowest quota: 75% remaining"]
+    assert all(not any(field in line for field in ("kind=", "scope=", "plan_id=", "unit=", "source_id=")) for line in lines)
 
 
 def test_unknown_evidence_fails_closed_without_echoing_the_rejected_value():
@@ -333,26 +584,26 @@ def test_unknown_evidence_fails_closed_without_echoing_the_rejected_value():
     assert "future-secret-state" not in str(error.value)
 
 
-@pytest.mark.parametrize(("adjustment", "candidate_size"), (("boundary_65535", 65_535), ("boundary_65536", 65_536), ("oversize", 65_696)))
+@pytest.mark.parametrize(("adjustment", "candidate_size"), (("boundary_65401", 65_401), ("boundary_65402", 65_402), ("oversize", 65_696)))
 def test_document_byte_boundaries_are_allowed_or_replaced_whole(adjustment, candidate_size):
-    if adjustment == "boundary_65535":
-        document = _near_boundary_document(37)
-    elif adjustment == "boundary_65536":
-        document = _near_boundary_document(38)
+    if adjustment == "boundary_65401":
+        document = _near_boundary_document(39)
+    elif adjustment == "boundary_65402":
+        document = _near_boundary_document(40)
     else:
         document = _large_document(64)
     if adjustment == "oversize":
         for provider in document.providers:
             for window in provider.snapshot.windows:
                 object.__setattr__(window, "plan_id", "p" * 64)
-                object.__setattr__(window, "scope", "s" * 64)
+                object.__setattr__(window, "scope", "é" * 64)
     raw = json.dumps(
-        project_v2_document(V2ProjectionInput(document)),
+        project_v2_document(V2ProjectionInput(document), timestamp_formatter=_format_test_timestamp),
         ensure_ascii=False,
         separators=(",", ":"),
         allow_nan=False,
     ).encode("utf-8") + b"\n"
-    encoded = project_v2_bytes(V2ProjectionInput(document))
+    encoded = project_v2_bytes(V2ProjectionInput(document), timestamp_formatter=_format_test_timestamp)
     assert len(encoded) <= 65_536
     if candidate_size <= 65_536:
         assert len(encoded) == candidate_size
@@ -384,9 +635,9 @@ def test_document_byte_boundaries_are_allowed_or_replaced_whole(adjustment, cand
 
 
 def test_serialized_windows_follow_all_normative_sort_dimensions():
-    windows = [_window("a"), _window("b", "plus", "codex-app-server-v2"), _window("a", source="opencode-go-dashboard", scope="b"), _window("a", source="codex-app-server-v2", kind=QuotaWindowKind.TECHNICAL_RATE_LIMIT), _window("z", "plus", "opencode-go-dashboard", scope="z", kind=QuotaWindowKind.OTHER)]
+    windows = [_window("a"), _window("b", "plus", "codex-app-server-v2"), _window("a", source="codex-app-server-v2", scope="b"), _window("a", source="codex-app-server-v2", kind=QuotaWindowKind.TECHNICAL_RATE_LIMIT), _window("z", "plus", "codex-app-server-v2", scope="z", kind=QuotaWindowKind.OTHER)]
     value = json.loads(project_v2_bytes(V2ProjectionInput(_document(_snapshot(ProviderKey.CODEX, windows), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))))
-    assert [(w["kind"], w["scope"], w["period"], w["plan_id"], w["source_id"]) for w in value["providers"][0]["windows"]] == [("commercial_quota", "account", "a", None, None), ("commercial_quota", "account", "b", "plus", "codex-app-server-v2"), ("commercial_quota", "b", "a", None, "opencode-go-dashboard"), ("technical_rate_limit", "account", "a", None, "codex-app-server-v2"), ("other", "z", "z", "plus", "opencode-go-dashboard")]
+    assert [(w["kind"], w["scope"], w["period"], w["plan_id"], w["source_id"]) for w in value["providers"][0]["windows"]] == [("commercial_quota", "account", "a", None, "codex-app-server-v2"), ("commercial_quota", "account", "b", "plus", "codex-app-server-v2"), ("commercial_quota", "b", "a", None, "codex-app-server-v2"), ("technical_rate_limit", "account", "a", None, "codex-app-server-v2"), ("other", "z", "z", "plus", "codex-app-server-v2")]
 
 
 def test_presentation_is_identical_for_equivalent_window_permutations():
@@ -411,6 +662,8 @@ def test_invalid_projection_inputs_fail_closed_and_unsupported_document_codes_ar
         V2ProjectionInput(object())
     with pytest.raises(ValueError):
         V2ProjectionInput(DocumentView.ordered(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), {"secret"})
+    with pytest.raises(ValueError):
+        V2ProjectionInput(DocumentView.ordered(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), opencode_evidence=object())
     bad = _snapshot(ProviderKey.CODEX, [])
     object.__setattr__(bad.snapshot, "fetched_at", None)
     with pytest.raises(ValueError):
@@ -418,6 +671,10 @@ def test_invalid_projection_inputs_fail_closed_and_unsupported_document_codes_ar
     for code in ("provider_failed", "timeout", "unknown", SafeErrorCode.TIMEOUT):
         with pytest.raises(ValueError):
             project_v2_failure_bytes(code)
+    overflow = _large_document()
+    object.__setattr__(overflow.providers[1].snapshot, "public_state", PublicProviderState.AVAILABLE)
+    value = json.loads(project_v2_bytes(V2ProjectionInput(overflow)))
+    assert value["execution_error"] == {"code": "internal_error", "phase": "document"}; _assert_document(value)
 
 
 @pytest.mark.parametrize("code", ("invocation_invalid", "configuration_invalid", "internal_error"))

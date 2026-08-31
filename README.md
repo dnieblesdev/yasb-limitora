@@ -5,11 +5,11 @@
 [Limitora](https://github.com/dnieblesdev/limitora) API and never makes provider
 calls from YASB.
 
-> **Current status:** R1-R10 are complete. R10 has two truthful proof boundaries:
-> automated native Windows proof of the `yasb-limitora` CLI/JSON v2 contract, and
-> maintainer manual acceptance of the real YASB CustomWidget on YASB v2.0.6. This
-> does not claim automated YASB rendering or external YASB E2E support. The current
-> CLI enforces the Windows-only product boundary.
+> **Current status:** R1-R10 and generic real YASB CustomWidget manual acceptance
+> are complete. Automated native Windows proof covers the `yasb-limitora` CLI/JSON v2
+> contract; real OpenCode provider acceptance remains an external pending gate for
+> R11/#130. No automated YASB rendering or external YASB E2E is claimed; the CLI is
+> Windows-only.
 
 ## Runtime support boundary
 
@@ -34,9 +34,10 @@ authentication, transport, and provider-specific interpretation. The CLI owns
 configuration resolution, execution safety, sanitized projection, and the
 versioned machine boundary. YASB owns only CustomWidget lifecycle and display.
 
-The v1 document remains frozen for existing consumers. JSON v2 is specified in
-[`docs/specifications/json-v2.md`](docs/specifications/json-v2.md) and its
-reviewed runtime contract is implemented behind the same Windows-only boundary.
+The v1 document remains frozen; missing or empty OpenCode keys retain v1's existing
+`unavailable` behavior. JSON v2 is specified in
+[`docs/specifications/json-v2.md`](docs/specifications/json-v2.md) and uses `not_run` with
+`not_run_reason: disabled` instead, behind the same Windows-only boundary.
 
 ## CustomWidget boundary
 
@@ -66,7 +67,7 @@ in-progress state that CustomWidget cannot render or cancel.
 | Sanitized configuration and process execution | Credentials, tokens, sessions, or duplicated provider logic |
 
 Only Codex and OpenCode Go are current 0.2 provider inputs because they are the
-public provider sources verified in Limitora 0.1.0. Claude and Gemini are not
+public provider sources verified in Limitora 0.3.1. Claude and Gemini are not
 roadmap work for this contract.
 
 ## Installation and v1 runtime
@@ -74,15 +75,15 @@ roadmap work for this contract.
 On native Windows 10/11:
 
 ```powershell
-py -m pip install "limitora==0.1.0"
-py -m pip install "yasb-limitora[opencode-go]"
+py -m pip install -e .
 ```
 
-The current v1 command and its environment-only `LIMITORA_AUTH_COOKIE` rule are
-documented in [`docs/windows-json.md`](docs/windows-json.md). No-argument v1
-execution remains all-disabled and must not consult a default configuration
-path. Do not place credentials in configuration, argv, stdout, stderr, or test
-artifacts.
+`yasb-limitora` is not published to PyPI; run `py -m pip install -e .` from the
+checkout root (the checkout pins `limitora[opencode-go]==0.3.1`). See
+[`docs/windows-json.md`](docs/windows-json.md) for `.env`, reload, precedence,
+security, bounded-error, and manual YASB procedures. Frozen v1 keeps missing/empty
+OpenCode-key `unavailable`, independent Codex/document execution, and all-disabled
+no-argument behavior without consulting a default configuration path.
 
 ## Documentation map
 
@@ -113,10 +114,10 @@ not authorize native YASB implementation work.
 ## Roadmap gate
 
 R1-R10 are the completed product units recorded in
-[`docs/roadmap.md`](docs/roadmap.md). Automated proof covers the native
-`yasb-limitora` CLI/JSON v2 boundary; the maintainer accepted the real YASB
-CustomWidget behavior manually. The abandoned R10 automation harness remains
-historical context only, and no automated YASB rendering claim is made.
+[`docs/roadmap.md`](docs/roadmap.md). Generic YASB CustomWidget acceptance is complete;
+real OpenCode provider acceptance remains an external manual gate for R11/#130.
+Automated proof covers the native CLI/JSON v2 boundary; abandoned R10 automation is
+historical context only, with no automated YASB rendering claim.
 
 ## License
 

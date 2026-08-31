@@ -32,6 +32,9 @@ from yasb_limitora.v2_path import V2FileError, canonicalize_v2_path, read_v2_con
 from yasb_limitora.v2_worker import cleanup_complete
 
 
+TEST_SID = bytes((1, 1, 0, 0, 0, 0, 0, 5, 21, 0, 0, 0))
+
+
 pytestmark = [
     pytest.mark.windows_native,
 ]
@@ -149,13 +152,32 @@ def _read_evidence(path: Path, timeout: float = 5.0) -> dict[str, object]:
     while time.monotonic() < deadline:
         try:
             value = json.loads(path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError):
+        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
             time.sleep(0.05)
             continue
         if value.get("authorized"):
             return value
         time.sleep(0.05)
     pytest.fail("native fixture did not reach the post-READY protocol boundary")
+
+def test_read_evidence_retries_transient_permission_error(monkeypatch, tmp_path: Path) -> None:
+    expected = {"authorized": True, "helper_pid": 1}
+    attempts = 0
+
+    def read_text(_path: Path, *, encoding: str) -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise PermissionError("transient Windows sharing lock")
+        assert encoding == "utf-8"
+        return json.dumps(expected)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+
+    assert _read_evidence(tmp_path / "evidence.json", timeout=0.1) == expected
+    assert attempts == 2
+
 
 def _assert_gone(pids: list[int]) -> None:
     deadline = time.monotonic() + 5.0
@@ -299,7 +321,7 @@ def test_native_yasb_limitora_launcher_contract(tmp_path: Path) -> None:
     config = tmp_path / "disabled.json"; config.write_bytes(b'{"codex":{"enabled":false},"opencode_go":{"enabled":false}}'); environment = os.environ.copy(); environment["YASB_LIMITORA_CONFIG"] = str(config)
     invoke = lambda *args: subprocess.run([os.fspath(launcher), *args], env=environment, capture_output=True, timeout=10, check=False)
     valid = invoke("--output-version", "2"); expected = (Path(__file__).parents[1] / "examples/customwidget/fixtures/providers-disabled.json").read_bytes(); document = json.loads(valid.stdout); leaves = ("compact_text", "alternate_text", "tooltip_text"); assert valid.returncode == 0 and valid.stdout == expected and valid.stderr == b"" and list(document) == ["version", "execution_state", "execution_error", "providers"] and document["version"] == 2 and all(all(leaf in provider and isinstance(provider[leaf], str) and provider[leaf] and "\r" not in provider[leaf] and "stderr" not in provider[leaf].lower() for leaf in leaves) for provider in document["providers"])
-    invalid_config = tmp_path / "invalid.json"; invalid_config.write_text('{"codex":{"enabled":true}}', encoding="utf-8"); environment["YASB_LIMITORA_CONFIG"] = str(invalid_config); invalid = invoke("--output-version", "2"); environment["YASB_LIMITORA_CONFIG"] = str(config); invocation = invoke("--output-version", "2", "--unsupported"); assert invalid.returncode == 2 and json.loads(invalid.stdout)["execution_error"] == {"code": "configuration_invalid", "phase": "configuration"} and invalid.stderr == b"yasb-limitora: configuration_invalid\r\n" and str(invalid_config).encode() not in invalid.stdout + invalid.stderr and invocation.returncode == 2 and json.loads(invocation.stdout)["execution_error"] == {"code": "invocation_invalid", "phase": "configuration"} and invocation.stderr == b"yasb-limitora: invocation_invalid\r\n" and b"unsupported" not in invocation.stdout + invocation.stderr
+    invalid_config = tmp_path / "invalid.json"; invalid_config.write_text('{"codex":{"enabled":true}}', encoding="utf-8"); environment["YASB_LIMITORA_CONFIG"] = str(invalid_config); invalid = invoke("--output-version", "2"); environment["YASB_LIMITORA_CONFIG"] = str(config); invocation = invoke("--output-version", "2", "--unsupported"); assert invalid.returncode == 1 and json.loads(invalid.stdout)["providers"][0]["execution_error"] == {"code": "provider_failed", "phase": "provider"} and invalid.stderr == b"yasb-limitora: runtime_error\r\n" and str(invalid_config).encode() not in invalid.stdout + invalid.stderr and invocation.returncode == 2 and json.loads(invocation.stdout)["execution_error"] == {"code": "invocation_invalid", "phase": "configuration"} and invocation.stderr == b"yasb-limitora: invocation_invalid\r\n" and b"unsupported" not in invocation.stdout + invocation.stderr
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
@@ -367,7 +389,7 @@ def test_native_release_fault_is_deterministic_and_sanitized() -> None:
         def ReleaseMutex(self, _): return False
         def CloseHandle(self, _): return True
 
-    lease = V2Guard(api=Api(), sid_provider=lambda: b"native-test-sid").acquire(r"C:\native.json", DeadlineContext.from_seconds(1))
+    lease = V2Guard(api=Api(), sid_provider=lambda: TEST_SID).acquire(r"C:\native.json", DeadlineContext.from_seconds(1))
     assert lease.release() is False
 
 

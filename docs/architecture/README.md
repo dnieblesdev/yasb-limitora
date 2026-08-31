@@ -32,7 +32,7 @@ automated YASB rendering.
 |-----------|------|--------------|
 | YASB CustomWidget | Host lifecycle, compact/alternate labels, tooltip, static CSS, periodic/manual refresh | Provider calls, credentials, JSON interpretation, cancellation of a running helper |
 | `yasb-limitora` | Version selection, config resolution, bounded execution, safe projection, JSON serialization | Provider implementation or private Limitora APIs |
-| Limitora 0.1.0 public API | Provider detection, authentication, transport, status state, freshness, quota windows, Decimal quantities | YASB imports, widget layout, popover behavior |
+| Limitora 0.3.1 Bearer public API | Provider detection, authentication, transport, status state, freshness, quota windows, Decimal quantities | YASB imports, widget layout, popover behavior |
 
 ## Product contract
 
@@ -44,6 +44,13 @@ R2 defines a quota-focused v2 document that keeps these distinctions explicit:
 - independent freshness;
 - every quota window and its availability/source context; and
 - sanitized execution errors.
+
+The consumed OpenCode 0.2 contract is explicit: `available` and `partial`
+snapshots use one fixed commercial slot for each `five_hour`, `monthly`, and
+`weekly` period. A `rate_limited` snapshot carries technical windows only and
+does not carry per-window commercial provenance. Limitora #55's per-window
+rate-limit signal is released upstream in v0.3.0, but it is upstream context
+only here and is not consumed until yasb-limitora #133.
 
 `usage` and `rate_limit_reset_credits` are excluded from 0.2. This is an
 intentional quota scope, not a claim that it is the complete Limitora snapshot.
@@ -58,11 +65,30 @@ only its remaining budget, with cleanup budget reserved. A cleanup guarantee
 means bounded eventual termination within that deadline; it does not claim that
 YASB's CustomWidget can instantly kill a subprocess when the widget closes.
 
-The cross-process execution guard is a bounded mutex guard, not `single-flight`
-and not request coalescing. Its scope is the Windows user plus the canonical
-effective configuration path. Abandoned acquisition is safe ownership; wait,
-creation, release, and deadline failures are sanitized document/provider
-outcomes as defined by R2.
+The shared refresh coordinator uses a Windows cross-process mutex only for short
+cache-key state transitions and publication authority. It is not held across a
+Codex/OpenCode call or provider cleanup. Each cache key has one bounded marker
+containing only a generation, owner PID, non-reusable process-creation token, and
+start time. A live owner is waited on with bounded cache/marker retries; a dead
+or mismatched owner is reclaimed by incrementing the generation. An unknown
+owner or unreadable marker fails closed and is never reclaimed. Publication is
+allowed only when the producer still owns the exact generation, so a stale
+producer cannot overwrite a newer result. Coordination failures never start an
+uncoordinated producer or rewrite a valid provider result.
+
+The v2 runtime also uses a shared quota cache below the default local Limitora
+directory. It stores only a schema-2 envelope containing `cached_at`, a
+digest-only effective account/config/path fingerprint, and the already
+projected public JSON v2 document. Cache reads and writes are atomic, size- and
+deadline-bounded, canonical, and fail closed. A fresh cache hit is returned
+without a provider call. On a miss, one producer runs with fresh provider
+resources while live waiters retry the cache and marker; waiters never launch a
+duplicate Codex refresh. Provider cleanup, release, and close finish before
+publication, and no cache coordination lease is retained across a provider
+call. Cache I/O, mutex, ACL, path, and cleanup failures cannot change a valid
+provider result. Provider errors, timeouts, cleanup failures, and all-disabled
+runs are never published. Unknown Windows account identity fails closed rather
+than permitting cross-account cache reuse.
 
 ## CustomWidget limits
 
@@ -83,8 +109,9 @@ fields are bounded text only; they do not create a severity protocol.
 
 - No native YASB widget or YASB upstream contribution.
 - No official extension research or maintainer approval as roadmap work.
-- No native popover, fixed provider-window assumptions, synthetic windows, or
-  absent-as-zero interpretation.
+- No native popover, generic fixed provider-window assumptions, synthetic
+  windows, or absent-as-zero interpretation. The explicit OpenCode 0.2 fixed
+  commercial slots are defined by the consumed contract above.
 - No Claude, Gemini, costs, tokens, history, predictions, usage, or reset
   credits in 0.2.
 - Open Design exports remain immutable. Their README may explain their status,

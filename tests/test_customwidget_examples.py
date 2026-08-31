@@ -35,7 +35,7 @@ WINDOW_TOOLTIP_SUFFIXES = {
         "unit=percentage_points; source_id=\"codex-app-server-v2\"; result=80% remaining\n"
         "Reset: 2026-08-02T00:00:00.000000Z",
         "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
-        "unit=percentage_points; source_id=\"opencode-go-dashboard\"; result=60% remaining\n"
+        "unit=percentage_points; source_id=\"opencode-go-api\"; result=60% remaining\n"
         "Reset: 2026-08-02T00:00:00.000000Z",
     ),
     "partial": (None, None),
@@ -44,14 +44,14 @@ WINDOW_TOOLTIP_SUFFIXES = {
         "unit=percentage_points; source_id=\"codex-app-server-v2\"; result=40% remaining\n"
         "Reset: 2026-08-02T00:00:00.000000Z",
         "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
-        "unit=percentage_points; source_id=\"opencode-go-dashboard\"; result=40% remaining\n"
+        "unit=percentage_points; source_id=\"opencode-go-api\"; result=40% remaining\n"
         "Reset: 2026-08-02T00:00:00.000000Z",
     ),
     "undetected": (None, None),
     "provider-unavailable": (
         None,
         "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
-        "unit=percentage_points; source_id=\"opencode-go-dashboard\"; result=60% remaining\n"
+        "unit=percentage_points; source_id=\"opencode-go-api\"; result=60% remaining\n"
         "Reset: 2026-08-02T00:00:00.000000Z",
     ),
     "providers-disabled": (None, None),
@@ -63,14 +63,14 @@ WINDOW_TOOLTIP_SUFFIXES = {
 }
 RUNTIME_METADATA = {
     "guard-timeout": {
-        "exit_code": 1,
+        "exit_code": 2,
         "stderr": b"yasb-limitora: guard_wait_timeout" + bytes([0x0A]),
         "document": {"code": "guard_wait_timeout", "phase": "guard_wait"},
         "reason": "guard_wait_timeout",
         "tooltip": "Quota not run: guard wait timeout",
     },
     "deadline-not-run": {
-        "exit_code": 1,
+        "exit_code": 2,
         "stderr": b"yasb-limitora: runtime_error" + bytes([0x0A]),
         "document": {"code": "deadline_exhausted", "phase": "document"},
         "reason": "deadline_exhausted",
@@ -113,6 +113,8 @@ def _assert_provider(provider, expected, percentage, display_state=None, tooltip
         "tooltip_text",
     ]
     outcome, state, freshness = expected
+    expected_source = "codex-app-server-v2" if provider["provider"] == "codex" else "opencode-go-api"
+    assert provider["source_id"] in {expected_source, None} and all(window["source_id"] in {expected_source, None} for window in provider["windows"])
     display_state = state if display_state is None else display_state
     assert provider["outcome"] == outcome
     assert provider["public_state"] == state
@@ -127,16 +129,19 @@ def _assert_provider(provider, expected, percentage, display_state=None, tooltip
     _assert_safe_leaf(provider["tooltip_text"], tooltip=True)
     if percentage is not None:
         assert provider["compact_text"] == f"Quota {percentage}% remaining; state={display_state}; freshness={freshness}"
-        assert provider["alternate_text"] == f"Quota account / day: {percentage}% remaining; state={display_state}; freshness={freshness}"
-        tooltip = f"State: {display_state}\nFreshness: {freshness}\nQuota: {percentage}% remaining"
-        if tooltip_suffix is not None:
-            tooltip += f"\n{tooltip_suffix}"
-        assert provider["tooltip_text"] == tooltip
+        assert provider["alternate_text"] == f"Quota account / {provider['most_depleted_window']['period']}: {percentage}% remaining; state={display_state}; freshness={freshness}"
+        provider_name = "Codex" if provider["provider"] == "codex" else "OpenCode Go"
+        state_label = display_state.replace("_", " ").capitalize()
+        freshness_label = freshness.replace("_", " ").capitalize()
+        assert provider["tooltip_text"].startswith(f"{provider_name}\nState: {state_label} · {freshness_label}\nLowest quota: {percentage}% remaining")
         assert provider["most_depleted_window"]["remaining_percentage"] == str(percentage)
     elif outcome == "snapshot":
         assert provider["compact_text"] == f"Quota percentage unavailable; state={display_state}; freshness={freshness}"
         assert provider["alternate_text"] == provider["compact_text"]
-        assert provider["tooltip_text"] == f"State: {display_state}\nFreshness: {freshness}\nQuota: percentage unavailable\nNo eligible percentage basis"
+        provider_name = "Codex" if provider["provider"] == "codex" else "OpenCode Go"
+        state_label = display_state.replace("_", " ").capitalize()
+        freshness_label = freshness.replace("_", " ").capitalize()
+        assert provider["tooltip_text"].startswith(f"{provider_name}\nState: {state_label} · {freshness_label}\nLowest quota: Quota unavailable")
         assert provider["most_depleted_window"] is None
     elif outcome == "undetected":
         assert provider["compact_text"] == provider["alternate_text"] == provider["tooltip_text"] == "Quota not detected"
@@ -163,7 +168,7 @@ class CustomWidgetExamplesTests(unittest.TestCase):
             assert value["version"] == 2 and value["execution_state"] == execution_state and len(value["providers"]) == 2
             assert [provider["provider"] for provider in value["providers"]] == ["codex", "opencode_go"]
             serialized = json.dumps(value).lower()
-            assert all(key not in serialized for key in ("exit_code", "stderr", "stdout", "traceback", "password", "api_key", "cookie", "/home/", "c:\\"))
+            assert all(key not in serialized for key in ("opencode-go-dashboard", "exit_code", "stderr", "stdout", "traceback", "password", "api_key", "cookie", "/home/", "c:\\"))
             expected_errors = {
                 "provider-unavailable": [
                     {"code": "provider_failed", "phase": "provider"},
@@ -176,19 +181,27 @@ class CustomWidgetExamplesTests(unittest.TestCase):
             }.get(name, [None, None])
             for index, (provider, percent) in enumerate(zip(value["providers"], percentages if name not in ("providers-disabled", "safe-error") else (None, None))):
                 assert provider["execution_error"] == expected_errors[index]
+                if provider["provider"] == "opencode_go" and provider["outcome"] == "snapshot" and provider["public_state"] in {"available", "partial"}:
+                    commercial = [window for window in provider["windows"] if window["kind"] == "commercial_quota"]
+                    assert [window["period"] for window in commercial] == ["five_hour", "monthly", "weekly"]
+                    assert all(
+                        window["source_id"] == "opencode-go-api"
+                        if window["availability"] == "known"
+                        else window["source_id"] is None
+                        and all(window[field] is None for field in ("plan_id", "limit", "used", "remaining", "reset_at"))
+                        for window in commercial
+                    )
                 _assert_provider(
                     provider,
                     expected if name not in ("provider-unavailable",) else ("execution_error", None, None) if provider["provider"] == "codex" else ("snapshot", "available", "fresh"),
                     percent,
                     None,
-                    WINDOW_TOOLTIP_SUFFIXES[name][value["providers"].index(provider)],
                 )
             if name == "provider-unavailable":
                 _assert_provider(
                     value["providers"][1],
                     ("snapshot", "available", "fresh"),
                     60,
-                    tooltip_suffix=WINDOW_TOOLTIP_SUFFIXES[name][1],
                 )
             if name == "safe-error":
                 assert value["execution_error"] == {"code": "provider_failed", "phase": "provider"}
@@ -198,7 +211,7 @@ class CustomWidgetExamplesTests(unittest.TestCase):
     def test_guard_and_deadline_runtime_metadata_is_separate_from_fixtures(self):
         for name, expected in RUNTIME_METADATA.items():
             value = _json_document(FIXTURES / f"{name}.json")
-            assert expected["exit_code"] == 1
+            assert expected["exit_code"] == 2
             expected_stderr = (
                 b"yasb-limitora: guard_wait_timeout" + bytes([0x0A])
                 if name == "guard-timeout"
@@ -214,13 +227,21 @@ class CustomWidgetExamplesTests(unittest.TestCase):
 
     def test_yaml_uses_only_bounded_public_paths_and_verified_options(self):
         text = (EXAMPLE / "customwidget.yaml").read_text(encoding="utf-8")
-        assert text.endswith("\n") and "providers][0]" in text
+        default, manual = text.split("  limitora_r9_opencode_manual:", 1)
+        assert text.endswith("\n") and "providers][0]" in default
         assert text.startswith("widgets:\n  limitora_r9:\n    type: yasb.custom.CustomWidget\n    options:\n")
-        assert "providers[1]" not in text and "callbacks" not in text and "keybindings" not in text
+        assert "providers[1]" not in default and "callbacks" not in text and "keybindings" not in text
+        assert "providers][1]" in manual
+        assert 'label: "{data[providers][0][compact_text]}"' in default
+        assert 'tooltip_label: "{data[providers][0][tooltip_text]}"' in default
+        assert 'label: "{data[providers][1][compact_text]}"' in manual
+        assert 'label_alt: "{data[providers][1][alternate_text]}"' in manual
+        assert 'tooltip_label: "{data[providers][1][tooltip_text]}"' in manual
         assert 'run_cmd: "yasb-limitora --output-version 2"' in text
+        assert "use_shell: false" in text and "LIMITORA_OPENCODE_API_KEY" not in text
         assert not re.search(r"run_cmd:.*(?:;|&&|\|\||\||`|\$\(|>|<)", text)
-        assert re.findall(r"^      ([a-z_]+):", text, re.MULTILINE) == ["class_name", "label", "label_alt", "tooltip", "tooltip_label", "exec_options"]
-        assert re.findall(r"^        ([a-z_]+):", text, re.MULTILINE) == ["run_cmd", "run_once", "run_interval", "return_format", "hide_empty", "use_shell"]
+        assert re.findall(r"^      ([a-z_]+):", default, re.MULTILINE) == ["class_name", "label", "label_alt", "tooltip", "tooltip_label", "exec_options"]
+        assert re.findall(r"^        ([a-z_]+):", default, re.MULTILINE) == ["run_cmd", "run_once", "run_interval", "return_format", "hide_empty", "use_shell"]
         assert "execution_state" not in text and "windows" not in text and "most_depleted_window" not in text
 
     def test_css_is_static_and_matches_supported_descendants(self):
@@ -255,7 +276,7 @@ class CustomWidgetExamplesTests(unittest.TestCase):
             assert provider["most_depleted_window"] is None
             assert provider["compact_text"] == "Quota percentage unavailable; state=partial; freshness=stale"
             assert provider["alternate_text"] == provider["compact_text"]
-            assert provider["tooltip_text"].endswith("No eligible percentage basis")
+            assert "Lowest quota: Quota unavailable" in provider["tooltip_text"]
 
 
 if __name__ == "__main__":

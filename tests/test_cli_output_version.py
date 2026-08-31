@@ -6,7 +6,7 @@ import pytest
 
 import yasb_limitora.cli as cli
 from yasb_limitora.cli import main
-from yasb_limitora.model import DocumentView, ProviderKey, ProviderState, ProviderView, SafeError, SafeErrorCode
+from yasb_limitora.model import DocumentView, ProviderKey, ProviderOutcome, ProviderState, ProviderView, SafeError, SafeErrorCode
 
 
 def _run(argv, *, coordinator=None, environment=None):
@@ -27,6 +27,59 @@ def _disabled_document():
         ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE),
         ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE),
     )
+
+
+def test_windows_freeze_support_claims_terminal_child_before_cli_dispatch(monkeypatch):
+    events = []
+
+    class FreezeSupportClaimed(Exception):
+        pass
+
+    def terminal_freeze_support():
+        events.append("freeze_support")
+        raise FreezeSupportClaimed
+
+    def unexpected(stage):
+        events.append(stage)
+        raise AssertionError(f"{stage} ran after terminal freeze_support")
+
+    monkeypatch.setattr(cli.multiprocessing, "freeze_support", terminal_freeze_support)
+    monkeypatch.setattr(cli, "_output_version", lambda argv: unexpected("output_version"))
+    monkeypatch.setattr(cli, "_resolve_config_path", lambda argv, environment: unexpected("config_resolution"))
+    monkeypatch.setattr(cli, "RuntimeCoordinator", lambda: unexpected("coordinator"))
+
+    with pytest.raises(FreezeSupportClaimed):
+        main(
+            ("--output-version", "2"),
+            stdout=io.BytesIO(),
+            stderr=io.StringIO(),
+            platform_is_windows=lambda: True,
+        )
+
+    assert events == ["freeze_support"]
+
+
+def test_non_windows_platform_gate_precedes_freeze_support(monkeypatch):
+    events = []
+
+    def unexpected_freeze_support():
+        events.append("freeze_support")
+        raise AssertionError("freeze_support ran on an unsupported platform")
+
+    monkeypatch.setattr(cli.multiprocessing, "freeze_support", unexpected_freeze_support)
+    stdout, stderr = io.BytesIO(), io.StringIO()
+
+    code = main(
+        ("--output-version", "2"),
+        stdout=stdout,
+        stderr=stderr,
+        platform_is_windows=lambda: False,
+    )
+
+    assert code == 2
+    assert stdout.getvalue() == b""
+    assert stderr.getvalue() == "yasb-limitora: unsupported_platform\n"
+    assert events == []
 
 
 def _disabled_config_path(tmp_path):
@@ -159,7 +212,7 @@ def test_trusted_v2_routes_runtime_failure_to_v2(tmp_path):
 
     path = _disabled_config_path(tmp_path)
     code, document, stderr, raw = _run(("--output-version", "2", "--config", str(path)), coordinator=FailingCoordinator())
-    assert code == 1
+    assert code == 2
     assert document["version"] == 2
     assert document["execution_error"] == {"code": "internal_error", "phase": "document"}
     assert stderr == "yasb-limitora: runtime_error\n"
@@ -173,7 +226,7 @@ def test_trusted_v2_routes_projection_failure_to_v2(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "project_v2_bytes", fail_projection)
     path = _disabled_config_path(tmp_path)
     code, document, stderr, raw = _run(("--output-version", "2", "--config", str(path)), coordinator=_Coordinator(_disabled_document()))
-    assert code == 1
+    assert code == 2
     assert document["execution_error"] == {"code": "internal_error", "phase": "document"}
     assert stderr == "yasb-limitora: runtime_error\n"
     assert b"private projection detail" not in raw
@@ -317,7 +370,7 @@ def test_v2_config_deadline_expiry_emits_bounded_deadline_document(monkeypatch, 
 
     code, document, stderr, raw = _run(("--output-version", "2", "--config", str(path)))
 
-    assert code == 1
+    assert code == 2
     assert document["execution_state"] == "execution_error"
     assert document["execution_error"] == {"code": "deadline_exhausted", "phase": "document"}
     assert all(provider["not_run_reason"] == "deadline_exhausted" for provider in document["providers"])
@@ -344,6 +397,58 @@ def test_v2_deadline_defaults_to_seven_seconds(tmp_path):
     assert coordinator.calls[0][0].deadline_seconds == 7.0
 
 
+@pytest.mark.parametrize("timeout", ("7", True, float("nan"), float("inf")))
+def test_v2_opencode_timeout_type_errors_are_configuration_invalid(tmp_path, timeout):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"opencode_go": {"timeout_seconds": timeout}}), encoding="utf-8")
+    coordinator = _Coordinator(_disabled_document())
+
+    code, document, stderr, _ = _run(("--output-version", "2", "--config", str(path)), coordinator=coordinator)
+
+    if timeout in ("7", True):
+        assert code == 1
+        assert document["execution_error"] == {"code": "provider_failed", "phase": "provider"}
+        assert stderr == "yasb-limitora: runtime_error\n"
+        assert len(coordinator.calls) == 1
+    else:
+        assert code == 2
+        assert document["execution_error"] == {"code": "configuration_invalid", "phase": "configuration"}
+        assert stderr == "yasb-limitora: configuration_invalid\n"
+        assert coordinator.calls == []
+
+
+@pytest.mark.parametrize("timeout", (1, 7, 7.5, 10))
+def test_v2_opencode_numeric_timeout_is_accepted(tmp_path, timeout):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"opencode_go": {"timeout_seconds": timeout}}), encoding="utf-8")
+    coordinator = _Coordinator(_disabled_document())
+
+    code, document, stderr, _ = _run(("--output-version", "2", "--config", str(path)), coordinator=coordinator)
+
+    assert code == 0 and stderr == "" and document["version"] == 2
+    assert coordinator.calls[0][0].opencode_go.timeout_seconds == float(timeout)
+
+
+@pytest.mark.parametrize("legacy", ({"workspace_id": "legacy"}, {"cookie": "legacy"}))
+def test_v2_opencode_legacy_auth_fields_are_configuration_invalid(tmp_path, legacy):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"opencode_go": legacy}), encoding="utf-8")
+    coordinator = _Coordinator(_disabled_document())
+
+    code, document, stderr, _ = _run(("--output-version", "2", "--config", str(path)), coordinator=coordinator)
+
+    if "workspace_id" in legacy:
+        assert code == 1
+        assert document["execution_error"] == {"code": "provider_failed", "phase": "provider"}
+        assert stderr == "yasb-limitora: runtime_error\n"
+        assert len(coordinator.calls) == 1
+    else:
+        assert code == 2
+        assert document["execution_error"] == {"code": "configuration_invalid", "phase": "configuration"}
+        assert stderr == "yasb-limitora: configuration_invalid\n"
+        assert coordinator.calls == []
+
+
 @pytest.mark.parametrize(
     "raw",
     (
@@ -368,3 +473,37 @@ def test_v1_loader_keeps_deadline_seconds_out_of_its_grammar(tmp_path):
     assert code == 2
     assert document["version"] == 1
     assert stderr == "yasb-limitora: configuration_invalid\n"
+
+
+@pytest.mark.parametrize(
+    ("peer_outcome", "expected_code", "expected_state"),
+    (
+        (ProviderOutcome.UNDETECTED, 0, "partial"),
+        (ProviderOutcome.NOT_RUN, 1, "execution_error"),
+    ),
+)
+def test_v2_provider_configuration_error_is_scoped_to_the_invalid_provider(
+    tmp_path, peer_outcome, expected_code, expected_state
+):
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps({"codex": {"enabled": True}, "opencode_go": {}}),
+        encoding="utf-8",
+    )
+    document = DocumentView.ordered(
+        ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE),
+        ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=peer_outcome, not_run_reason="disabled" if peer_outcome is ProviderOutcome.NOT_RUN else None),
+    )
+    coordinator = _Coordinator(document)
+
+    code, projected, stderr, _ = _run(
+        ("--output-version", "2", "--config", str(path)), coordinator=coordinator
+    )
+
+    assert code == expected_code
+    assert stderr == ("" if expected_code == 0 else "yasb-limitora: runtime_error\n")
+    assert len(coordinator.calls) == 1
+    assert projected["execution_state"] == expected_state
+    assert [provider["provider"] for provider in projected["providers"]] == ["codex", "opencode_go"]
+    assert projected["providers"][0]["execution_error"] == {"code": "provider_failed", "phase": "provider"}
+    assert projected["providers"][1]["outcome"] == peer_outcome.value

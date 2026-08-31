@@ -22,12 +22,17 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - name: Install the pinned runtime and test tools
+      - name: Install the published Limitora package
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "limitora==0.1.0"
-          python -m pip install -e ".[opencode-go,test]"
+          python -m pip install --only-binary=:all: "limitora[opencode-go]==0.3.1"
+      - name: Verify the published Limitora package contract
+        shell: pwsh
+        run: python -I scripts/verify_limitora_package.py
+      - name: Install the editable project and test tools
+        shell: pwsh
+        run: python -m pip install -e ".[test]"
       - name: Execute selected proof and complete test suite
         shell: pwsh
         run: |
