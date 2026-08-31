@@ -221,13 +221,21 @@ class CustomWidgetExamplesTests(unittest.TestCase):
 
     def test_yaml_uses_only_bounded_public_paths_and_verified_options(self):
         text = (EXAMPLE / "customwidget.yaml").read_text(encoding="utf-8")
-        assert text.endswith("\n") and "providers][0]" in text
+        default, manual = text.split("  limitora_r9_opencode_manual:", 1)
+        assert text.endswith("\n") and "providers][0]" in default
         assert text.startswith("widgets:\n  limitora_r9:\n    type: yasb.custom.CustomWidget\n    options:\n")
-        assert "providers[1]" not in text and "callbacks" not in text and "keybindings" not in text
+        assert "providers[1]" not in default and "callbacks" not in text and "keybindings" not in text
+        assert "providers][1]" in manual
+        assert 'label: "{data[providers][0][compact_text]}"' in default
+        assert 'tooltip_label: "{data[providers][0][tooltip_text]}"' in default
+        assert 'label: "{data[providers][1][compact_text]}"' in manual
+        assert 'label_alt: "{data[providers][1][alternate_text]}"' in manual
+        assert 'tooltip_label: "{data[providers][1][tooltip_text]}"' in manual
         assert 'run_cmd: "yasb-limitora --output-version 2"' in text
+        assert "use_shell: false" in text and "LIMITORA_OPENCODE_API_KEY" not in text
         assert not re.search(r"run_cmd:.*(?:;|&&|\|\||\||`|\$\(|>|<)", text)
-        assert re.findall(r"^      ([a-z_]+):", text, re.MULTILINE) == ["class_name", "label", "label_alt", "tooltip", "tooltip_label", "exec_options"]
-        assert re.findall(r"^        ([a-z_]+):", text, re.MULTILINE) == ["run_cmd", "run_once", "run_interval", "return_format", "hide_empty", "use_shell"]
+        assert re.findall(r"^      ([a-z_]+):", default, re.MULTILINE) == ["class_name", "label", "label_alt", "tooltip", "tooltip_label", "exec_options"]
+        assert re.findall(r"^        ([a-z_]+):", default, re.MULTILINE) == ["run_cmd", "run_once", "run_interval", "return_format", "hide_empty", "use_shell"]
         assert "execution_state" not in text and "windows" not in text and "most_depleted_window" not in text
 
     def test_css_is_static_and_matches_supported_descendants(self):

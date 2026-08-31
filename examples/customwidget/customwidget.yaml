@@ -14,3 +14,20 @@ widgets:
         return_format: json
         hide_empty: true
         use_shell: false
+
+  # Temporary manual OpenCode acceptance only; remove after the gate.
+  limitora_r9_opencode_manual:
+    type: yasb.custom.CustomWidget
+    options:
+      class_name: limitora-r9
+      label: "{data[providers][1][compact_text]}"
+      label_alt: "{data[providers][1][alternate_text]}"
+      tooltip: true
+      tooltip_label: "{data[providers][1][tooltip_text]}"
+      exec_options:
+        run_cmd: "yasb-limitora --output-version 2"
+        run_once: false
+        run_interval: 120000
+        return_format: json
+        hide_empty: true
+        use_shell: false

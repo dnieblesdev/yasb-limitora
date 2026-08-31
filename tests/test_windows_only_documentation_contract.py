@@ -13,6 +13,7 @@ DOCUMENTS = (
 STATUS_DOCUMENTS = (
     ROOT / "README.md",
     ROOT / "docs/architecture/README.md",
+    ROOT / "docs/research/README.md",
     ROOT / "docs/roadmap.md",
     ROOT / "docs/specifications/json-v2.md",
 )
@@ -25,28 +26,49 @@ SOURCE_OF_TRUTH_DOCUMENTS = (
 
 
 def _r10_context(text: str) -> str:
-    return " ".join(paragraph for paragraph in text.split("\n\n") if "R10" in paragraph)
+    markers = ("R10", "automated native", "maintainer accepted")
+    return " ".join(
+        paragraph
+        for paragraph in text.split("\n\n")
+        if any(marker.lower() in paragraph.lower() for marker in markers)
+    )
 
 
 def test_scoped_docs_declare_one_bounded_windows_only_contract():
-    texts = {path: path.read_text(encoding="utf-8") for path in DOCUMENTS}
-    combined = "\n".join(texts.values())
-
-    assert set(texts) == {
+    expected_documents = {
         ROOT / "README.md",
         ROOT / "docs/windows-json.md",
         ROOT / "docs/architecture/README.md",
         ROOT / "docs/roadmap.md",
         ROOT / "docs/specifications/json-v2.md",
     }
-    assert set(STATUS_DOCUMENTS) == {
+    expected_status_documents = {
         ROOT / "README.md",
         ROOT / "docs/architecture/README.md",
+        ROOT / "docs/research/README.md",
+        ROOT / "docs/roadmap.md",
+        ROOT / "docs/specifications/json-v2.md",
+    }
+    expected_source_of_truth_documents = {
+        ROOT / "docs/architecture/README.md",
+        ROOT / "docs/research/README.md",
         ROOT / "docs/roadmap.md",
         ROOT / "docs/specifications/json-v2.md",
     }
 
-    for text in texts.values():
+    assert set(DOCUMENTS) == expected_documents
+    assert set(STATUS_DOCUMENTS) == expected_status_documents
+    assert set(SOURCE_OF_TRUTH_DOCUMENTS) == expected_source_of_truth_documents
+    assert set(SOURCE_OF_TRUTH_DOCUMENTS) < set(STATUS_DOCUMENTS)
+
+    texts = {
+        path: path.read_text(encoding="utf-8")
+        for path in set(DOCUMENTS) | set(STATUS_DOCUMENTS)
+    }
+    combined = "\n".join(texts[path] for path in DOCUMENTS)
+
+    for path in DOCUMENTS:
+        text = texts[path]
         assert re.search(r"\bWindows-only\b", text, re.IGNORECASE)
         assert "yasb-limitora: unsupported_platform\\n" in text
         assert re.search(r"(?:exit(?: code)?|returns?)\D{0,24}\b2\b", text, re.IGNORECASE)
@@ -66,13 +88,13 @@ def test_scoped_docs_declare_one_bounded_windows_only_contract():
         assert re.search(r"\b(?:cli|executable)\b", context, re.IGNORECASE)
         assert re.search(r"\bjson\s+v2\b", context, re.IGNORECASE)
         assert re.search(
-            r"\bmaintainer(?:'s)?\s+manual\s+acceptance\b|\baccepted\s+manually\s+by\s+the\s+maintainer\b",
+            r"\bmaintainer(?:'s)?\s+manual\s+acceptance\b|\baccepted\s+manually\s+by\s+the\s+maintainer\b|\bexternal\s+pending\s+gate\b",
             context,
             re.IGNORECASE,
         )
         assert re.search(r"\breal\s+yasb\b", texts[path], re.IGNORECASE)
         assert re.search(
-            r"\bno\s+automated\s+yasb\s+(?:rendering|e2e)\b|\bdoes\s+not\s+claim\s+automated\s+yasb\s+(?:rendering|e2e)\b",
+            r"\bno\s+automated\s+yasb\s+(?:rendering|e2e)\b|\bdoes\s+not\s+claim\s+automated\s+yasb\s+(?:rendering|e2e)\b|\bnot\b[^.]{0,40}\bautomated-yasb-rendering\s+claim\b",
             context,
             re.IGNORECASE | re.DOTALL,
         )
@@ -84,6 +106,35 @@ def test_scoped_docs_declare_one_bounded_windows_only_contract():
     roadmap_r10 = next(line for line in texts[ROOT / "docs/roadmap.md"].splitlines() if "| R10 |" in line)
     assert re.search(r"complete", roadmap_r10, re.IGNORECASE)
     assert "automated" in roadmap_r10.lower() and "manual" in roadmap_r10.lower()
+
+
+def test_opencode_operator_contract_documents_the_copy_ready_flow():
+    readme, windows = [(ROOT / name).read_text(encoding="utf-8") for name in ("README.md", "docs/windows-json.md")]
+    example_readme = (ROOT / "examples/customwidget/README.md").read_text(encoding="utf-8")
+    yaml = (ROOT / "examples/customwidget/customwidget.yaml").read_text(encoding="utf-8")
+    combined = " ".join((readme + windows).split())
+    normalized = " ".join(windows.split())
+    quick = " ".join(windows.split("## Quick path", 1)[1].split("## Runtime support boundary", 1)[0].split())
+    assert all(needle in combined for needle in ("LIMITORA_OPENCODE_API_KEY=<key>", "%USERPROFILE%\\.config\\yasb\\.env", "%YASB_CONFIG_HOME%\\.env", "OS environment value wins", "yasbc reload", "starts a fresh", "reloads `.env`", "manual restart/start fallback", "not published to PyPI", "py -m pip install -e .", "%LOCALAPPDATA%\\yasb-limitora\\config.json", "YASB_LIMITORA_CONFIG", '"opencode_go": {"enabled": true}', "YASB_CONFIG_HOME", "only YASB", "v1's existing `unavailable` behavior", "`not_run` with `not_run_reason: disabled` instead", "manual acceptance", "external pending gate"))
+    assert all(needle in quick for needle in (
+        "Create or select the separate Limitora JSON configuration",
+        '"opencode_go": {', '"enabled": true', "--output-version 2",
+        "register it in a YASB bar",
+        "providers[1]"))
+    assert "default `limitora_r9` entry is Codex-only" in example_readme and 'run_cmd: "yasb-limitora --output-version 2"' in yaml and "providers][1]" in yaml
+    assert all(needle in normalized for needle in ("### v1 commands (frozen)", "### v2 commands", "--output-version 2", "integer `version: 2`", "fixed order `codex`, then `opencode_go`", "Codex and OpenCode outcomes are independent", "manual acceptance procedure", "Temporarily add `limitora_r9_opencode_manual` to YASB's `widgets:` config and bar list", "remove/revert the temporary widget from both the YASB bar list and `widgets:` config", "not automated E2E", "install/embed YASB", "extra commercial periods are discarded", "Unavailable is reserved for those fixed-slot cases", "Limitora #55 was implemented and released in v0.3.0", "#133 remains the downstream follow-up", "outside the #130/0.2 migration", "generic YASB CustomWidget acceptance", "OpenCode provider acceptance", "R11/#130"))
+    for code in ("guard_acquisition_failed", "guard_wait_timeout", "deadline_exhausted", "credential_invalid", "provider_timeout", "provider_rate_limited", "provider_failed", "provider_unavailable", "invalid_provider_data", "unknown_provider_state"):
+        assert code in windows
+    for state in ("available", "partial", "unavailable", "unauthorized", "rate_limited", "transient_error", "invalid_data"):
+        assert f"`{state}`" in windows
+    for distinction in ("`unavailable` is a state inside a returned snapshot", "`provider_unavailable` is an attempted-provider execution error", "`invalid_data` is a public state", "`invalid_provider_data` is a sanitized"):
+        assert distinction in windows
+    v1, v2 = windows.split("### v1 commands (frozen)", 1)[1].split("### v2 commands", 1); v2 = v2.split("## Availability and fail-safe behavior", 1)[0]
+    assert all(term in v1 and term not in v2 for term in ("loading", "success", "unavailable", "safe_error"))
+    assert all(term in v2 for term in ("execution_state", "execution_error", "snapshot", "undetected", "not_run"))
+    assert "exit code `1`" in v2 and all(code in v2 for code in ("guard_acquisition_failed", "guard_wait_timeout", "deadline_exhausted"))
+    manual = " ".join(windows.split("## Manual native YASB acceptance", 1)[1].split("## Verified limitations and troubleshooting", 1)[0].split())
+    assert all(needle in manual for needle in ("remove the `LIMITORA_OPENCODE_API_KEY` line from `.env`", "clear/unset any `LIMITORA_OPENCODE_API_KEY` value in the current/inherited OS environment", "Do not print it", "yasbc reload", "restore it securely")) and "## Published-package verification" not in windows
 
 
 def test_source_of_truth_docs_use_the_consumed_limitora_bearer_contract():
