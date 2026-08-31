@@ -602,6 +602,7 @@ def test_quantity_invariants_and_remaining_percentage_formula():
 
 def test_v2_config_grammar_is_explicit_and_v1_deadline_is_not_a_key():
     text = SPEC.read_text(encoding="utf-8")
+    grammar = text.split("### 12.2 Exact v2 configuration grammar", 1)[1].split("### 12.3", 1)[0]
 
     assert "The v2 configuration is one UTF-8 JSON object." in text
     assert "`deadline_seconds`, `codex`, and `opencode_go`" in text
@@ -609,6 +610,16 @@ def test_v2_config_grammar_is_explicit_and_v1_deadline_is_not_a_key():
     assert "`--output-version 2` or `=2`" in text
     assert "32,767 UTF-16 code units" in text
     assert "16,384 UTF-8 bytes" in text
+    assert "`opencode_go` | `enabled`, `timeout_seconds`" in grammar
+    assert "`workspace_id`" not in grammar
+    assert "cookie" not in grammar.lower()
+    assert "`LIMITORA_OPENCODE_API_KEY`" in grammar
+    assert "MUST NOT be supplied in JSON or CLI arguments" in grammar
+    assert "MUST NOT appear in" in grammar
+    assert "Codex `timeout_seconds`" in grammar and "`(0,120]`" in grammar
+    assert "OpenCode `timeout_seconds`" in grammar and "`(0,10]`" in grammar
+    assert "#55 is released upstream in" in text and "Limitora v0.3.0" in text
+    assert "yasb-limitora #133 remains a separate follow-up" in text
 
 
 def test_invalid_json_customwidget_fallback_is_copy_ready_and_stock_only():
