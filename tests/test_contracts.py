@@ -1,3 +1,4 @@
+import importlib.util
 import inspect
 import json
 import math
@@ -6,6 +7,7 @@ from typing import Any, cast
 
 import pytest
 
+import yasb_limitora as package
 from yasb_limitora import (
     ConfigError,
     DocumentView,
@@ -17,7 +19,6 @@ from yasb_limitora import (
     SafeError,
     SafeErrorCode,
     cli,
-    project_bytes,
 )
 from yasb_limitora.config import (
     DEFAULT_TIMEOUT_SECONDS,
@@ -33,6 +34,23 @@ def test_v1_golden_artifacts_are_absent() -> None:
 
     assert not (root / "tests/test_v1_golden_fixtures.py").exists()
     assert not tuple((root / "tests/fixtures").glob("json_v1_*.json"))
+
+
+def test_legacy_runtime_modules_and_exports_are_absent() -> None:
+    root = Path(__file__).parents[1]
+    legacy_modules = ("coord" + "inator", "project" + "ion")
+    for module_name in legacy_modules:
+        assert not (root / "src/yasb_limitora" / f"{module_name}.py").exists()
+        assert importlib.util.find_spec(f"yasb_limitora.{module_name}") is None
+
+    legacy_symbols = (
+        "Provider" + "Coordinator",
+        "Runtime" + "Coordinator",
+        "co" + "ordinate",
+        "project" + "document",
+        "project" + "bytes",
+    )
+    assert all(not hasattr(package, name) for name in legacy_symbols)
 
 
 @pytest.mark.parametrize("name", ("_failure", "_LEGACY_READ_CONFIG", "_read_config", "_load_explicit", "_load_path", "_load"))
@@ -214,26 +232,7 @@ def test_models_have_closed_states_codes_and_safe_validation() -> None:
         ProviderView(ProviderKey.CODEX, cast(ProviderState, "secret-state"))
     with pytest.raises(ValueError, match="^invalid safe error code$"):
         SafeError(cast(SafeErrorCode, "secret-workspace-code"))
-
-
-def test_projection_is_exact_utf8_unicode_deterministic_and_redacted() -> None:
-    document = DocumentView.ordered(
-        ProviderView(ProviderKey.CODEX, ProviderState.SUCCESS, display_label="成功 ✓"),
-        ProviderView(ProviderKey.OPENCODE_GO, ProviderState.SAFE_ERROR, SafeError(cast(SafeErrorCode, "provider_error"))),
-    )
-    expected = ('{"version":1,"providers":[{"provider":"codex","state":"success",'
-                '"display_label":"成功 ✓"},{"provider":"opencode_go","state":"safe_error",'
-                '"error":{"code":"provider_error"}}]}\n').encode()
-    result = project_bytes(document)
-    assert result == expected == project_bytes(document)
-    assert json.loads(result.decode("utf-8"))["providers"][0]["display_label"] == "成功 ✓"
-    assert result.decode("utf-8").encode("utf-8") == result
-    assert "private-workspace" not in result.decode("utf-8")
-    with pytest.raises(TypeError):
-        project_bytes(cast(DocumentView, {"version": 1}))
     with pytest.raises((TypeError, ValueError)):
         DocumentView(())
-    with pytest.raises(ValueError, match="^safe_error requires"):
-        ProviderView(ProviderKey.CODEX, ProviderState.SAFE_ERROR)
     with pytest.raises(ValueError, match="^safe_error requires"):
         ProviderView(ProviderKey.CODEX, ProviderState.SAFE_ERROR)

@@ -3,16 +3,13 @@ import json
 import ntpath
 import threading
 import time
-from types import SimpleNamespace
 from typing import cast
 
 import pytest
 
 from yasb_limitora import cli
 from yasb_limitora.cli import main
-from yasb_limitora.codex_helper import CodexHelperExecutor, _payload
 from yasb_limitora.config import LocalConfig
-from yasb_limitora.coordinator import RuntimeCoordinator
 from yasb_limitora.limitora_api import (
     OpenCodeFailureEvidence,
     OpenCodeReadResult,
@@ -44,14 +41,6 @@ def view(provider, state=ProviderState.SUCCESS, code=None, display_label=None):
     return ProviderView(provider, state, SafeError(code) if code else None, display_label)
 
 
-class Codex:
-    def __init__(self, result):
-        self.result, self.runners = result, []
-    def run(self, runner):
-        self.runners.append(runner)
-        return self.result
-
-
 def enabled_config(codex=True, opencode=True, timeout=0.2):
     return LocalConfig.from_mapping({
         "codex": {"enabled": codex, "runner": r"C:\codex.exe", "timeout_seconds": timeout},
@@ -70,122 +59,6 @@ class _FakeOrchestrator:
         self.calls.append((config, environment, context, config_path, provider_errors))
         return self.document
 
-
-def test_coordinator_preserves_mixed_outcomes_and_fixed_order():
-    codex = Codex(view(ProviderKey.CODEX))
-    document = RuntimeCoordinator(
-        codex,
-        lambda request: OpenCodeReadResult(view(ProviderKey.OPENCODE_GO, ProviderState.SAFE_ERROR, SafeErrorCode.PROVIDER_ERROR)),
-    ).run(enabled_config(), {"LIMITORA_OPENCODE_API_KEY": "key"})
-    assert tuple(v.provider for v in document.providers) == (ProviderKey.CODEX, ProviderKey.OPENCODE_GO)
-    assert tuple(v.state for v in document.providers) == (ProviderState.SUCCESS, ProviderState.SAFE_ERROR)
-    assert codex.runners == [(r"C:\codex.exe", "app-server")]
-
-
-def test_coordinator_retries_retained_codex_cleanup_before_next_normal_invocation(monkeypatch):
-    response = view(ProviderKey.CODEX, ProviderState.SAFE_ERROR, SafeErrorCode.PROVIDER_ERROR)
-    created, close_calls = [], []
-
-    class Transport:
-        def write_control(self, payload, *, timeout_seconds):
-            return None
-
-        def read_response(self, timeout_seconds):
-            return _payload(response)
-
-    monkeypatch.setattr("yasb_limitora.codex_helper._PersistentTransport", lambda *args, **kwargs: Transport())
-
-    def factory(**kwargs):
-        kwargs["transport_factory"](1, 2, nonblocking=True)
-        index = len(created)
-
-        def close(timeout):
-            close_calls.append(index)
-            if index == 0 and close_calls.count(0) == 1:
-                raise RuntimeError("cleanup failure")
-
-        supervisor = SimpleNamespace(_nonce=b"nonce", acquire=lambda: None, close=close)
-        created.append(supervisor)
-        return supervisor
-
-    coordinator = RuntimeCoordinator(CodexHelperExecutor(factory, timeout_seconds=0.01))
-    first = coordinator.run(enabled_config(opencode=False), {})
-    second = coordinator.run(enabled_config(opencode=False), {})
-
-    assert first.providers[0].error is not None
-    assert first.providers[0].error.code is SafeErrorCode.INTERNAL_ERROR
-    assert second.providers[0].error is not None
-    assert second.providers[0].error.code is SafeErrorCode.PROVIDER_ERROR
-    assert close_calls == [0, 0, 1]
-    assert len(created) == 2
-
-
-def test_opencode_timeout_discards_late_completion():
-    release = threading.Event()
-    late = view(ProviderKey.OPENCODE_GO, display_label="late")
-    def reader(request):
-        release.wait(1)
-        return OpenCodeReadResult(late)
-    started = time.monotonic()
-    document = RuntimeCoordinator(Codex(view(ProviderKey.CODEX)), reader).run(
-        enabled_config(timeout=0.02), {"LIMITORA_OPENCODE_API_KEY": "key"}
-    )
-    assert time.monotonic() - started < 0.4
-    assert document.providers[1] == view(ProviderKey.OPENCODE_GO, ProviderState.SAFE_ERROR, SafeErrorCode.TIMEOUT)
-    release.set()
-    time.sleep(0.02)
-    assert "late" not in repr(document)
-
-
-def test_codex_timeout_does_not_erase_opencode_success():
-    class SlowCodex:
-        def run(self, runner):
-            time.sleep(0.1)
-            return view(ProviderKey.CODEX)
-    document = RuntimeCoordinator(SlowCodex(), lambda *_: OpenCodeReadResult(view(ProviderKey.OPENCODE_GO))).run(
-        enabled_config(timeout=0.02), {"LIMITORA_OPENCODE_API_KEY": "key"}
-    )
-    assert document.providers[0].error is not None
-    assert document.providers[0].error.code is SafeErrorCode.TIMEOUT
-    assert document.providers[1].state is ProviderState.SUCCESS
-
-
-def test_concurrent_timeouts_use_invocation_deadlines_not_collection_order():
-    release, started, calls = threading.Event(), [threading.Event(), threading.Event()], []
-    def blocked(index, provider):
-        started[index].set()
-        release.wait(1)
-        return view(provider)
-    class BlockedCodex:
-        def run(self, runner):
-            calls.append("codex")
-            return blocked(0, ProviderKey.CODEX)
-    def blocked_opencode(request):
-        calls.append("opencode")
-        return OpenCodeReadResult(blocked(1, ProviderKey.OPENCODE_GO))
-    config = enabled_config(timeout=0.05)
-    result, worker = {}, threading.Thread(target=lambda: result.setdefault("document", RuntimeCoordinator(BlockedCodex(), blocked_opencode).run(config, {"LIMITORA_OPENCODE_API_KEY": "key"})), daemon=True)
-    started_at = time.monotonic()
-    worker.start()
-    assert all(event.wait(1) for event in started)
-    worker.join(1)
-    elapsed = time.monotonic() - started_at
-    release.set()
-    assert not worker.is_alive()
-    document = result["document"]
-    assert elapsed < config.codex.timeout_seconds * 1.6
-    for provider_view in document.providers:
-        assert provider_view.error is not None
-        assert provider_view.error.code is SafeErrorCode.TIMEOUT
-    calls.clear()
-    invalid = enabled_config()
-    object.__setattr__(invalid.codex, "timeout_seconds", -1)
-    object.__setattr__(invalid.opencode_go, "timeout_seconds", float("nan"))
-    invalid_document = RuntimeCoordinator(BlockedCodex(), blocked_opencode).run(invalid, {"LIMITORA_OPENCODE_API_KEY": "key"})
-    assert calls == []
-    for provider_view in invalid_document.providers:
-        assert provider_view.error is not None
-        assert provider_view.error.code is SafeErrorCode.CONFIGURATION_INVALID
 
 
 @pytest.mark.parametrize("bad", [("--token", "secret"), ("--bad", "value"), ("--config",)])

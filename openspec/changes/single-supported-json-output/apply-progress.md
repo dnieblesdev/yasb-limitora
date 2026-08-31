@@ -622,3 +622,25 @@ This child is one focused dead-routing work unit on `refactor/137-cli-dead-routi
 - **Deviations:** None; later runtime cleanup, renames, and `coordinator.py` deletion remain out of scope.
 - **Remaining:** Later bounded cleanup, docs/examples, rename exceptions, and final verification.
 - **Workload / PR boundary:** No-renames accounting is **368 changed lines** (`git diff --no-renames --numstat`), below 400. One local commit only; no push, PR, rename, or issue/change closure.
+
+## Progress: bounded legacy runtime deletion child
+
+- **Slice / branch:** Semantic 3 bounded child; `refactor/137-delete-legacy-runtime`
+- **Scope:** Delete unreachable `coordinator.py` and legacy `projection.py`; remove their package exports and coordinator/v1 projection test seams.
+- **Completed:** Added absence/path/import regressions, removed legacy exports, deleted both modules, and retained the v2-named runtime/projection/cache/worker surfaces and current runtime assertions.
+
+### TDD Cycle Evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | New legacy module/export absence test before deletion | **1 failed** while both files and exports existed |
+| GREEN | Deleted modules, exports, and coordinator/v1 projection-only tests | Required focused suite: **162 passed, 3 skipped** |
+| TRIANGULATE | Strict collection | **585 tests collected**, 0 errors |
+| TRIANGULATE / native | `tests/test_windows_native_proof.py` | **11 passed** |
+| TRIANGULATE / full | `python -m pytest -q --strict-markers` | **581 passed, 3 skipped, 1 pre-existing** isolated safe-path provenance failure |
+| REFACTOR | Ruff on changed test files; diff check; residue search | Tests clean; no active imports to deleted paths; diff clean |
+
+- **Files:** `src/yasb_limitora/__init__.py`, deleted `coordinator.py`/`projection.py`, `tests/test_runtime_cli.py`, `tests/test_contracts.py`, `tasks.md`, this artifact.
+- **Deviations:** None; no renames, aliases, v2-module changes, or identity changes.
+- **Remaining:** Later active-name normalization, docs/examples, rename exceptions, and final verification.
+- **Workload / PR boundary:** `git diff --no-renames --numstat` is **397 changed lines**, below the 400-line limit after artifact/task updates. One local commit only; no push or PR.
