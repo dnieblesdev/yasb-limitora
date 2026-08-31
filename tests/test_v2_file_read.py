@@ -469,6 +469,59 @@ def test_bounded_file_call_rechecks_deadline_before_authorization(monkeypatch):
     assert "job-close" in events and "process-close" in events and "event-close" in events
 
 
+def test_frozen_windows_spawn_uses_bundle_executable_and_required_bootloader_context(monkeypatch):
+    from yasb_limitora import v2_path
+
+    bundle_executable = r"C:\\bundle\\yasb-limitora.exe"
+    source = {
+        "PATH": "public-sentinel",
+        "_PYI_ARCHIVE_FILE": "archive-sentinel",
+        "_PYI_APPLICATION_HOME_DIR": "home-sentinel",
+        "_PYI_PARENT_PROCESS_LEVEL": "1",
+        "_PYI_PRIVATE_SECRET": "must-not-leak",
+        "LIMITORA_OPENCODE_API_KEY": "must-not-leak",
+        "OPENAI_API_KEY": "must-not-leak",
+    }
+    monkeypatch.setattr(v2_path._PRIVATE_SYS, "frozen", True, raising=False)
+
+    environment = v2_path._private_child_environment(source)
+    application = v2_path._windows_spawn_executable(
+        bundle_executable, replace_with_base=True, base_executable=r"C:\\Python\\python.exe"
+    )
+
+    assert application == bundle_executable
+    assert environment == {
+        "PATH": "public-sentinel",
+        "_PYI_ARCHIVE_FILE": "archive-sentinel",
+        "_PYI_APPLICATION_HOME_DIR": "home-sentinel",
+        "_PYI_PARENT_PROCESS_LEVEL": "1",
+    }
+    assert "__PYVENV_LAUNCHER__" not in environment
+    assert not any("SECRET" in key or "API_KEY" in key for key in environment)
+
+
+def test_non_frozen_windows_spawn_keeps_base_executable_and_public_environment(monkeypatch):
+    from yasb_limitora import v2_path
+
+    source = {
+        "PATH": "public-sentinel",
+        "_PYI_ARCHIVE_FILE": "archive-sentinel",
+        "_PYI_APPLICATION_HOME_DIR": "home-sentinel",
+        "_PYI_PARENT_PROCESS_LEVEL": "1",
+        "LIMITORA_OPENCODE_API_KEY": "must-not-leak",
+    }
+    monkeypatch.delattr(v2_path._PRIVATE_SYS, "frozen", raising=False)
+
+    environment = v2_path._private_child_environment(source)
+    application = v2_path._windows_spawn_executable(
+        r"C:\\venv\\Scripts\\python.exe", replace_with_base=True, base_executable=r"C:\\Python\\python.exe"
+    )
+
+    assert application == r"C:\\Python\\python.exe"
+    assert environment == {"PATH": "public-sentinel"}
+    assert "__PYVENV_LAUNCHER__" not in environment
+
+
 def test_spawn_environment_contains_only_public_sentinels(monkeypatch):
     from yasb_limitora import v2_path
 

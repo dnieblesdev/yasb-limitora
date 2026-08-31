@@ -129,7 +129,10 @@ class OpenCodeWorkerProcess:
             record.started = True
             job = self.job_factory() if self.job_factory is not None else WindowsJobBoundary()
             record.job = job
-            job.assign_process(process.pid, allow_nested=True)
+            pid = process.pid
+            if not isinstance(pid, int):
+                raise ValueError("worker process has no pid")
+            job.assign_process(pid, allow_nested=True)
             if context.usable_ns() <= 0:
                 view = _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.TIMEOUT)
                 self.last_result = OpenCodeReadResult(view, OpenCodeFailureEvidence.TIMEOUT)
@@ -290,8 +293,9 @@ class RefreshAttempt:
             if not record.job_closed and record.job is not None:
                 try:
                     self._close_job(record.job, context)
-                    record.job_active_zero = OpenCodeWorkerProcess._job_zero(record.job)
-                    record.job_closed = OpenCodeWorkerProcess._job_closed(record.job)
+                    worker_process_type: type[OpenCodeWorkerProcess] = OpenCodeWorkerProcess
+                    record.job_active_zero = worker_process_type._job_zero(record.job)
+                    record.job_closed = worker_process_type._job_closed(record.job)
                 except Exception:
                     cleanup_error = True
             if not record.queue_closed and record.queue is not None:
@@ -350,8 +354,14 @@ class RefreshAttempt:
     @staticmethod
     def _release_provider_lease(lease: Any) -> bool:
         """Finalize a lease in order, retaining completed substeps for retry."""
-        released = bool(getattr(lease, "_yasb_release_complete", False)) or getattr(lease, "owned", None) is False
-        closed = bool(getattr(lease, "_yasb_close_complete", False)) or getattr(lease, "closed", None) is True
+        owned = getattr(lease, "owned", None)
+        closed_state = getattr(lease, "closed", None)
+        released = bool(getattr(lease, "_yasb_release_complete", False))
+        closed = bool(getattr(lease, "_yasb_close_complete", False))
+        if isinstance(owned, bool):
+            released = released or not owned
+        if isinstance(closed_state, bool):
+            closed = closed or closed_state
         if not released:
             try:
                 released = bool(lease.release())
@@ -452,8 +462,12 @@ class RefreshAttempt:
                 if executor not in self.codex_helpers:
                     self.codex_helpers.append(executor)
                 run = getattr(executor, "run_with_deadline", None)
-                runner = (config.codex.runner, "app-server")
-                views[ProviderKey.CODEX] = run(runner, context) if run else executor.run(runner)
+                runner_path = config.codex.runner
+                if not isinstance(runner_path, str) or not runner_path:
+                    views[ProviderKey.CODEX] = _safe_error(ProviderKey.CODEX, SafeErrorCode.CONFIGURATION_INVALID)
+                else:
+                    runner = (runner_path, "app-server")
+                    views[ProviderKey.CODEX] = run(runner, context) if run else executor.run(runner)
             if result is None and ProviderKey.OPENCODE_GO in enabled:
                 remaining_ns = context.remaining_ns()
                 usable_ns = max(0, remaining_ns - context.reserve_ns)
@@ -461,15 +475,25 @@ class RefreshAttempt:
                     views[ProviderKey.OPENCODE_GO] = _not_run(ProviderKey.OPENCODE_GO, "deadline_exhausted")
                     result = self._document(views, V2SafeErrorCode.DEADLINE_EXHAUSTED)
                 else:
-                    current_worker = self.opencode_factory()
-                    self.workers.append(current_worker)
-                    remaining = remaining_ns / 1_000_000_000
-                    request = OpenCodeRequest(api_key, min(config.opencode_go.timeout_seconds, usable_ns / 1_000_000_000), remaining)
-                    views[ProviderKey.OPENCODE_GO] = current_worker.run_with_deadline(request, context)
-                    current_opencode_result = getattr(current_worker, "last_result", None)
-                    if current_worker.record is not None:
-                        if current_worker.record not in self.worker_records:
-                            self.worker_records.append(current_worker.record)
+                    opencode_api_key = api_key
+                    if not isinstance(opencode_api_key, str) or not opencode_api_key:
+                        views[ProviderKey.OPENCODE_GO] = _safe_error(
+                            ProviderKey.OPENCODE_GO, SafeErrorCode.CONFIGURATION_INVALID
+                        )
+                    else:
+                        current_worker = self.opencode_factory()
+                        self.workers.append(current_worker)
+                        remaining = remaining_ns / 1_000_000_000
+                        request = OpenCodeRequest(
+                            opencode_api_key,
+                            min(config.opencode_go.timeout_seconds, usable_ns / 1_000_000_000),
+                            remaining,
+                        )
+                        views[ProviderKey.OPENCODE_GO] = current_worker.run_with_deadline(request, context)
+                        current_opencode_result = getattr(current_worker, "last_result", None)
+                        if current_worker.record is not None:
+                            if current_worker.record not in self.worker_records:
+                                self.worker_records.append(current_worker.record)
             if result is None:
                 result = self._document(views)
         except GuardError as error:
@@ -610,17 +634,23 @@ class V2ExecutionOrchestrator:
         record = self.last_record
         if enabled_providers is None:
             enabled_providers = frozenset(
-                provider for provider, enabled in (
+                provider
+                for provider, enabled in (
                     (ProviderKey.CODEX, config.codex.enabled or ProviderKey.CODEX in provider_errors),
-                    (ProviderKey.OPENCODE_GO, config.opencode_go.enabled or ProviderKey.OPENCODE_GO in provider_errors),                ) if enabled
+                    (ProviderKey.OPENCODE_GO, config.opencode_go.enabled or ProviderKey.OPENCODE_GO in provider_errors),
+                )
+                if enabled
             )
+        evidence = None
+        if record is not None:
+            evidence = record.opencode_evidence
         cacheable = (
             record is not None
             and document.document_error is None
             and any(view.outcome in (ProviderOutcome.SNAPSHOT, ProviderOutcome.UNDETECTED) for view in document.providers)
             and all(view.outcome is not ProviderOutcome.EXECUTION_ERROR for view in document.providers)
         )
-        projected = project_v2_bytes(V2ProjectionInput(document, enabled_providers, record.opencode_evidence)) if cacheable else None
+        projected = project_v2_bytes(V2ProjectionInput(document, enabled_providers, evidence)) if cacheable else None
         return SingleFlightResult(value=document, cached_public_bytes=projected, produced=True)
 
 
