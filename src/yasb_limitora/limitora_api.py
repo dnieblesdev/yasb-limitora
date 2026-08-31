@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
+from enum import Enum
 from unicodedata import normalize
 
 from limitora import (
@@ -97,9 +98,15 @@ class OpenCodeRequest:
     __str__ = __repr__
 
 
+class OpenCodeFailureEvidence(str, Enum):
+    CREDENTIAL_INVALID = "credential_invalid"
+    RATE_LIMITED = "rate_limited"
+    TIMEOUT = "timeout"
+    UNAVAILABLE = "unavailable"
 @dataclass(frozen=True, slots=True)
 class OpenCodeReadResult:
     view: ProviderView
+    evidence: OpenCodeFailureEvidence | None = None
 
     def __repr__(self) -> str:
         return f"OpenCodeReadResult(view={self.view!r})"
@@ -202,13 +209,21 @@ def _snapshot_view(provider: ProviderKey, result: StatusSnapshotResult) -> Provi
     )
 
 
-def _read(provider: ProviderKey, client: StatusClient) -> ProviderView:
+_FAILURE_EVIDENCE = {ProviderErrorKind.UNAUTHORIZED: OpenCodeFailureEvidence.CREDENTIAL_INVALID, ProviderErrorKind.RATE_LIMITED: OpenCodeFailureEvidence.RATE_LIMITED}
+def _failure_evidence(error: ProviderError) -> OpenCodeFailureEvidence:
+    return OpenCodeFailureEvidence.TIMEOUT if error.kind is ProviderErrorKind.TRANSPORT and error.safe_message in _TRANSPORT_TIMEOUT_MESSAGES else _FAILURE_EVIDENCE.get(error.kind, OpenCodeFailureEvidence.UNAVAILABLE)
+
+
+def _read(provider: ProviderKey, client: StatusClient, evidence: list[OpenCodeFailureEvidence] | None = None) -> ProviderView:
     try:
         result = client.read_status(_REQUEST)
     except TimeoutError:
+        if evidence is not None: evidence.append(OpenCodeFailureEvidence.TIMEOUT)
         return _error(provider, SafeErrorCode.TIMEOUT)
     except ProviderError as error:
         code = SafeErrorCode.TIMEOUT if error.kind is ProviderErrorKind.TRANSPORT and error.safe_message in _TRANSPORT_TIMEOUT_MESSAGES else SafeErrorCode.PROVIDER_ERROR
+        if evidence is not None:
+            evidence.append(_failure_evidence(error))
         return _error(provider, code)
     except (CompositionError, TypeError, ValueError):
         return _error(provider, SafeErrorCode.CONFIGURATION_INVALID)
@@ -250,7 +265,8 @@ def read_opencode_go(request: OpenCodeRequest) -> OpenCodeReadResult:
         return OpenCodeReadResult(_error(ProviderKey.OPENCODE_GO, SafeErrorCode.CONFIGURATION_INVALID))
     except Exception:  # noqa: BLE001 - construction failures are redacted
         return OpenCodeReadResult(_error(ProviderKey.OPENCODE_GO, SafeErrorCode.INTERNAL_ERROR))
-    return OpenCodeReadResult(_read(ProviderKey.OPENCODE_GO, client))
+    evidence: list[OpenCodeFailureEvidence] = []
+    return OpenCodeReadResult(_read(ProviderKey.OPENCODE_GO, client, evidence), evidence[0] if evidence else None)
 
 
 __all__ = ("OPENCODE_API_KEY_ENV", "CodexLimitoraAdapter", "OpenCodeReadResult", "OpenCodeRequest", "read_codex", "read_opencode_go")

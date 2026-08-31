@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from typing import Any, Callable
 
 from .config import LocalConfig
-from .limitora_api import OPENCODE_API_KEY_ENV, OpenCodeReadResult, OpenCodeRequest, read_opencode_go
+from .limitora_api import OPENCODE_API_KEY_ENV, OpenCodeFailureEvidence, OpenCodeReadResult, OpenCodeRequest, read_opencode_go
 from .model import DocumentView, ProviderKey, ProviderOutcome, ProviderState, ProviderView, SafeError, SafeErrorCode, V2SafeErrorCode
 from .v2_deadline import DeadlineContext
 from .v2_guard import GuardError, GuardLease, V2Guard
@@ -28,7 +28,7 @@ def _opencode_bootstrap(reader: Callable[[OpenCodeRequest], OpenCodeReadResult],
             authorized.wait()
         output.put(reader(request))
     except Exception:
-        output.put(_safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR))
+        output.put(OpenCodeReadResult(_safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR), OpenCodeFailureEvidence.UNAVAILABLE))
 
 
 @dataclass(slots=True)
@@ -42,6 +42,12 @@ class WorkerRecord:
     job_closed: bool = False
     process_closed: bool = False
     started: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class V2ExecutionRecord:
+    document: DocumentView
+    opencode_evidence: OpenCodeFailureEvidence | None = None
 
 
 def _supervisor_quiescent(supervisor: Any) -> bool:
@@ -75,12 +81,16 @@ class OpenCodeWorkerProcess:
         self.job_factory = job_factory
         self.context_factory = context_factory or multiprocessing.get_context
         self.record: WorkerRecord | None = None
+        self.last_result: OpenCodeReadResult | None = None
 
     def run_with_deadline(self, request: OpenCodeRequest, context: DeadlineContext) -> ProviderView:
+        self.last_result = None
         if context.usable_ns() <= 0:
             return _not_run(ProviderKey.OPENCODE_GO, "deadline_exhausted")
         if self.process_factory is None and os.name != "nt":
-            return _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR)
+            view = _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR)
+            self.last_result = OpenCodeReadResult(view, OpenCodeFailureEvidence.UNAVAILABLE)
+            return view
         try:
             queue = self.context_factory("spawn").Queue()
             authorized = self.context_factory("spawn").Event()
@@ -100,10 +110,13 @@ class OpenCodeWorkerProcess:
                 record.job_active_zero = self._job_zero(job)
                 record.job_closed = self._job_closed(job)
                 self._reap_process(process, context, terminate=True)
-                return _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.TIMEOUT)
+                view = _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.TIMEOUT)
+                self.last_result = OpenCodeReadResult(view, OpenCodeFailureEvidence.TIMEOUT)
+                return view
             record.exit_code = process.exitcode
             record.reaped = True
             result = queue.get_nowait()
+            self.last_result = result if isinstance(result, OpenCodeReadResult) else None
             self._close_job(job, context)
             record.job_active_zero = self._job_zero(job)
             record.job_closed = self._job_closed(job)
@@ -123,7 +136,8 @@ class OpenCodeWorkerProcess:
                     pass
             if "process" in locals():
                 self._reap_process(process, context, terminate=True)
-            return _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR)
+            self.last_result = OpenCodeReadResult(_safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR), OpenCodeFailureEvidence.UNAVAILABLE)
+            return self.last_result.view
         finally:
             if "process" in locals() and self.record is not None and not self.record.reaped:
                 self._reap_process(process, context, terminate=False)
@@ -199,8 +213,10 @@ class V2ExecutionOrchestrator:
         self.worker_records: list[WorkerRecord] = []
         self.workers: list[Any] = []
         self.codex_helpers: list[Any] = []
+        self.last_record: V2ExecutionRecord | None = None
 
     def run(self, config: LocalConfig, environment: Mapping[str, str], context: DeadlineContext, config_path: str) -> DocumentView:
+        self.last_record = None
         views = {
             ProviderKey.CODEX: _not_run(ProviderKey.CODEX, "disabled"),
             ProviderKey.OPENCODE_GO: _not_run(ProviderKey.OPENCODE_GO, "disabled"),
@@ -217,6 +233,8 @@ class V2ExecutionOrchestrator:
         cleanup_error = False
         result: DocumentView | None = None
         unexpected_error: Exception | None = None
+        current_opencode_result: OpenCodeReadResult | None = None
+        current_worker: Any | None = None
         try:
             guard = self.guard_factory()
             lease = guard.acquire(config_path, context)
@@ -245,14 +263,15 @@ class V2ExecutionOrchestrator:
                     views[ProviderKey.OPENCODE_GO] = _not_run(ProviderKey.OPENCODE_GO, "deadline_exhausted")
                     result = self._document(views, V2SafeErrorCode.DEADLINE_EXHAUSTED)
                 else:
-                    worker = self.opencode_factory()
-                    self.workers.append(worker)
+                    current_worker = self.opencode_factory()
+                    self.workers.append(current_worker)
                     remaining = remaining_ns / 1_000_000_000
                     request = OpenCodeRequest(api_key, min(config.opencode_go.timeout_seconds, usable_ns / 1_000_000_000), remaining)
-                    views[ProviderKey.OPENCODE_GO] = worker.run_with_deadline(request, context)
-                    if worker.record is not None:
-                        if worker.record not in self.worker_records:
-                            self.worker_records.append(worker.record)
+                    views[ProviderKey.OPENCODE_GO] = current_worker.run_with_deadline(request, context)
+                    current_opencode_result = getattr(current_worker, "last_result", None)
+                    if current_worker.record is not None:
+                        if current_worker.record not in self.worker_records:
+                            self.worker_records.append(current_worker.record)
             if result is None:
                 result = self._document(views)
         except GuardError as error:
@@ -260,6 +279,7 @@ class V2ExecutionOrchestrator:
             reason = "guard_wait_timeout" if error.code == "guard_wait_timeout" else "document_aborted"
             result = self._document({key: _not_run(key, reason) for key in views}, code)
         except Exception as error:
+            current_opencode_result = getattr(current_worker, "last_result", None)
             views = {key: _not_run(key, "document_aborted") for key in views}
             unexpected_error = error
         finally:
@@ -299,11 +319,14 @@ class V2ExecutionOrchestrator:
                     result = self._document(preserved, V2SafeErrorCode.CLEANUP_FAILED)
         if unexpected_error is not None:
             raise unexpected_error
-        return result if result is not None else self._document(views, V2SafeErrorCode.GUARD_ACQUISITION_FAILED)
+        document = result if result is not None else self._document(views, V2SafeErrorCode.GUARD_ACQUISITION_FAILED)
+        evidence = current_opencode_result.evidence if isinstance(current_opencode_result, OpenCodeReadResult) else None
+        self.last_record = V2ExecutionRecord(document, evidence)
+        return document
 
     @staticmethod
     def _document(views: dict[ProviderKey, ProviderView], error: V2SafeErrorCode | None = None) -> DocumentView:
         return DocumentView.ordered(views[ProviderKey.CODEX], views[ProviderKey.OPENCODE_GO], SafeError(error) if error else None)
 
 
-__all__ = ("OpenCodeWorkerProcess", "V2ExecutionOrchestrator", "WorkerRecord", "cleanup_complete")
+__all__ = ("OpenCodeWorkerProcess", "V2ExecutionOrchestrator", "V2ExecutionRecord", "WorkerRecord", "cleanup_complete")
