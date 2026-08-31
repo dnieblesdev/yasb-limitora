@@ -3,13 +3,14 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import cast
 
 import pytest
 
-import yasb_limitora.cli as cli
+from yasb_limitora import cli
 from yasb_limitora.cli import main
-
 
 UNSUPPORTED_PLATFORM = "yasb-limitora: unsupported_platform\n"
 ROOT = Path(__file__).parents[1]
@@ -56,8 +57,8 @@ def test_non_windows_rejects_before_product_side_effects(monkeypatch):
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     assert main(
-        _ExplodingSequence(),
-        environment=_ExplodingEnvironment(),
+        cast(Sequence[str], _ExplodingSequence()),
+        environment=cast(Mapping[str, str], _ExplodingEnvironment()),
         stdout=stdout,
         stderr=stderr,
         platform_is_windows=lambda: False,

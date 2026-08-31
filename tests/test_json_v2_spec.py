@@ -1,11 +1,10 @@
 import json
 import re
 from copy import deepcopy
-from decimal import Decimal, ROUND_HALF_EVEN, localcontext
+from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from pathlib import Path
 
 import pytest
-
 
 ROOT = Path(__file__).parents[1]
 SPEC = ROOT / "docs/specifications/json-v2.md"
@@ -99,7 +98,7 @@ def _expected_snapshot_presentation(provider):
             if quantity is not None
         }
         unit = next(iter(units)) if len(units) == 1 else "null"
-        if _window_identity(window) == basis_identity:
+        if basis is not None and _window_identity(window) == basis_identity:
             result = f"{basis['remaining_percentage']}% remaining"
         elif window["availability"] == "known":
             result = "percentage unavailable"
@@ -120,7 +119,7 @@ def _schema():
 
 
 def _v2_examples():
-    blocks = re.findall(r"```json\n(.*?)\n```", SPEC.read_text(encoding="utf-8"), re.S)
+    blocks = re.findall(r"```json\n(.*?)\n```", SPEC.read_text(encoding="utf-8"), re.DOTALL)
     return [json.loads(block) for block in blocks if json.loads(block).get("execution_state") in {"complete", "partial", "not_run", "execution_error"}]
 
 
@@ -239,8 +238,8 @@ def _remaining_percentage(limit, remaining):
     with localcontext() as context:
         context.prec = 34
         context.rounding = ROUND_HALF_EVEN
-        result = remaining / limit * Decimal("100")
-    if not Decimal("0") <= result <= Decimal("100"):
+        result = remaining / limit * Decimal(100)
+    if not Decimal(0) <= result <= Decimal(100):
         raise ValueError("invalid derived percentage")
     return result
 
@@ -333,7 +332,7 @@ def test_r6_parsed_examples_lock_canonical_window_order_and_nullable_identities(
             assert windows == sorted(windows, key=_window_sort_key)
             tooltip_windows = [line for line in provider["tooltip_text"].splitlines() if line.startswith("Window: ")]
             assert len(tooltip_windows) == len(windows)
-            for window, line in zip(windows, tooltip_windows):
+            for window, line in zip(windows, tooltip_windows, strict=True):
                 assert f"plan_id={json.dumps(window['plan_id'], ensure_ascii=False)}" in line
                 assert f"source_id={json.dumps(window['source_id'], ensure_ascii=False)}" in line
 
@@ -408,7 +407,8 @@ def test_pr2b_schema_and_spec_declare_provider_bound_api_sources():
     codex_source_rule = codex_rules[2]["properties"]
     assert codex_source_rule["source_id"] == {"enum": ["codex-app-server-v2", None]}
     codex_window_source_rule = codex_source_rule["windows"]["items"]["allOf"][1]["properties"]
-    assert codex_window_source_rule["source_id"] == {"enum": ["codex-app-server-v2", None]}; assert codex_source_rule["most_depleted_window"]["anyOf"][1]["properties"]["source_id"] == {"enum": ["codex-app-server-v2", None]}
+    assert codex_window_source_rule["source_id"] == {"enum": ["codex-app-server-v2", None]}
+    assert codex_source_rule["most_depleted_window"]["anyOf"][1]["properties"]["source_id"] == {"enum": ["codex-app-server-v2", None]}
     assert "opencode-go-api" not in codex_source_rule["source_id"]["enum"]
     opencode_rules = schema["$defs"]["opencodeProvider"]["allOf"]
     source_rule = opencode_rules[2]["properties"]
@@ -420,11 +420,15 @@ def test_pr2b_schema_and_spec_declare_provider_bound_api_sources():
     assert source_rule["most_depleted_window"]["anyOf"][1]["properties"]["source_id"] == {"enum": ["opencode-go-api", None]}
     invalid = deepcopy(_v2_examples()[0]["providers"][0])
     invalid["windows"][0]["source_id"] = None
-    with pytest.raises(AssertionError): _assert_provider(invalid)
+    with pytest.raises(AssertionError):
+        _assert_provider(invalid)
     invalid["windows"][0]["source_id"] = "opencode-go-api"
-    with pytest.raises(AssertionError): _assert_provider(invalid)
-    invalid["windows"][0]["source_id"] = "codex-app-server-v2"; invalid["most_depleted_window"]["source_id"] = "opencode-go-api"
-    with pytest.raises(AssertionError): _assert_provider(invalid)
+    with pytest.raises(AssertionError):
+        _assert_provider(invalid)
+    invalid["windows"][0]["source_id"] = "codex-app-server-v2"
+    invalid["most_depleted_window"]["source_id"] = "opencode-go-api"
+    with pytest.raises(AssertionError):
+        _assert_provider(invalid)
 
 
 def test_pr2c_schema_declares_exact_opencode_fixed_windows_and_rate_limit_filter():
@@ -582,15 +586,15 @@ def test_original_quantity_and_derived_percentage_bounds_are_distinct():
 
 
 def test_quantity_invariants_and_remaining_percentage_formula():
-    assert _valid_quantity_triplet(Decimal("100"), Decimal("25"), Decimal("75"))
-    assert not _valid_quantity_triplet(Decimal("100"), Decimal("101"), Decimal("0"))
-    assert not _valid_quantity_triplet(Decimal("100"), Decimal("0"), Decimal("101"))
-    assert not _valid_quantity_triplet(Decimal("100"), Decimal("25"), Decimal("76"))
-    assert _remaining_percentage(Decimal("40"), Decimal("25")) == Decimal("62.500")
-    assert _remaining_percentage(Decimal("0"), Decimal("0")) is None
-    assert _remaining_percentage(None, Decimal("1")) is None
+    assert _valid_quantity_triplet(Decimal(100), Decimal(25), Decimal(75))
+    assert not _valid_quantity_triplet(Decimal(100), Decimal(101), Decimal(0))
+    assert not _valid_quantity_triplet(Decimal(100), Decimal(0), Decimal(101))
+    assert not _valid_quantity_triplet(Decimal(100), Decimal(25), Decimal(76))
+    assert _remaining_percentage(Decimal(40), Decimal(25)) == Decimal("62.500")
+    assert _remaining_percentage(Decimal(0), Decimal(0)) is None
+    assert _remaining_percentage(None, Decimal(1)) is None
     try:
-        _remaining_percentage(Decimal("40"), Decimal("41"))
+        _remaining_percentage(Decimal(40), Decimal(41))
     except ValueError:
         pass
     else:

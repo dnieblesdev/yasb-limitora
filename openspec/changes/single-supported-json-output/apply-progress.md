@@ -244,3 +244,50 @@ This is the assigned `feature/137-json-cache-typing` blocker slice under the aut
 ### Workload / PR boundary
 
 This is the assigned `feature/137-json-worker-lint` blocker slice under the auto-chain delivery path. The 326-line total no-rename diff is below the 400-line budget, and no files outside the two allowed surfaces were modified.
+
+## Progress: JSON test diagnostics slice
+
+### Status
+
+- **Slice:** Test-only lint/type diagnostic remediation
+- **Branch:** `feature/137-json-test-diagnostics`
+- **Base:** `feature/137-json-worker-lint` at `9b31ed7`
+- **Delivery boundary:** feature-branch-chain / auto-chain; uncommitted handoff, no push, PR, rename, or production edit
+- **Provider/no-rename budget:** 266 changed lines across four tests before this progress entry; remains below 400 including this entry
+
+### Completed tasks
+
+- Added explicit optional-error and validated-record/model narrowing in runtime and native proof tests.
+- Added deliberate casts at adversarial CLI/coordinator/factory seams and protocol-compatible native fake signatures.
+- Fixed JSON spec import, regex, Decimal, `zip(strict=True)`, and multi-statement diagnostics without changing assertions or contract behavior.
+- Fixed all Ruff findings in the four assigned test files, including native launcher proof formatting and subprocess `check=False`.
+
+### TDD cycle evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Supplied actionable LSP/type diagnostics plus initial `ruff check` | 37 Ruff findings and reported test-file type findings; environment-only pytest imports excluded |
+| GREEN | Targeted test/lint/type remediation; `ruff check tests/test_json_v2_spec.py tests/test_cli_platform_boundary.py tests/test_runtime_cli.py tests/test_windows_native_proof.py` | All checks passed; Pyright reports only four unresolved environment-only `pytest` imports |
+| TRIANGULATE | `python -m pytest -q tests/test_json_v2_spec.py tests/test_cli_platform_boundary.py tests/test_runtime_cli.py tests/test_windows_native_proof.py` | **64 passed, 4 skipped** |
+| TRIANGULATE / collection | `python -m pytest -q --collect-only` | **590 tests collected**, 0 collection errors |
+| REFACTOR | `python -m py_compile` on all four files and `git diff --check` | Passed; no production files changed |
+
+### Files changed
+
+- `tests/test_json_v2_spec.py`
+- `tests/test_cli_platform_boundary.py`
+- `tests/test_runtime_cli.py`
+- `tests/test_windows_native_proof.py`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- None; only test diagnostics, typing boundaries, and formatting were changed. Runtime behavior and adversarial proof intent are preserved.
+
+### Remaining tasks
+
+- Parent authoritative LSP found only four environment-resolution false positives for installed `pytest`; each was recorded explicitly. No actionable findings remain in this slice.
+
+### Workload / PR boundary
+
+This is one assigned test-only diagnostic work unit. The total 309-line no-rename diff remains under the 400-line budget. Parent LSP disposition is complete; no push, PR, or production edit.
