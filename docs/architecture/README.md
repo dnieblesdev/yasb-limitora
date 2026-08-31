@@ -1,14 +1,14 @@
 # Product Boundary
 
-The official 0.2 architecture is deliberately narrow:
+The official architecture is deliberately narrow:
 
 ```text
-YASB CustomWidget -> yasb-limitora CLI / JSON v2 -> Limitora public API
+YASB CustomWidget -> yasb-limitora CLI / current JSON -> Limitora public API
 ```
 
-`yasb-limitora` does not become a native YASB widget, a YASB upstream extension,
-or a provider client. The CLI is the process boundary between CustomWidget and
-Limitora. Provider internals and credentials do not cross it.
+`yasb-limitora` is a Windows-only process boundary between CustomWidget and
+Limitora. It does not become a native YASB widget, a YASB upstream extension,
+or a provider client. Provider internals and credentials do not cross it.
 
 ## Runtime platform boundary
 
@@ -21,7 +21,7 @@ Linux, macOS, and WSL are not compatibility targets. Test-only predicate
 injection keeps supported-path tests hermetic without claiming Windows proof.
 
 R1-R10 are evidenced product work. R10's automated proof covers the native
-Windows CLI/JSON v2 boundary; the real YASB CustomWidget behavior was accepted
+Windows CLI and current JSON boundary; the real YASB CustomWidget behavior was accepted
 manually by the maintainer on YASB v2.0.6. The abandoned automation harness is
 historical context only, and this boundary does not claim automated YASB E2E or
 automated YASB rendering.
@@ -31,19 +31,21 @@ automated YASB rendering.
 | Component | Owns | Does not own |
 |-----------|------|--------------|
 | YASB CustomWidget | Host lifecycle, compact/alternate labels, tooltip, static CSS, periodic/manual refresh | Provider calls, credentials, JSON interpretation, cancellation of a running helper |
-| `yasb-limitora` | Version selection, config resolution, bounded execution, safe projection, JSON serialization | Provider implementation or private Limitora APIs |
+| `yasb-limitora` | Selector-free configuration, bounded execution, safe projection, JSON serialization | Provider implementation or private Limitora APIs |
 | Limitora 0.3.1 Bearer public API | Provider detection, authentication, transport, status state, freshness, quota windows, Decimal quantities | YASB imports, widget layout, popover behavior |
 
-## Product contract
+## Current JSON contract
 
-R2 defines a quota-focused v2 document that keeps these distinctions explicit:
+The current JSON document is the sole supported output. Its root order is
+`execution_state`, `execution_error`, `providers`; there is no root `version` field.
+Provider outcomes (`snapshot`, `undetected`, `not_run`, or `execution_error`),
+public states, freshness, and sanitized errors remain unchanged. Stdout remains
+one UTF-8 JSON document plus one LF, with unchanged stream and exit behavior.
 
-- document execution state;
-- provider outcome (`snapshot`, `undetected`, `not_run`, or `execution_error`);
-- exact public Limitora provider state;
-- independent freshness;
-- every quota window and its availability/source context; and
-- sanitized execution errors.
+This is a deliberate pre-stable wire and schema break. Invocation is selector-free;
+configuration resolves explicit config, then `YASB_LIMITORA_CONFIG`, then the
+per-user default. There is no compatibility output and this documentation does
+not claim that private consumers do not exist.
 
 The consumed OpenCode 0.2 contract is explicit: `available` and `partial`
 snapshots use one fixed commercial slot for each `five_hour`, `monthly`, and
@@ -54,13 +56,13 @@ only here and is not consumed until yasb-limitora #133.
 
 `usage` and `rate_limit_reset_credits` are excluded from 0.2. This is an
 intentional quota scope, not a claim that it is the complete Limitora snapshot.
-JSON v1 remains byte-for-byte frozen for its existing consumer.
+The current output is the only supported consumer contract.
 
 ## Execution boundary
 
 Codex continues to use a disposable native Windows helper with Job Object
-containment and bounded IPC. Future v2 work must use one absolute wall-clock
-deadline for guard wait, provider calls, IPC, and cleanup. Each phase receives
+containment and bounded IPC. One absolute shared deadline covers guard wait,
+provider calls, IPC, and cleanup. Each phase receives
 only its remaining budget, with cleanup budget reserved. A cleanup guarantee
 means bounded eventual termination within that deadline; it does not claim that
 YASB's CustomWidget can instantly kill a subprocess when the widget closes.
@@ -76,11 +78,12 @@ allowed only when the producer still owns the exact generation, so a stale
 producer cannot overwrite a newer result. Coordination failures never start an
 uncoordinated producer or rewrite a valid provider result.
 
-The v2 runtime also uses a shared quota cache below the default local Limitora
-directory. It stores only a schema-2 envelope containing `cached_at`, a
+The runtime also uses a shared quota cache below the default local Limitora
+directory. It stores only a schema-3 envelope containing `cached_at`, a
 digest-only effective account/config/path fingerprint, and the already
-projected public JSON v2 document. Cache reads and writes are atomic, size- and
-deadline-bounded, canonical, and fail closed. A fresh cache hit is returned
+projected public JSON document. Cache reads and writes are atomic, size- and
+deadline-bounded, canonical, and fail closed. A previous-schema entry is stale
+and receives a cold refresh; it is not migrated or served. A fresh cache hit is returned
 without a provider call. On a miss, one producer runs with fresh provider
 resources while live waiters retry the cache and marker; waiters never launch a
 duplicate Codex refresh. Provider cleanup, release, and close finish before
@@ -88,7 +91,10 @@ publication, and no cache coordination lease is retained across a provider
 call. Cache I/O, mutex, ACL, path, and cleanup failures cannot change a valid
 provider result. Provider errors, timeouts, cleanup failures, and all-disabled
 runs are never published. Unknown Windows account identity fails closed rather
-than permitting cross-account cache reuse.
+than permitting cross-account cache reuse. The cache filename remains
+`quota-v2-cache.json`; guard identities remain exactly
+`Global\\yasb-limitora-v2-guard-*`, and provider source IDs remain exactly
+`codex-app-server-v2` and `opencode-go-api`.
 
 ## CustomWidget limits
 
@@ -102,7 +108,7 @@ YASB CustomWidget v2.0.5:
 | Static CSS and `run_interval` | A public `refreshing` state |
 | Manual callback refresh | Reliable termination of the worker's `Popen` from `stop()` |
 
-No v2 field may promise a UI capability in the second column. Presentation
+No current-contract field may promise a UI capability in the second column. Presentation
 fields are bounded text only; they do not create a severity protocol.
 
 ## Non-goals and immutable references

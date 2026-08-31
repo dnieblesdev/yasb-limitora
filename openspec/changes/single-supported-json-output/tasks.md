@@ -104,7 +104,7 @@ The failed `feature/137-json-projection@13f63d6` is excluded and is not in this 
 - [x] Bounded CLI orchestrator-only child: remove the reachable `RuntimeCoordinator` injection/fallback seam, migrate direct CLI/runtime consumers to the orchestrator seam, and retain coordinator.py for the later deletion child.
 - [x] Bounded coordinator/projection deletion child: prove the legacy module paths and exports are absent, then delete both modules and coordinator-only/v1 projection-only test seams.
 - [ ] RED/GREEN/TRIANGULATE/REFACTOR each remaining bounded legacy deletion child at ≤400 no-rename lines.
-- [ ] Update examples and active docs only after runtime behavior is green; preserve historical and immutable identity text.
+- [x] Update examples and active docs only after runtime behavior is green; preserve historical and immutable identity text.
 - [x] CustomWidget examples/docs child: selector-free `yasb-limitora`, current-only fixture/docs assertions, exact provider paths, and immutable source IDs preserved.
 
 ### Mechanical rename exceptions and final gate

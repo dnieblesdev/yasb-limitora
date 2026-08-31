@@ -7,8 +7,8 @@ calls from YASB.
 
 > **Current status:** R1-R10 and generic real YASB CustomWidget manual acceptance
 > are complete. OpenCode Bearer API migration #130 is implemented and integrated
-> via PR #159. Automated native Windows proof covers the `yasb-limitora` CLI/JSON v2
-> contract; real OpenCode provider acceptance remains an external pending gate for
+> via PR #159. Automated native Windows proof covers the `yasb-limitora` CLI and the
+> sole current JSON contract; real OpenCode provider acceptance remains an external pending gate for
 > R11. No automated YASB rendering or external YASB E2E is
 > claimed; the CLI is Windows-only.
 
@@ -24,21 +24,28 @@ Linux, macOS, and WSL are not supported product runtimes. Tests may inject the
 private platform predicate to exercise Windows behavior hermetically; that test
 seam does not expand product support or provide Windows integration proof.
 
-## Official architecture
+## Sole current contract
 
 ```text
-YASB CustomWidget -> yasb-limitora CLI / JSON v2 -> Limitora public API
+YASB CustomWidget -> yasb-limitora CLI / current JSON -> Limitora public API
 ```
 
-The dependency direction is one-way. Limitora owns provider selection,
-authentication, transport, and provider-specific interpretation. The CLI owns
-configuration resolution, execution safety, sanitized projection, and the
-versioned machine boundary. YASB owns only CustomWidget lifecycle and display.
+The current JSON document is the sole supported output. This is a deliberate
+pre-stable wire and schema break: invocation is selector-free, the root `version`
+field was removed, and private consumers are not ruled in or out. Configuration
+resolves explicit `--config`/`-c`, then `YASB_LIMITORA_CONFIG`, then
+`%LOCALAPPDATA%\yasb-limitora\config.json`.
 
-The v1 document remains frozen; missing or empty OpenCode keys retain v1's existing
-`unavailable` behavior. JSON v2 is specified in
-[`docs/specifications/json-v2.md`](docs/specifications/json-v2.md) and uses `not_run` with
-`not_run_reason: disabled` instead, behind the same Windows-only boundary.
+The root order is `execution_state`, `execution_error`, `providers`. Public
+provider outcomes, streams, exit codes, shared deadline, guard, process, and
+cleanup behavior are unchanged. Schema-3 cache validation cold-refreshes stale
+entries rather than migrating them. `quota-v2-cache.json`,
+`Global\\yasb-limitora-v2-guard-*`, `codex-app-server-v2`, and `opencode-go-api`
+remain exact operational identity literals.
+
+Limitora owns provider selection, authentication, transport, and interpretation;
+the CLI owns configuration, bounded execution, sanitized projection, and the
+machine boundary. YASB owns only CustomWidget lifecycle and display.
 
 ## CustomWidget boundary
 
@@ -62,7 +69,7 @@ in-progress state that CustomWidget cannot render or cancel.
 
 | In scope | Out of scope |
 |----------|--------------|
-| Windows CLI, JSON v1 compatibility, and JSON v2 contract | Native YASB widget code |
+| Windows CLI and sole current JSON contract | Native YASB widget code |
 | Limitora public API integration | YASB upstream contribution or maintainer approval |
 | Hermetic fixtures, contract tests, and pinned CustomWidget validation | Native popover, tabs, history, predictions, or interactive progress |
 | Sanitized configuration and process execution | Credentials, tokens, sessions, or duplicated provider logic |
@@ -71,7 +78,7 @@ Only Codex and OpenCode Go are current 0.2 provider inputs because they are the
 public provider sources verified in Limitora 0.3.1. Claude and Gemini are not
 roadmap work for this contract.
 
-## Installation and v1 runtime
+## Installation and configuration
 
 On native Windows 10/11:
 
@@ -82,9 +89,7 @@ py -m pip install -e .
 `yasb-limitora` is not published to PyPI; run `py -m pip install -e .` from the
 checkout root (the checkout pins `limitora[opencode-go]==0.3.1`). See
 [`docs/windows-json.md`](docs/windows-json.md) for `.env`, reload, precedence,
-security, bounded-error, and manual YASB procedures. Frozen v1 keeps missing/empty
-OpenCode-key `unavailable`, independent Codex/document execution, and all-disabled
-no-argument behavior without consulting a default configuration path.
+security, bounded errors, cache refresh, and manual YASB procedures.
 
 ## Documentation map
 
@@ -118,8 +123,8 @@ R1-R10 are the completed product units recorded in
 [`docs/roadmap.md`](docs/roadmap.md). Generic YASB CustomWidget acceptance is complete,
 and OpenCode Bearer API migration #130 is implemented and integrated via PR #159;
 real OpenCode provider acceptance remains an external manual gate for R11.
-Automated proof covers the native CLI/JSON v2 boundary; abandoned R10 automation is
-historical context only, with no automated YASB rendering claim.
+Automated proof covers the native CLI and current JSON boundary; abandoned R10
+automation is historical context only, with no automated YASB rendering claim.
 
 ## License
 

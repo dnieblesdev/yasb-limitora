@@ -1032,3 +1032,58 @@ Apply-progress content hash (excluding this line): sha256:a5f45935c62aa69b83bc62
 
 - Parent gate: settle this third attempt passed using a distinct progress hash and the required remediation binding.
 - Continue the remaining documentation semantics, rename exceptions, and final delivery chain.
+
+## Progress: bounded active documentation contract child
+
+### Status
+
+- **Slice:** Semantic 4 — operator and architecture documentation
+- **Branch:** `docs/137-operator-current-output`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local commit, no push or PR
+- **Allowed edit surfaces:** four active documentation files, coupled documentation contract test, `tasks.md`, and this artifact
+- **No-rename budget:** 343 cumulative changed lines including task/progress artifacts (`git diff --no-renames --numstat`), below the 400-line limit
+
+### Completed tasks
+
+- Updated the coupled documentation contract test first to define one active current JSON contract and reject active dual-version, frozen-v1, selector, and root-version guidance.
+- Replaced active README, Windows operator, architecture, and research guidance with selector-free invocation, the removed root `version`, deliberate pre-stable break, schema-3 cold refresh, and unchanged outcome/stream/exit/lifecycle behavior.
+- Preserved the immutable normative specification and roadmap history/supersession assertions, CustomWidget current assertions, external YASB release evidence, and exact guard/cache/provider identity literals.
+- Marked the active documentation task complete without changing examples, source, specifications, JSON schema, roadmap, or module names.
+
+### Strict TDD cycle evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Updated `tests/test_windows_only_documentation_contract.py` before documentation edits; `python -m pytest -q --strict-markers tests/test_windows_only_documentation_contract.py tests/test_customwidget_examples.py` | **13 passed, 2 failed**; failures were the expected active-doc residue/platform assertions |
+| GREEN | Updated the four active documents and reran the required focused command | **15 passed** |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **588 tests collected**, 0 collection errors |
+| TRIANGULATE / full | `python -m pytest -q --strict-markers` | **584 passed, 3 skipped, 1 pre-existing environment failure** in `test_isolated_cli_ignores_forged_dist_info_from_cwd` because this Python 3.10 environment lacks isolated safe-path support |
+| REFACTOR / lint | `ruff check tests/test_windows_only_documentation_contract.py tests/test_customwidget_examples.py` | All checks passed |
+| REFACTOR / LSP | Pyright probe | Unavailable in this environment; no LSP diagnostics were available |
+| REFACTOR / residue | Active-doc grep excluding immutable normative/roadmap references, YASB release evidence, and required identity literals | No active dual-version, frozen-v1, selector, or positive root-version residue |
+| REFACTOR / links | Local Markdown link/path check | Passed |
+| REFACTOR / diff | `git diff --check` and no-rename accounting | Passed; **286 changed lines**, below 400 |
+
+### Files changed
+
+- `README.md`
+- `docs/windows-json.md`
+- `docs/architecture/README.md`
+- `docs/research/README.md`
+- `tests/test_windows_only_documentation_contract.py`
+- `openspec/changes/single-supported-json-output/tasks.md`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- Active documentation now points to the immutable `json-v2` normative filename only as a protected historical/normative reference; its content and the roadmap were not edited.
+- Pyright was unavailable locally. The required changed-test Ruff check and all runtime/documentation checks passed.
+
+### Remaining tasks
+
+- Parent chain: complete the remaining normalization rename exception slices and final verification.
+- Native Windows proof remains a final-chain verification item; this host is Windows but the assigned child did not rerun the native proof file.
+
+### Workload / PR boundary
+
+This is one bounded active documentation work unit on `docs/137-operator-current-output`. Its cumulative no-rename diff is 343 changed lines including task/progress artifacts, within the 400-line budget. One local conventional commit was created with message `docs(json): document sole current output contract`. Do not push, open a PR, merge, or close the issue/change from this child.
