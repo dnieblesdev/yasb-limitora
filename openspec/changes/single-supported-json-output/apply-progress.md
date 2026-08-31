@@ -334,3 +334,13 @@ This is one assigned test-only diagnostic work unit. The total 309-line no-renam
 ### Workload / PR boundary
 
 Assigned test-only remediation slice; the 381-line total no-rename diff remains within the 400-line budget. Parent LSP disposition is complete; no production changes, selector behavior changes, push, or PR.
+
+## Progress: CLI import-format blocker
+
+- **Branch:** `feature/137-json-cli-imports`
+- **Base:** `feature/137-json-test-diagnostics-2` at `4d823fa`
+- **RED:** Ruff reported four formatting/style findings in `src/yasb_limitora/cli.py`.
+- **GREEN:** Ruff auto-fix applied behavior-equivalent import wrapping, `re.IGNORECASE`, and redundant suppression cleanup; `ruff check` passed.
+- **TRIANGULATE:** CLI/platform/runtime tests: **89 passed, 4 skipped**; diff check passed.
+- **Budget:** 24 insertions + 6 deletions, below 400.
+- **Scope:** `src/yasb_limitora/cli.py` only; no selector behavior change, rename, push, or PR.

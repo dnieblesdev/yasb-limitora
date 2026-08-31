@@ -13,18 +13,36 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, TextIO, cast
 
-from .codex_helper import _INTERNAL_HELPER_FLAG, _has_internal_helper_environment, _run_internal_helper
+from .codex_helper import (
+    _INTERNAL_HELPER_FLAG,
+    _has_internal_helper_environment,
+    _run_internal_helper,
+)
 from .config import ConfigError, LocalConfig
 from .coordinator import RuntimeCoordinator
-from .model import DocumentView, ProviderKey, ProviderOutcome, ProviderState, ProviderView, SafeError, SafeErrorCode, V2SafeErrorCode
+from .model import (
+    DocumentView,
+    ProviderKey,
+    ProviderOutcome,
+    ProviderState,
+    ProviderView,
+    SafeError,
+    SafeErrorCode,
+    V2SafeErrorCode,
+)
 from .projection import project_bytes
-from .projection_v2 import V2ProjectionInput, project_v2_bytes, project_v2_failure_bytes, project_v2_not_run_bytes
+from .projection_v2 import (
+    V2ProjectionInput,
+    project_v2_bytes,
+    project_v2_failure_bytes,
+    project_v2_not_run_bytes,
+)
 from .v2_cache import V2QuotaCache
 from .v2_deadline import DeadlineContext
 from .v2_path import V2DeadlineError, read_v2_config
 from .v2_worker import V2ExecutionOrchestrator
 
-_SECRET = re.compile(r"auth.?cookie|cookie|token|password|secret|credential|api.?key|authorization", re.I)
+_SECRET = re.compile(r"auth.?cookie|cookie|token|password|secret|credential|api.?key|authorization", re.IGNORECASE)
 
 
 class InvocationError(ValueError):
@@ -111,7 +129,7 @@ _LEGACY_READ_CONFIG = _read_config
 def _load_explicit(path: str) -> LocalConfig:
     try:
         value = json.loads(_read_config(path))
-    except Exception as error:  # noqa: BLE001 - path and parser details never cross the boundary
+    except Exception as error:
         raise ConfigError("invalid local configuration") from error
     return LocalConfig.from_mapping(value)
 
@@ -140,7 +158,7 @@ def _load_v2_explicit(path: str, context: DeadlineContext | None = None) -> tupl
         raise V2DeadlineError("configuration deadline exhausted") from error
     except ConfigError:
         raise
-    except Exception as error:  # noqa: BLE001 - path and parser details never cross the boundary
+    except Exception as error:
         raise ConfigError("invalid local configuration") from error
     provider_errors: set[ProviderKey] = set()
     return LocalConfig.from_v2_mapping(value, provider_errors=provider_errors), frozenset(provider_errors)
