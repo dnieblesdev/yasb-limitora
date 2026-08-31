@@ -118,9 +118,46 @@ def _schema():
     return json.loads(SCHEMA.read_text(encoding="utf-8"))
 
 
-def _v2_examples():
+def _current_examples():
     blocks = re.findall(r"```json\n(.*?)\n```", SPEC.read_text(encoding="utf-8"), re.DOTALL)
     return [json.loads(block) for block in blocks if json.loads(block).get("execution_state") in {"complete", "partial", "not_run", "execution_error"}]
+
+
+def test_spec_uses_current_contract_labels_outside_cli_block():
+    text = SPEC.read_text(encoding="utf-8")
+    before_cli, cli_and_after = text.split("## 12. CLI and Configuration", 1)
+    cli_block, after_cli = cli_and_after.split("## 13.", 1)
+    active = before_cli + after_cli
+
+    for fragment in (
+        "Review unit:",
+        "R2",
+        "R6",
+        "R10",
+        "R3-R10",
+        "R11 release gate",
+        "PR2A sidecar",
+        "historical R2",
+        "R6 changes",
+        "R7+ behavior",
+        "R2 excludes",
+        "R2 Review Gate",
+        "R1-R10 implementation status",
+        "this R2 unit",
+        "v1 compatibility",
+        "v2-only config precedence",
+        "selectable version among several",
+        "version-selection mode",
+        "Valid current selection",
+    ):
+        assert fragment not in active
+
+    assert "## 14. Native YASB Validation" in active
+    assert "## 15. Current Exclusions" in active
+    assert "## 17. Contract Review Evidence" in active
+    assert "Each contract rule is mapped to a reviewable acceptance criterion" in active
+    assert cli_block.startswith("\n\nThe command has exactly one invocation grammar.")
+
 
 
 def test_current_contract_metadata_and_root_shape_are_normative():
@@ -281,16 +318,16 @@ def _remaining_percentage(limit, remaining):
     return result
 
 
-def test_all_embedded_v2_examples_obey_the_document_matrix():
-    examples = _v2_examples()
+def test_all_embedded_current_examples_obey_the_document_matrix():
+    examples = _current_examples()
 
     assert len(examples) == 16
     for example in examples:
         _assert_document(example)
 
 
-def test_r6_examples_use_the_exact_snapshot_presentation_grammar():
-    examples = _v2_examples()
+def test_examples_use_the_exact_snapshot_presentation_grammar():
+    examples = _current_examples()
 
     codex = examples[0]["providers"][0]
     assert codex["compact_text"] == "Quota 75% remaining; state=available; freshness=fresh"
@@ -323,8 +360,8 @@ def test_r6_examples_use_the_exact_snapshot_presentation_grammar():
         )
 
 
-def test_r6_parsed_snapshot_examples_lock_every_presentation_string():
-    for example in _v2_examples():
+def test_parsed_snapshot_examples_lock_every_presentation_string():
+    for example in _current_examples():
         for provider in example["providers"]:
             if provider["outcome"] != "snapshot":
                 continue
@@ -333,7 +370,7 @@ def test_r6_parsed_snapshot_examples_lock_every_presentation_string():
             )
 
 
-def test_r6_parsed_examples_lock_all_non_snapshot_fallbacks_and_mappings():
+def test_parsed_examples_lock_all_non_snapshot_fallbacks_and_mappings():
     not_run_text = {
         "disabled": "provider disabled",
         "invalid_configuration": "configuration invalid",
@@ -341,7 +378,7 @@ def test_r6_parsed_examples_lock_all_non_snapshot_fallbacks_and_mappings():
         "document_aborted": "document aborted",
     }
 
-    for example in _v2_examples():
+    for example in _current_examples():
         for provider in example["providers"]:
             outcome = provider["outcome"]
             if outcome == "undetected":
@@ -360,8 +397,8 @@ def test_r6_parsed_examples_lock_all_non_snapshot_fallbacks_and_mappings():
             assert provider["alternate_text"] == expected
 
 
-def test_r6_parsed_examples_lock_canonical_window_order_and_nullable_identities():
-    for example in _v2_examples():
+def test_parsed_examples_lock_canonical_window_order_and_nullable_identities():
+    for example in _current_examples():
         for provider in example["providers"]:
             if provider["outcome"] != "snapshot":
                 continue
@@ -374,8 +411,9 @@ def test_r6_parsed_examples_lock_canonical_window_order_and_nullable_identities(
                 assert f"source_id={json.dumps(window['source_id'], ensure_ascii=False)}" in line
 
 
-def test_r6_tied_parsed_windows_choose_the_canonical_sort_winner():
-    provider = deepcopy(_v2_examples()[0]["providers"][0])
+def test_tied_parsed_windows_choose_the_canonical_sort_winner():
+    provider = deepcopy(_current_examples()[0]["providers"][0])
+
     first = provider["windows"][0]
     tied = deepcopy(first)
     tied["period"] = "weekly"
@@ -385,15 +423,15 @@ def test_r6_tied_parsed_windows_choose_the_canonical_sort_winner():
     assert min((tied, first), key=_window_sort_key)["period"] == "five_hour"
 
 
-def test_r6_parsed_examples_obey_presentation_scalar_bounds():
-    for example in _v2_examples():
+def test_parsed_examples_obey_presentation_scalar_bounds():
+    for example in _current_examples():
         for provider in example["providers"]:
             assert len(provider["compact_text"]) <= 128
             assert len(provider["alternate_text"]) <= 128
             assert len(provider["tooltip_text"]) <= 4096
 
 
-def test_r6_fallback_mappings_and_exclusions_are_normative():
+def test_fallback_mappings_and_exclusions_are_normative():
     text = SPEC.read_text(encoding="utf-8")
 
     for fragment in (
@@ -409,12 +447,12 @@ def test_r6_fallback_mappings_and_exclusions_are_normative():
         "the aggregate remains `provider_failed`",
         "Missing evidence remains missing: no\nsynthetic value, zero, reset, identity, or raw error",
         "Partial snapshots preserve `state=partial`; stale snapshots preserve",
-        "R6 changes no existing current fields,\nschema, model, object-key order",
-        "no new\nsynthetic windows, percentages, resets, plans, periods, severity, CSS/classes",
+        "These presentation rules change no\nexisting current fields, schema, model, object-key order",
+        "They add no new synthetic windows, percentages, resets, plans, periods,\nseverity, CSS/classes",
     ):
         assert fragment in text
 
-    examples = _v2_examples()
+    examples = _current_examples()
     assert examples
     assert examples[2]["providers"][0]["tooltip_text"] == "Quota not detected"
     assert examples[5]["providers"][0]["tooltip_text"] == "Quota not run: provider disabled"
@@ -424,7 +462,7 @@ def test_r6_fallback_mappings_and_exclusions_are_normative():
     assert examples[4]["providers"][0]["tooltip_text"] == "Quota error"
 
 
-def test_pr2b_schema_and_spec_declare_provider_bound_api_sources():
+def test_schema_and_spec_declare_provider_bound_api_sources():
     schema = _schema()
     assert schema["$defs"]["sourceId"]["enum"] == ["codex-app-server-v2", "opencode-go-api", None]
     assert {
@@ -455,7 +493,7 @@ def test_pr2b_schema_and_spec_declare_provider_bound_api_sources():
     source_null_rule = next(rule for rule in schema["$defs"]["window"]["allOf"] if rule.get("if", {}).get("properties", {}).get("source_id", {}).get("type") == "null")
     assert source_null_rule["then"]["properties"]["plan_id"] == {"type": "null"}
     assert source_rule["most_depleted_window"]["anyOf"][1]["properties"]["source_id"] == {"enum": ["opencode-go-api", None]}
-    invalid = deepcopy(_v2_examples()[0]["providers"][0])
+    invalid = deepcopy(_current_examples()[0]["providers"][0])
     invalid["windows"][0]["source_id"] = None
     with pytest.raises(AssertionError):
         _assert_provider(invalid)
@@ -468,7 +506,7 @@ def test_pr2b_schema_and_spec_declare_provider_bound_api_sources():
         _assert_provider(invalid)
 
 
-def test_pr2c_schema_declares_exact_opencode_fixed_windows_and_rate_limit_filter():
+def test_schema_declares_exact_opencode_fixed_windows_and_rate_limit_filter():
     schema = _schema()
     opencode_rules = schema["$defs"]["opencodeProvider"]["allOf"]
     fixed_rule = next(rule for rule in opencode_rules if rule.get("if", {}).get("properties", {}).get("public_state", {}).get("enum") == ["available", "partial"])
@@ -480,14 +518,16 @@ def test_pr2c_schema_declares_exact_opencode_fixed_windows_and_rate_limit_filter
     assert rate_rule["then"]["properties"]["windows"]["items"]["properties"]["kind"] == {"const": "technical_rate_limit"}
 
 
-def test_pr2c_commercial_fixture_quantities_use_metric_not_unit():
+def test_commercial_fixture_quantities_use_metric_not_unit():
     for name in ("complete", "partial", "stale", "multiline-unicode", "missing-data", "provider-unavailable"):
         document = json.loads((ROOT / "examples/customwidget/fixtures" / f"{name}.json").read_text(encoding="utf-8"))
         for provider in document["providers"]:
             for window in provider["windows"]:
                 for quantity in (window[field] for field in ("limit", "used", "remaining") if window["kind"] == "commercial_quota" and window[field] is not None):
                     assert quantity["metric"] == "commercial_quota" and quantity["unit"] == "percentage_points"
-def test_r6_tooltip_identity_escaping_rule_is_normative():
+
+
+def test_tooltip_identity_escaping_rule_is_normative():
     text = SPEC.read_text(encoding="utf-8")
 
     for fragment in (
@@ -499,7 +539,7 @@ def test_r6_tooltip_identity_escaping_rule_is_normative():
         assert fragment in text
 
 
-def test_r6_near_cap_presentation_budget_and_boundary_fallback_are_normative():
+def test_near_cap_presentation_budget_and_boundary_fallback_are_normative():
     text = SPEC.read_text(encoding="utf-8")
 
     for fragment in (
@@ -513,7 +553,7 @@ def test_r6_near_cap_presentation_budget_and_boundary_fallback_are_normative():
         assert fragment in text
 
 
-def test_r6_preserves_schema_and_canonical_field_order():
+def test_preserves_schema_and_canonical_field_order():
     schema = _schema()
     assert tuple(schema["properties"]) == DOCUMENT_FIELD_ORDER
     assert tuple(schema["$defs"]["providerBase"]["properties"]) == PROVIDER_FIELD_ORDER
@@ -521,7 +561,7 @@ def test_r6_preserves_schema_and_canonical_field_order():
     assert tuple(schema["$defs"]["quantity"]["properties"]) == QUANTITY_FIELD_ORDER
     assert tuple(schema["$defs"]["depletedWindow"]["properties"]) == DEPLETED_WINDOW_FIELD_ORDER
 
-    for document in _v2_examples():
+    for document in _current_examples():
         assert tuple(document) == DOCUMENT_FIELD_ORDER
         for provider in document["providers"]:
             assert tuple(provider) == PROVIDER_FIELD_ORDER
@@ -532,17 +572,17 @@ def test_r6_preserves_schema_and_canonical_field_order():
 
 
 def test_document_matrix_rejects_illegal_state_combinations():
-    complete = deepcopy(_v2_examples()[0])
+    complete = deepcopy(_current_examples()[0])
     complete["execution_state"] = "not_run"
     with pytest.raises(AssertionError):
         _assert_document(complete)
 
-    cleanup = deepcopy(_v2_examples()[10])
+    cleanup = deepcopy(_current_examples()[10])
     cleanup["execution_error"] = {"code": "internal_error", "phase": "document"}
     with pytest.raises(AssertionError):
         _assert_document(cleanup)
 
-    wrong_cleanup_phase = deepcopy(_v2_examples()[10])
+    wrong_cleanup_phase = deepcopy(_current_examples()[10])
     wrong_cleanup_phase["execution_error"]["phase"] = "provider"
     with pytest.raises(AssertionError):
         _assert_document(wrong_cleanup_phase)
@@ -552,7 +592,7 @@ def test_document_matrix_rejects_illegal_state_combinations():
         (12, {"code": "provider_failed", "phase": "provider"}),
         (14, {"code": "deadline_exhausted", "phase": "document"}),
     ):
-        mixed = deepcopy(_v2_examples()[index])
+        mixed = deepcopy(_current_examples()[index])
         mixed["execution_state"] = "execution_error"
         mixed["execution_error"] = error
         with pytest.raises(AssertionError):
@@ -560,7 +600,7 @@ def test_document_matrix_rejects_illegal_state_combinations():
 
 
 def test_document_matrix_accepts_all_documented_mixed_outcomes():
-    examples = _v2_examples()
+    examples = _current_examples()
 
     for index in (4, 10, 11, 12, 13, 14, 15):
         _assert_document(examples[index])

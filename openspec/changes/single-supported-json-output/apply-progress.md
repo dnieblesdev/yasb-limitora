@@ -1196,3 +1196,64 @@ This child is limited to the bounded normative contract/schema metadata work uni
 ### Workload / PR boundary
 
 This is one bounded normative documentation/test work unit. Current `git diff --no-renames --numstat` accounting is **360 changed lines**, below 400; stop before commit if that gate changes. One local conventional commit is required; no push, PR, or issue/change closure from this child.
+
+## Progress: bounded normative residue cleanup
+
+### Status
+
+- **Slice:** Final bounded semantic cleanup of active normative documentation labels
+- **Branch:** `docs/137-normative-residue-cleanup`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local conventional commit, no push or PR
+- **Allowed edit surfaces:** `docs/specifications/json-v2.md`, `tests/test_json_v2_spec.py`, and this artifact
+- **No-rename budget:** 254 changed lines including this evidence entry; below 400
+
+### Completed tasks
+
+- Updated coupled spec tests first, renaming active helper/test labels from v2/R6/PR2 review terminology to current-contract terminology.
+- Removed stale R2/R6/R10/PR2A review labels, section labels, historical acceptance wording, and version-selection terminology from the normative document outside the already-replaced CLI block.
+- Reworded acceptance criteria and review evidence to describe the current contract, native YASB validation, current exclusions, and provider-side mappings.
+- Preserved `json-v2.md`, `json-v2.schema.json`, `test_json_v2_spec.py`, the exact guard/cache/provider identity strings, external YASB versions `v2.0.5`/`v2.0.6`, invalid selector test/documentation data, and roadmap history.
+
+### Strict TDD Cycle Evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Added `test_spec_uses_current_contract_labels_outside_cli_block` and ran `python -m pytest -q --strict-markers tests/test_json_v2_spec.py::test_spec_uses_current_contract_labels_outside_cli_block` | **1 failed** on the stale `Review unit: R2` label |
+| GREEN | Updated the bounded normative prose and coupled current-contract test labels/expectations | `python -m pytest -q --strict-markers tests/test_json_v2_spec.py` → **25 passed** |
+| TRIANGULATE | Required focused command: `python -m pytest -q --strict-markers tests/test_json_v2_spec.py tests/test_windows_only_documentation_contract.py tests/test_cli_output_version.py` | **84 passed** |
+| TRIANGULATE / collection | Strict targeted collection plus `python -m pytest -q --strict-markers --collect-only` | **84 targeted tests collected**; **591 total tests collected**, 0 collection errors |
+| TRIANGULATE / native | `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` | **11 passed** |
+| REFACTOR / lint | `ruff check tests/test_json_v2_spec.py tests/test_windows_only_documentation_contract.py`; `python -m py_compile` on changed tests | Ruff and compilation passed |
+| REFACTOR / LSP | `pyright tests/test_json_v2_spec.py tests/test_windows_only_documentation_contract.py` | Unavailable in this environment; command not found |
+| REFACTOR / links | Local normative link check | **1** local schema link exists; 0 missing |
+| REFACTOR / residue | Scoped active-residue search outside section 12; classified protected identity, filename, external-version, invalid-selector, and root-version matches | No unclassified active residue; allowed matches retained as required |
+
+Allowed-match classification: deferred filenames/links are `json-v2.md`,
+`json-v2.schema.json`, and `test_json_v2_spec.py`; immutable operational/source
+IDs are `Global\\yasb-limitora-v2-guard-*`, `quota-v2-cache.json`,
+`codex-app-server-v2`, and `opencode-go-api`; external YASB evidence retains
+`v2.0.5` and `v2.0.6`; former `--output-version` spellings remain only as
+intentional invalid-selector data in the unchanged CLI block/tests; root
+`version` wording remains only as the current contract's explicit prohibition.
+| REFACTOR / diff | `git diff --check`; `git diff --no-renames --numstat` | Passed; **182 changed lines**, below 400 |
+| FULL | `python -m pytest -q` | **587 passed, 3 skipped, 1 pre-existing environment failure** in isolated safe-path package provenance |
+
+### Files changed
+
+- `docs/specifications/json-v2.md`
+- `tests/test_json_v2_spec.py`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- No runtime, schema, filename, link, roadmap, example, or `tests/test_windows_only_documentation_contract.py` changes were needed.
+- The required CLI block remained unchanged; its explicit former-selector invalid-input wording is intentional and excluded from the residue scan.
+- Local Pyright was unavailable. The full suite retained the known Python 3.10 isolated-safe-path environment failure; native Windows proof passed.
+
+### Remaining tasks
+
+- Parent chain owns final verification and the later mechanical normalization rename exceptions.
+
+### Workload / PR boundary
+
+This is the final bounded semantic cleanup for the normative document, limited to 254 no-rename changed lines and one local commit. No physical rename, runtime change, push, PR, or issue/change closure is included.
