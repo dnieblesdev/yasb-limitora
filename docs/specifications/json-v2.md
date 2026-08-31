@@ -962,10 +962,11 @@ compatibility.
 ### 14.2 Live-provider smoke
 
 A separate opt-in smoke may use current Codex credentials, but it is not an
-automated YASB proof and must not be confused with OpenCode acceptance. OpenCode
-real-provider acceptance is deferred to approved migration #130 and the R11
-release gate. Credentials, cookies, workspace IDs, raw payloads, and private
-diagnostics must never be stored or printed.
+automated YASB proof and must not be confused with OpenCode acceptance.
+Completed OpenCode Bearer API migration #130 is the implementation base
+(integrated via PR #159); OpenCode real-provider acceptance remains deferred to
+the R11 release gate. Credentials, cookies, workspace IDs, raw payloads, and
+private diagnostics must never be stored or printed.
 
 ## 15. Explicit Exclusions
 
