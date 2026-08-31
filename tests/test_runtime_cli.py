@@ -176,11 +176,12 @@ def test_concurrent_timeouts_use_invocation_deadlines_not_collection_order():
 def test_invalid_arguments_are_safe_and_exit_two(bad):
     stdout, stderr = io.BytesIO(), io.StringIO()
     assert main(bad, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 2
-    assert json.loads(stdout.getvalue())["providers"][0]["error"]["code"] == "invocation_invalid"
+    assert json.loads(stdout.getvalue())["execution_error"]["code"] == "invocation_invalid"
     assert "secret" not in stdout.getvalue().decode() + stderr.getvalue()
 
 
-def test_missing_cookie_is_unavailable_and_streams_are_isolated():
+def test_missing_cookie_is_unavailable_and_streams_are_isolated(monkeypatch):
+    monkeypatch.setattr(cli, "_read_config", lambda path: json.dumps({"codex": {}, "opencode_go": {}}))
     stdout, stderr = io.BytesIO(), io.StringIO()
     code = main(
         (),
@@ -189,24 +190,37 @@ def test_missing_cookie_is_unavailable_and_streams_are_isolated():
             Codex(view(ProviderKey.CODEX)),
             cast(Callable[[OpenCodeRequest], OpenCodeReadResult], lambda _request: pytest.fail("reader must not run without credentials")),
         ),
-        environment={}, stdout=stdout, stderr=stderr,
+        environment={"LOCALAPPDATA": r"C:\Users\runtime-test\AppData\Local"}, stdout=stdout, stderr=stderr,
         platform_is_windows=lambda: True,
     )
     document = json.loads(stdout.getvalue())
     assert code == 0 and stderr.getvalue() == ""
-    assert document["providers"][1] == {"provider": "opencode_go", "state": "unavailable"}
+    assert document["providers"][1]["provider"] == "opencode_go"
+    assert document["providers"][1]["outcome"] == "not_run"
+    assert document["providers"][1]["not_run_reason"] == "disabled"
 
 
-def test_runtime_safe_error_has_exit_one_and_sanitized_diagnostic():
+def test_runtime_safe_error_has_exit_one_and_sanitized_diagnostic(monkeypatch):
+    monkeypatch.setattr(cli, "_read_config", lambda path: json.dumps({"codex": {}, "opencode_go": {}}))
     stdout, stderr = io.BytesIO(), io.StringIO()
     class FailingCoordinator:
         def run(self, config, environment):
             return DocumentView.ordered(
                 view(ProviderKey.CODEX, ProviderState.SAFE_ERROR, SafeErrorCode.TIMEOUT),
-                view(ProviderKey.OPENCODE_GO),
+                view(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE),
             )
     coordinator = FailingCoordinator()
-    assert main((), coordinator=cast(RuntimeCoordinator, coordinator), environment={"LIMITORA_OPENCODE_API_KEY": "key"}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 1
+    assert main(
+        (),
+        coordinator=cast(RuntimeCoordinator, coordinator),
+        environment={
+            "LOCALAPPDATA": r"C:\Users\runtime-test\AppData\Local",
+            "LIMITORA_OPENCODE_API_KEY": "key",
+        },
+        stdout=stdout,
+        stderr=stderr,
+        platform_is_windows=lambda: True,
+    ) == 1
 
     assert stderr.getvalue() == "yasb-limitora: runtime_error\n"
     assert "cookie" not in stdout.getvalue().decode() + stderr.getvalue()
@@ -216,9 +230,9 @@ def test_config_file_and_runtime_error_are_redacted(tmp_path):
     path = tmp_path / "config.json"
     path.write_text(json.dumps({"codex": {"enabled": True, "runner": "relative"}}), encoding="utf-8")
     stdout, stderr = io.BytesIO(), io.StringIO()
-    assert main(("--config", str(path)), stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 2
+    assert main(("--config", str(path)), stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 1
     assert "relative" not in stdout.getvalue().decode() + stderr.getvalue()
-    assert stderr.getvalue() == "yasb-limitora: configuration_invalid\n"
+    assert stderr.getvalue() == "yasb-limitora: runtime_error\n"
 
 
 def test_v2_default_resolution_reads_injected_localappdata(monkeypatch):

@@ -395,3 +395,47 @@ Assigned test-only remediation slice; the 381-line total no-rename diff remains 
 ### Workload / PR boundary
 
 This child contains only the current-default/v1-rejection behavior and directly affected output-version tests. The no-rename diff remains below 400 changed lines. Explicit v2 selectors are temporary and must not be described as final selector removal. One local commit is authorized after the focused green tests and collection evidence; no push or PR.
+
+## Progress: corrective runtime expectation slice
+
+### Status
+
+- **Slice:** Corrective gate remediation for `semantic-cli-default-current`
+- **Branch:** `feature/137-json-cli-default-current`
+- **Base:** `5168402` (`feat(cli): default selector-free output to current contract`)
+- **Delivery boundary:** feature-branch-chain / auto-chain; one corrective local commit, no push or PR
+- **Allowed edit surfaces:** `tests/test_runtime_cli.py` and this progress artifact only
+- **Cumulative no-rename count:** 193 changed lines versus `be5e06f` after this progress entry; below the 400-line limit
+
+### Completed tasks
+
+- Updated the six stale selector-free runtime expectations/fixtures to the current document envelope and current provider outcome semantics.
+- Preserved all production code and the explicit-v2 temporary no-op selector tests.
+- Added current-default configuration fixtures for injected coordinator cases so selector-free calls exercise the implemented current path.
+
+### TDD cycle evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | `python -m pytest -q --strict-markers tests/test_cli_output_version.py tests/test_cli_platform_boundary.py tests/test_runtime_cli.py` on `5168402` | **6 failed, 83 passed, 4 skipped**; failures were the three parameterized invalid-argument cases plus missing-cookie, runtime-safe-error, and config/runtime-redaction legacy expectations in `tests/test_runtime_cli.py` |
+| GREEN | Updated only `tests/test_runtime_cli.py` expectations and current-default fixtures | Required dependent command: **89 passed, 4 skipped** |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **590 tests collected**, 0 collection errors |
+| REFACTOR / diagnostics | `ruff check tests/test_runtime_cli.py` and `git diff --check` | All Ruff checks passed; diff check passed |
+
+### Files changed
+
+- `tests/test_runtime_cli.py`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- None. This correction changes only stale test expectations/fixtures; production behavior, selector handling, explicit-v2 no-op coverage, names, and persisted identities remain unchanged.
+
+### Remaining tasks
+
+- Parent chain may continue with the remaining semantic/runtime cleanup and later rename-exception slices.
+- Final full strict-marker suite and native Windows proof remain for the designated final verification boundary.
+
+### Workload / PR boundary
+
+This is the assigned corrective work unit for the failed current-default gate. The branch cumulative no-rename count is within the 400-line budget, and this commit boundary contains no production edits or renames. Commit locally after the recorded green, collection, Ruff, and diff checks; do not push or create a PR.
