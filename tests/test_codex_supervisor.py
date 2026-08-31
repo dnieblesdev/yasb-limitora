@@ -699,9 +699,11 @@ class _PreparedJob:
     def __init__(self, events, assign_error=None, fail_close=False):
         self.events = events
         self.assign_error, self.fail_close = assign_error, fail_close
+        self.allow_nested = None
 
-    def assign_borrowed_handle(self, handle):
+    def assign_borrowed_handle(self, handle, *, allow_nested=False):
         self.events.append(("assign", handle))
+        self.allow_nested = allow_nested
         if self.assign_error is not None:
             raise self.assign_error
 
@@ -984,6 +986,7 @@ def test_prepared_acquisition_owns_exact_handles_and_job_before_return(monkeypat
         < events.index(("assign", "native"))
     )
     assert prepared._helper._popen._popen is process
+    assert prepared._helper._job.allow_nested is True
     assert prepared._descriptors == ((10, 11), (12, 13))
     assert supervisor._state is s._SupervisorState.PREPARED
     supervisor.close()

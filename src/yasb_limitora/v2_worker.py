@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import multiprocessing
 import os
+import sys
 from collections.abc import Mapping
 from typing import Any, Callable
 
@@ -12,6 +13,7 @@ from .model import DocumentView, ProviderKey, ProviderOutcome, ProviderState, Pr
 from .v2_deadline import DeadlineContext
 from .v2_guard import GuardError, GuardLease, V2Guard
 from .isolation.windows_job import WindowsJobBoundary
+from .v2_path import _public_child_environment, _spawn_environment, _start_quiet_child
 
 
 def _safe_error(provider: ProviderKey, code: SafeErrorCode) -> ProviderView:
@@ -23,12 +25,28 @@ def _not_run(provider: ProviderKey, reason: str) -> ProviderView:
 
 
 def _opencode_bootstrap(reader: Callable[[OpenCodeRequest], OpenCodeReadResult], request: OpenCodeRequest, output: Any, authorized: Any = None) -> None:
+    original_stderr, sink = sys.stderr, None
     try:
+        try:
+            sink = open(os.devnull, "w", encoding="ascii")
+            sys.stderr = sink
+        except Exception:
+            pass
         if authorized is not None:
             authorized.wait()
-        output.put(reader(request))
+        try:
+            output.put(reader(request))
+        except Exception:
+            pass
     except Exception:
-        output.put(OpenCodeReadResult(_safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR), OpenCodeFailureEvidence.UNAVAILABLE))
+        try:
+            output.put(OpenCodeReadResult(_safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR), OpenCodeFailureEvidence.UNAVAILABLE))
+        except Exception:
+            pass
+    finally:
+        sys.stderr = original_stderr
+        if sink is not None:
+            sink.close()
 
 
 @dataclass(slots=True)
@@ -36,6 +54,9 @@ class WorkerRecord:
     worker: Any
     job: Any
     queue_closed: bool = True
+    queue: Any = None
+    authorized_closed: bool = True
+    authorized: Any = None
     reaped: bool = False
     exit_code: int | None = None
     job_active_zero: bool = False
@@ -69,7 +90,7 @@ def _helper_quiescent(helper: Any) -> bool:
 
 def cleanup_complete(records: list[WorkerRecord], *, supervisors=(), helpers=()) -> bool:
     return bool(records or tuple(supervisors) or tuple(helpers)) and all(
-        record.reaped and (record.exit_code is not None or not record.started) and (record.job is None or (record.job_active_zero and record.job_closed)) and record.process_closed and record.queue_closed
+        record.reaped and (record.exit_code is not None or not record.started) and (record.job is None or (record.job_active_zero and record.job_closed)) and record.process_closed and record.queue_closed and record.authorized_closed
         for record in records
     ) and all(_supervisor_quiescent(supervisor) for supervisor in supervisors) and all(_helper_quiescent(helper) for helper in helpers)
 
@@ -87,22 +108,32 @@ class OpenCodeWorkerProcess:
         self.last_result = None
         if context.usable_ns() <= 0:
             return _not_run(ProviderKey.OPENCODE_GO, "deadline_exhausted")
+        queue = authorized = process = None
         if self.process_factory is None and os.name != "nt":
             view = _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR)
             self.last_result = OpenCodeReadResult(view, OpenCodeFailureEvidence.UNAVAILABLE)
             return view
         try:
-            queue = self.context_factory("spawn").Queue()
-            authorized = self.context_factory("spawn").Event()
-            process = (self.process_factory or self.context_factory("spawn").Process)(
-                target=_opencode_bootstrap, args=(self.reader, request, queue, authorized)
-            )
-            record = self.record = WorkerRecord(process, None, queue_closed=False)
-            process.start()
+            child_environment = _public_child_environment(os.environ)
+            with _spawn_environment(child_environment):
+                process_context = self.context_factory("spawn")
+                queue = process_context.Queue()
+                record = self.record = WorkerRecord(None, None, queue_closed=False, queue=queue, authorized_closed=False)
+                authorized = process_context.Event()
+                record.authorized = authorized
+                process = (self.process_factory or process_context.Process)(
+                    target=_opencode_bootstrap, args=(self.reader, request, queue, authorized)
+                )
+                record.worker = process
+                _start_quiet_child(process)
             record.started = True
             job = self.job_factory() if self.job_factory is not None else WindowsJobBoundary()
-            job.assign_process(process.pid)
             record.job = job
+            job.assign_process(process.pid, allow_nested=True)
+            if context.usable_ns() <= 0:
+                view = _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.TIMEOUT)
+                self.last_result = OpenCodeReadResult(view, OpenCodeFailureEvidence.TIMEOUT)
+                return view
             authorized.set()
             process.join(context.usable_ns() / 1_000_000_000)
             if process.is_alive():
@@ -134,26 +165,47 @@ class OpenCodeWorkerProcess:
                     self.record.job_closed = self._job_closed(self.record.job)
                 except Exception:
                     pass
-            if "process" in locals():
+            if process is not None:
                 self._reap_process(process, context, terminate=True)
             self.last_result = OpenCodeReadResult(_safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.PROVIDER_ERROR), OpenCodeFailureEvidence.UNAVAILABLE)
             return self.last_result.view
         finally:
-            if "process" in locals() and self.record is not None and not self.record.reaped:
+            if process is not None and self.record is not None and not self.record.reaped:
                 self._reap_process(process, context, terminate=False)
-            if "queue" in locals():
+            elif self.record is not None and process is None:
+                self.record.reaped = True
+                self.record.process_closed = True
+            if self.record is not None and authorized is None:
+                self.record.authorized_closed = True
+            if queue is not None:
                 try:
-                    cancel = getattr(queue, "cancel_join_thread", None)
-                    if cancel is not None:
-                        cancel()
-                    close = getattr(queue, "close", None)
-                    if close is not None:
-                        close()
+                    self._close_queue(queue)
                     if self.record is not None:
                         self.record.queue_closed = True
+                        self.record.queue = None
                 except Exception:
                     if self.record is not None:
                         self.record.queue_closed = False
+            if authorized is not None:
+                try:
+                    close = getattr(authorized, "close", None)
+                    if close is not None:
+                        close()
+                    if self.record is not None:
+                        self.record.authorized_closed = True
+                        self.record.authorized = None
+                except Exception:
+                    if self.record is not None:
+                        self.record.authorized_closed = False
+
+    @staticmethod
+    def _close_queue(queue: Any) -> None:
+        cancel = getattr(queue, "cancel_join_thread", None)
+        if cancel is not None:
+            cancel()
+        close = getattr(queue, "close", None)
+        if close is not None:
+            close()
 
     def _reap_process(self, process: Any, context: DeadlineContext, *, terminate: bool) -> None:
         record = self.record
@@ -171,6 +223,15 @@ class OpenCodeWorkerProcess:
                     process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
                 except Exception:
                     pass
+            alive = getattr(process, "is_alive", lambda: False)()
+            if alive:
+                kill = getattr(process, "kill", None)
+                if kill is not None:
+                    try:
+                        kill()
+                        process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
+                    except Exception:
+                        pass
             alive = getattr(process, "is_alive", lambda: False)()
             record.exit_code = getattr(process, "exitcode", None)
             record.reaped = not alive
@@ -205,7 +266,9 @@ class OpenCodeWorkerProcess:
         return getattr(job, "state", None) == "closed" or getattr(job, "closed", False)
 
 
-class V2ExecutionOrchestrator:
+class RefreshAttempt:
+    """Own one provider refresh, its fresh resources, and bounded cleanup."""
+
     def __init__(self, *, guard_factory=V2Guard, codex_executor=None, opencode_factory=OpenCodeWorkerProcess) -> None:
         self.guard_factory = guard_factory
         self.codex_executor = codex_executor
@@ -213,35 +276,170 @@ class V2ExecutionOrchestrator:
         self.worker_records: list[WorkerRecord] = []
         self.workers: list[Any] = []
         self.codex_helpers: list[Any] = []
+        self._unfinalized_leases: list[Any] = []
+        self.authority_acquired = False
         self.last_record: V2ExecutionRecord | None = None
 
-    def run(self, config: LocalConfig, environment: Mapping[str, str], context: DeadlineContext, config_path: str) -> DocumentView:
+    def _cleanup_resources(self, context: DeadlineContext) -> bool:
+        cleanup_error = False
+        for worker in self.workers:
+            record = getattr(worker, "record", None)
+            if record is not None and record not in self.worker_records:
+                self.worker_records.append(record)
+        for record in self.worker_records:
+            if not record.job_closed and record.job is not None:
+                try:
+                    self._close_job(record.job, context)
+                    record.job_active_zero = OpenCodeWorkerProcess._job_zero(record.job)
+                    record.job_closed = OpenCodeWorkerProcess._job_closed(record.job)
+                except Exception:
+                    cleanup_error = True
+            if not record.queue_closed and record.queue is not None:
+                try:
+                    OpenCodeWorkerProcess._close_queue(record.queue)
+                    record.queue_closed = True
+                    record.queue = None
+                except Exception:
+                    cleanup_error = True
+            if not record.authorized_closed and record.authorized is not None:
+                try:
+                    close = getattr(record.authorized, "close", None)
+                    if close is not None:
+                        close()
+                    record.authorized_closed = True
+                    record.authorized = None
+                except Exception:
+                    cleanup_error = True
+            owner = next((worker for worker in self.workers if getattr(worker, "record", None) is record), None)
+            reap = getattr(owner, "_reap_process", None)
+            if callable(reap) and (not record.reaped or not record.process_closed):
+                try:
+                    reap(record.worker, context, terminate=not record.reaped)
+                except Exception:
+                    cleanup_error = True
+            if not record.reaped or not record.process_closed or not record.queue_closed or not record.authorized_closed:
+                cleanup_error = True
+        for helper in self.codex_helpers:
+            pending = getattr(helper, "_pending_supervisor", None)
+            if pending is None:
+                continue
+            retry = getattr(helper, "_retry_cleanup_with_deadline", None)
+            if not callable(retry):
+                cleanup_error = True
+                continue
+            try:
+                if not retry(context):
+                    cleanup_error = True
+            except Exception:
+                cleanup_error = True
+        if self.worker_records or self.codex_helpers:
+            try:
+                cleanup_error = cleanup_error or not cleanup_complete(self.worker_records, helpers=self.codex_helpers)
+            except Exception:
+                cleanup_error = True
+        return not cleanup_error
+
+    @staticmethod
+    def _close_job(job: Any, context: DeadlineContext) -> None:
+        close = getattr(job, "close_with_deadline", None)
+        if close is not None:
+            close(context)
+        else:
+            job.close(max(0.0, context.cleanup_ns() / 1_000_000_000))
+
+    @staticmethod
+    def _release_provider_lease(lease: Any) -> bool:
+        """Finalize a lease in order, retaining completed substeps for retry."""
+        released = bool(getattr(lease, "_yasb_release_complete", False)) or getattr(lease, "owned", None) is False
+        closed = bool(getattr(lease, "_yasb_close_complete", False)) or getattr(lease, "closed", None) is True
+        if not released:
+            try:
+                released = bool(lease.release())
+            except Exception:
+                released = False
+            if released:
+                try:
+                    setattr(lease, "_yasb_release_complete", True)
+                except Exception:
+                    pass
+        if released and not closed:
+            try:
+                closed = bool(lease.close())
+            except Exception:
+                closed = False
+            if closed:
+                try:
+                    setattr(lease, "_yasb_close_complete", True)
+                except Exception:
+                    pass
+        if released and closed:
+            try:
+                setattr(lease, "_yasb_finalized", True)
+            except Exception:
+                pass
+        return released and closed
+
+    def _retry_unfinalized_leases(self) -> bool:
+        remaining = []
+        for lease in self._unfinalized_leases:
+            if not self._release_provider_lease(lease):
+                remaining.append(lease)
+        self._unfinalized_leases = remaining
+        return not remaining
+
+    def run(
+        self,
+        config: LocalConfig,
+        environment: Mapping[str, str],
+        context: DeadlineContext,
+        config_path: str,
+        *,
+        provider_errors: frozenset[ProviderKey] | set[ProviderKey] = frozenset(),
+    ) -> DocumentView:
         self.last_record = None
         views = {
             ProviderKey.CODEX: _not_run(ProviderKey.CODEX, "disabled"),
             ProviderKey.OPENCODE_GO: _not_run(ProviderKey.OPENCODE_GO, "disabled"),
         }
+        for provider in provider_errors:
+            views[provider] = _safe_error(provider, SafeErrorCode.CONFIGURATION_INVALID)
+        if (self.worker_records or self.codex_helpers) and not self._cleanup_resources(context):
+            result = self._document(views, V2SafeErrorCode.CLEANUP_FAILED)
+            self.last_record = V2ExecutionRecord(result)
+            return result
+        if self._unfinalized_leases and not self._retry_unfinalized_leases():
+            result = self._document(views, V2SafeErrorCode.CLEANUP_FAILED)
+            self.last_record = V2ExecutionRecord(result)
+            return result
+        if self.worker_records or self.codex_helpers:
+            self.worker_records.clear()
+            self.codex_helpers.clear()
         enabled = frozenset()
-        if config.codex.enabled and config.codex.runner:
+        if ProviderKey.CODEX not in provider_errors and config.codex.enabled and config.codex.runner:
             enabled = enabled | {ProviderKey.CODEX}
         api_key = environment.get(OPENCODE_API_KEY_ENV)
-        if config.opencode_go.enabled and isinstance(api_key, str) and api_key:
+        if ProviderKey.OPENCODE_GO not in provider_errors and config.opencode_go.enabled and isinstance(api_key, str) and api_key:
             enabled = enabled | {ProviderKey.OPENCODE_GO}
         if not enabled:
-            return self._document(views)
+            result = self._document(views)
+            self.last_record = V2ExecutionRecord(result)
+            return result
         lease: GuardLease | None = None
         cleanup_error = False
         result: DocumentView | None = None
         unexpected_error: Exception | None = None
         current_opencode_result: OpenCodeReadResult | None = None
         current_worker: Any | None = None
+        self.authority_acquired = self.guard_factory is None
         try:
-            guard = self.guard_factory()
-            lease = guard.acquire(config_path, context)
+            if self.guard_factory is not None:
+                guard = self.guard_factory()
+                lease = guard.acquire(config_path, context)
+                self.authority_acquired = lease is not None
             if context.usable_ns() <= 0:
                 result = self._document(
                     {
-                        key: _not_run(key, "deadline_exhausted") if key in enabled else view
+                        key: view if key in provider_errors else _not_run(key, "deadline_exhausted")
                         for key, view in views.items()
                     },
                     V2SafeErrorCode.DEADLINE_EXHAUSTED,
@@ -280,43 +478,22 @@ class V2ExecutionOrchestrator:
             result = self._document({key: _not_run(key, reason) for key in views}, code)
         except Exception as error:
             current_opencode_result = getattr(current_worker, "last_result", None)
-            views = {key: _not_run(key, "document_aborted") for key in views}
+            views = {key: view if key in provider_errors else _not_run(key, "document_aborted") for key, view in views.items()}
             unexpected_error = error
         finally:
-            if lease is not None:
-                for worker in self.workers:
-                    if getattr(worker, "record", None) is not None and worker.record not in self.worker_records:
-                        self.worker_records.append(worker.record)
-                # Workers and their Job handles are closed before ownership is
-                # relinquished. This is the no-overlap boundary.
-                for record in self.worker_records:
-                    if not record.job_closed and record.job is not None:
-                        try:
-                            close = getattr(record.job, "close_with_deadline", None)
-                            if close is not None:
-                                close(context)
-                            else:
-                                record.job.close(max(0.0, context.cleanup_ns() / 1_000_000_000))
-                            record.job_active_zero = self._job_zero(record.job)
-                            record.job_closed = self._job_closed(record.job)
-                        except Exception:
-                            cleanup_error = True
-                cleanup_safe = not cleanup_error and (not (self.worker_records or self.codex_helpers) or cleanup_complete(self.worker_records, helpers=self.codex_helpers))
-                if not cleanup_safe:
-                    cleanup_error = True
-                try:
-                    release_ok = lease.release() if cleanup_safe else True
-                except Exception:
-                    release_ok = False
-                try:
-                    close_ok = lease.close() if cleanup_safe else True
-                except Exception:
-                    close_ok = False
-                if not close_ok or not release_ok:
-                    cleanup_error = True
-                if cleanup_error:
-                    preserved = views if result is None else {view.provider: view for view in result.providers}
-                    result = self._document(preserved, V2SafeErrorCode.CLEANUP_FAILED)
+            cleanup_safe = self._cleanup_resources(context)
+            lease_released = lease is None
+            if cleanup_safe and lease is not None:
+                lease_released = self._release_provider_lease(lease)
+            if lease is not None and not lease_released and lease not in self._unfinalized_leases:
+                self._unfinalized_leases.append(lease)
+            cleanup_error = not cleanup_safe or not lease_released
+            if cleanup_safe and lease_released:
+                self.worker_records.clear()
+                self.codex_helpers.clear()
+            if cleanup_error:
+                preserved = views if result is None else {view.provider: view for view in result.providers}
+                result = self._document(preserved, V2SafeErrorCode.CLEANUP_FAILED)
         if unexpected_error is not None:
             raise unexpected_error
         document = result if result is not None else self._document(views, V2SafeErrorCode.GUARD_ACQUISITION_FAILED)
@@ -356,4 +533,95 @@ class V2ExecutionOrchestrator:
         return DocumentView.ordered(views[ProviderKey.CODEX], views[ProviderKey.OPENCODE_GO], SafeError(error) if error else None)
 
 
-__all__ = ("OpenCodeWorkerProcess", "V2ExecutionOrchestrator", "V2ExecutionRecord", "WorkerRecord", "cleanup_complete")
+class V2ExecutionOrchestrator:
+    """Create a fresh refresh owner for every orchestration call."""
+
+    def __init__(self, *, guard_factory=V2Guard, codex_executor=None, opencode_factory=OpenCodeWorkerProcess) -> None:
+        self.guard_factory = guard_factory
+        self.codex_executor = codex_executor
+        self.opencode_factory = opencode_factory
+        self._attempt: RefreshAttempt | None = None
+        self._worker_history: list[Any] = []
+        self.last_record: V2ExecutionRecord | None = None
+
+    @property
+    def workers(self) -> list[Any]:
+        return self._worker_history
+
+    @property
+    def worker_records(self) -> list[WorkerRecord]:
+        return self._attempt.worker_records if self._attempt is not None else []
+
+    @property
+    def codex_helpers(self) -> list[Any]:
+        return self._attempt.codex_helpers if self._attempt is not None else []
+
+    def run(
+        self,
+        config: LocalConfig,
+        environment: Mapping[str, str],
+        context: DeadlineContext,
+        config_path: str,
+        *,
+        provider_errors: frozenset[ProviderKey] | set[ProviderKey] = frozenset(),
+    ) -> DocumentView:
+        previous = self._attempt
+        if previous is not None:
+            cleaned = previous._cleanup_resources(context) and previous._retry_unfinalized_leases()
+            if not cleaned:
+                views = {
+                    ProviderKey.CODEX: _safe_error(ProviderKey.CODEX, SafeErrorCode.CONFIGURATION_INVALID)
+                    if ProviderKey.CODEX in provider_errors else _not_run(ProviderKey.CODEX, "disabled"),
+                    ProviderKey.OPENCODE_GO: _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.CONFIGURATION_INVALID)
+                    if ProviderKey.OPENCODE_GO in provider_errors else _not_run(ProviderKey.OPENCODE_GO, "disabled"),
+                }
+                result = previous._document(views, V2SafeErrorCode.CLEANUP_FAILED)
+                self.last_record = V2ExecutionRecord(result)
+                return result
+            previous.worker_records.clear()
+            previous.codex_helpers.clear()
+
+        attempt = RefreshAttempt(
+            guard_factory=self.guard_factory,
+            codex_executor=self.codex_executor,
+            opencode_factory=self.opencode_factory,
+        )
+        self._attempt = attempt
+        result = attempt.run(config, environment, context, config_path, provider_errors=provider_errors)
+        self._worker_history.extend(attempt.workers)
+        self.last_record = attempt.last_record
+        return result
+
+    def run_refresh_attempt(
+        self,
+        config: LocalConfig,
+        environment: Mapping[str, str],
+        context: DeadlineContext,
+        config_path: str,
+        enabled_providers: frozenset[ProviderKey] | None = None,
+        *,
+        provider_errors: frozenset[ProviderKey] | set[ProviderKey] = frozenset(),
+    ):
+        """Run one provider attempt and prepare its authoritative publication payload."""
+        from .projection_v2 import V2ProjectionInput, project_v2_bytes
+        from .v2_cache import SingleFlightResult
+
+        document = self.run(config, environment, context, config_path, provider_errors=provider_errors)
+        record = self.last_record
+        if enabled_providers is None:
+            enabled_providers = frozenset(
+                provider for provider, enabled in (
+                    (ProviderKey.CODEX, config.codex.enabled or ProviderKey.CODEX in provider_errors),
+                    (ProviderKey.OPENCODE_GO, config.opencode_go.enabled or ProviderKey.OPENCODE_GO in provider_errors),                ) if enabled
+            )
+        cacheable = (
+            record is not None
+            and document.document_error is None
+            and any(view.outcome in (ProviderOutcome.SNAPSHOT, ProviderOutcome.UNDETECTED) for view in document.providers)
+            and all(view.outcome is not ProviderOutcome.EXECUTION_ERROR for view in document.providers)
+        )
+        projected = project_v2_bytes(V2ProjectionInput(document, enabled_providers, record.opencode_evidence)) if cacheable else None
+        return SingleFlightResult(value=document, cached_public_bytes=projected, produced=True)
+
+
+__all__ = ("OpenCodeWorkerProcess", "RefreshAttempt", "V2ExecutionOrchestrator", "V2ExecutionRecord", "WorkerRecord", "cleanup_complete")

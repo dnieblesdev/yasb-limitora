@@ -158,11 +158,15 @@ class _HelperProcessResources:
     def __repr__(self) -> str:
         return "<_HelperProcessResources>"
 
-    def attach_job(self, job: _JobOwner) -> None:
+    def attach_job(self, job: _JobOwner, *, allow_nested: bool = False) -> None:
         if self._state is not _HelperState.OPEN or self._job is not None or self._popen._state is not _PopenState.ADAPTED:
             raise _OwnershipError from None
         self._job = job
-        try: job.assign_borrowed_handle(self._popen._native_handle)
+        try:
+            if allow_nested:
+                job.assign_borrowed_handle(self._popen._native_handle, allow_nested=True)
+            else:
+                job.assign_borrowed_handle(self._popen._native_handle)
         except _JobResourceError:
             self._state = _HelperState.BROKEN
             raise

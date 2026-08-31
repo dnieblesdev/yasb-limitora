@@ -104,11 +104,11 @@ class _JobOwner:
     def __repr__(self) -> str:
         return "<_JobOwner>"
 
-    def assign_borrowed_handle(self, handle: Any) -> None:
+    def assign_borrowed_handle(self, handle: Any, *, allow_nested: bool = False) -> None:
         if self._state is not _OwnerState.OPEN:
             raise _OwnershipError from None
         try:
-            self._boundary.assign_borrowed_handle(handle)
+            self._boundary.assign_borrowed_handle(handle, allow_nested=allow_nested)
         except JobError:
             self._state = _OwnerState.CLOSED if self._boundary.state.value == "closed" else _OwnerState.BROKEN
             raise _JobAssignmentError from None

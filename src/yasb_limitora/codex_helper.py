@@ -50,6 +50,8 @@ _MAX_RESPONSE = 64 * 1024
 _CANONICAL_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z")
 _GATE = "_YASB_CODEX_GATE_HANDLE"
 _DATA = "_YASB_CODEX_DATA_HANDLE"
+_READY_NONCE = "_YASB_CODEX_READY_NONCE"
+_INTERNAL_HELPER_FLAG = "--__yasb-limitora-codex-helper"
 _WIRE_FIELDS = frozenset(("provider", "state", "outcome", "display_label", "error", "snapshot"))
 _SNAPSHOT_FIELDS = frozenset(
     ("public_state", "freshness", "status_observed_at", "fetched_at", "data_at", "source_id", "windows")
@@ -214,6 +216,21 @@ def _payload(view: ProviderView) -> bytes:
     return payload
 
 
+def _is_frozen_runtime() -> bool:
+    """Recognize PyInstaller without depending on a bundle path."""
+    return bool(getattr(sys, "frozen", False) or getattr(sys, "_MEIPASS", None))
+
+
+def _helper_command() -> tuple[str, ...]:
+    if _is_frozen_runtime():
+        return (sys.executable, _INTERNAL_HELPER_FLAG)
+    return (sys.executable, "-I", "-E", "-c", _CHILD_BOOTSTRAP)
+
+
+def _has_internal_helper_environment() -> bool:
+    return _is_frozen_runtime() and all(name in os.environ for name in (_GATE, _DATA, _READY_NONCE))
+
+
 def _child_main() -> None:
     gate, data = int(os.environ.pop(_GATE)), int(os.environ.pop(_DATA))
     try:
@@ -238,6 +255,47 @@ def _child_main() -> None:
     _write_all(data, struct.pack(">I", len(payload)) + payload)
     os.close(gate)
     os.close(data)
+
+
+def _run_frozen_helper_bootstrap() -> None:
+    gate, data = None, None
+    try:
+        gate_native = int(os.environ.pop(_GATE))
+        data_native = int(os.environ.pop(_DATA))
+        if os.name == "nt":
+            import msvcrt
+
+            gate = msvcrt.open_osfhandle(gate_native, 0)
+            data = msvcrt.open_osfhandle(data_native, 1)
+        else:
+            gate, data = gate_native, data_native
+        nonce = os.environ.pop(_READY_NONCE).encode("ascii")
+        if os.read(gate, 1) != b"1":
+            raise ValueError
+        os.write(data, b"READY:" + nonce)
+        os.environ[_GATE] = str(gate)
+        os.environ[_DATA] = str(data)
+        os.environ["_YASB_HELPER_NONCE"] = nonce.decode("ascii")
+        _child_main()
+        gate, data = None, None
+    finally:
+        for fd in (gate, data):
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except Exception:
+                    pass
+
+
+def _run_internal_helper() -> int:
+    """Run the private frozen entrypoint without exposing CLI diagnostics."""
+    if not _has_internal_helper_environment():
+        return 1
+    try:
+        _run_frozen_helper_bootstrap()
+    except BaseException:  # noqa: BLE001 - process boundary deliberately stays silent
+        return 1
+    return 0
 
 
 class _PersistentTransport(_PipeTransport):
@@ -299,7 +357,7 @@ class CodexHelperExecutor:
         supervisor, result, decoded = None, _error(SafeErrorCode.INTERNAL_ERROR), False
         try:
             supervisor = self._factory(
-                command=(sys.executable, "-I", "-E", "-c", _CHILD_BOOTSTRAP),
+                command=_helper_command(),
                 transport_factory=transport_factory,
                 timeout_seconds=self._timeout,
             )
@@ -372,7 +430,7 @@ class CodexHelperExecutor:
         supervisor, result, decoded = None, _error(SafeErrorCode.INTERNAL_ERROR), False
         try:
             supervisor = self._factory(
-                command=(sys.executable, "-I", "-E", "-c", _CHILD_BOOTSTRAP),
+                command=_helper_command(),
                 transport_factory=transport_factory,
                 timeout_seconds=self._timeout,
             )

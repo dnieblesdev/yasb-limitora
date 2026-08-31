@@ -1,14 +1,20 @@
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import io
 import json
+import os
+import struct
+import sys
 from types import SimpleNamespace
 
 import limitora
 import pytest
 from limitora.models import Quantity, ProviderId, ProviderStatus, QuotaWindow, SourceMetadata, ValueAvailability, WindowKind
 
-from yasb_limitora.codex_helper import CodexHelperExecutor, _decode, _decode_timestamp, _payload, _source_for_provider, _timestamp
+import yasb_limitora.cli as cli
+import yasb_limitora.codex_helper as codex_helper
+from yasb_limitora.codex_helper import CodexHelperExecutor, _CHILD_BOOTSTRAP, _decode, _decode_timestamp, _INTERNAL_HELPER_FLAG, _payload, _source_for_provider, _timestamp
 from yasb_limitora.limitora_api import (
     CodexLimitoraAdapter,
     OpenCodeRequest,
@@ -33,6 +39,54 @@ from yasb_limitora.model import (
     SnapshotFreshness,
 )
 from yasb_limitora.v2_deadline import DeadlineContext
+
+
+def test_frozen_runtime_uses_private_internal_helper_flag(monkeypatch):
+    import yasb_limitora.codex_helper as helper
+
+    monkeypatch.setattr(helper.sys, "frozen", True, raising=False)
+    assert helper._helper_command() == (helper.sys.executable, helper._INTERNAL_HELPER_FLAG)
+
+
+def test_internal_helper_mode_runs_authenticated_pipe_handshake(monkeypatch):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(codex_helper.os, "name", "nt")
+    gate_read, gate_write = os.pipe()
+    data_read, data_write = os.pipe()
+    expected = ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED)
+    request = json.dumps({"runner": ["codex"], "nonce": "ready-nonce"}, separators=(",", ":")).encode()
+    os.write(gate_write, b"1" + struct.pack(">I", len(request)) + request)
+    os.close(gate_write)
+    native_gate, native_data = 0x1234, 0x5678
+
+    def open_osfhandle(handle, flags):
+        return {native_gate: gate_read, native_data: data_write}[handle]
+
+    monkeypatch.setitem(sys.modules, "msvcrt", SimpleNamespace(open_osfhandle=open_osfhandle))
+    monkeypatch.setenv("_YASB_CODEX_GATE_HANDLE", str(native_gate))
+    monkeypatch.setenv("_YASB_CODEX_DATA_HANDLE", str(native_data))
+    monkeypatch.setenv("_YASB_CODEX_READY_NONCE", "ready-nonce")
+    calls = []
+    monkeypatch.setattr("yasb_limitora.limitora_api.read_codex", lambda runner: calls.append(runner) or expected)
+    stdout, stderr = io.BytesIO(), io.StringIO()
+
+    try:
+        assert cli.main([_INTERNAL_HELPER_FLAG], stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 0
+        assert os.read(data_read, len(b"READY:ready-nonce")) == b"READY:ready-nonce"
+        size = struct.unpack(">I", os.read(data_read, 4))[0]
+        assert codex_helper._decode(os.read(data_read, size)) == expected
+    finally:
+        os.close(data_read)
+
+    assert calls == [["codex"]]
+    assert stdout.getvalue() == b"" and stderr.getvalue() == ""
+
+
+def test_non_frozen_helper_command_keeps_isolated_bootstrap(monkeypatch):
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    monkeypatch.delattr(sys, "_MEIPASS", raising=False)
+
+    assert codex_helper._helper_command() == (sys.executable, "-I", "-E", "-c", _CHILD_BOOTSTRAP)
 
 
 def _snapshot(
