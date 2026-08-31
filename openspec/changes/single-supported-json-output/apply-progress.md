@@ -758,3 +758,47 @@ Apply-progress content hash (excluding this line): sha256:1f725c3df717ccc7f26262
 ### Workload / PR boundary
 
 This child is limited to the unified safe-error model and its assigned active consumers/tests. The no-rename diff remains below 400 lines. Commit locally after this evidence; do not push, open a PR, rename modules, or close the issue/change.
+
+## Progress: corrective Decimal exponent narrowing
+
+### Status
+
+- **Slice:** Corrective gate remediation for the unified safe-error child
+- **Branch:** `refactor/137-unify-safe-errors`
+- **Base:** `9111fd1` (`refactor(model): unify safe error codes`)
+- **Delivery boundary:** feature-branch-chain / auto-chain; one corrective local commit, no push or PR
+- **Allowed edit surfaces:** `src/yasb_limitora/model.py` and this progress artifact
+- **Cumulative diff:** 2 source lines plus this evidence entry; below the 400-line budget
+
+### Completed tasks
+
+- Added an explicit `isinstance(exponent, int)` invariant immediately after `Decimal.as_tuple()` in `_canonical_decimal`.
+- Preserved finite/non-negative validation, canonical trailing-zero normalization, significant-digit and rendered-length limits, and Decimal construction behavior.
+
+### TDD Cycle Evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Parent gate evidence identified the three Pyright operator/constructor errors: `Decimal.as_tuple().exponent` remained `int | special literal` after the finite check. Local Pyright executable, module, and language-server probes were unavailable. | Failing authoritative Pyright evidence recorded by the parent; local LSP could not reproduce |
+| GREEN | Added the smallest explicit non-int exponent rejection/narrowing after `value.as_tuple()`. | Focused model/contract/projection suite: `python -m pytest -q --strict-markers tests/test_codex_helper.py tests/test_contracts.py tests/test_json_v2_projection.py` → **179 passed** |
+| TRIANGULATE | Re-ran the same focused suite after syntax and diff checks. | **179 passed**; `python -m py_compile src/yasb_limitora/model.py` and `git diff --check` passed |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **586 tests collected**, 0 collection errors |
+| REFACTOR / Pyright-LSP | Retried `pyright`, `pyright-langserver`, and `python -m pyright src/yasb_limitora/model.py`. | Unavailable in this environment; authoritative post-change Pyright/LSP remains parent-gate verification |
+
+### Files changed
+
+- `src/yasb_limitora/model.py`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- None. This is a typing-only correction with no behavior, test, contract, naming, or identity changes.
+- Local Pyright/LSP was unavailable; the parent authoritative gate must verify the post-change diagnostics.
+
+### Remaining tasks
+
+- Parent gate: confirm clean Pyright/LSP evidence for `_canonical_decimal` and settle the corrected child.
+
+### Workload / PR boundary
+
+This corrective child contains one explicit type-narrowing invariant and cumulative evidence only. It remains well below the 400-line budget and is limited to one corrective local commit; do not push, open a PR, rename files, or close the issue/change from this child.

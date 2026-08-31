@@ -126,6 +126,8 @@ def _canonical_decimal(value: object) -> Decimal:
     if value.is_zero():
         return Decimal("0")
     _, digits, exponent = value.as_tuple()
+    if not isinstance(exponent, int):
+        raise ValueError("invalid quota quantity") from None
     while digits[-1] == 0:
         digits = digits[:-1]
         exponent += 1
