@@ -100,6 +100,7 @@ The failed `feature/137-json-projection@13f63d6` is excluded and is not in this 
 - [ ] TRIANGULATE: run focused success, failure, not-run, malformed, ordering, size, redaction, LF, stream/exit, precedence, deadline, stale-cache, import, process, guard, jobs, and spawn checks; require collection to remain clean.
 - [ ] REFACTOR: remove duplicate `project_bytes` and any behavior-slice lint debt introduced by the work; distinguish pre-existing named worker/test lint debt.
 - [x] Bounded legacy-deletion child: add the v1-artifact absence assertion, then remove `tests/test_v1_golden_fixtures.py` and `tests/fixtures/json_v1_*.json`; focused GREEN and collection pass.
+- [x] Bounded CLI orchestrator-only child: remove the reachable `RuntimeCoordinator` injection/fallback seam, migrate direct CLI/runtime consumers to the orchestrator seam, and retain coordinator.py for the later deletion child.
 - [ ] RED/GREEN/TRIANGULATE/REFACTOR each remaining bounded legacy deletion child at ≤400 no-rename lines.
 - [ ] Update examples and active docs only after runtime behavior is green; preserve historical and immutable identity text.
 

@@ -10,7 +10,6 @@ import re
 import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
-from pathlib import Path
 from typing import Any, TextIO, cast
 
 from .codex_helper import (
@@ -19,7 +18,6 @@ from .codex_helper import (
     _run_internal_helper,
 )
 from .config import ConfigError, LocalConfig
-from .coordinator import RuntimeCoordinator
 from .model import (
     DocumentView,
     ProviderKey,
@@ -80,10 +78,6 @@ def _env_or_default(environment: Mapping[str, str]) -> str:
     return _default_windows_config_path(environment)
 
 
-def _read_config(path: str) -> str:
-    return Path(path).read_text(encoding="utf-8")
-
-
 def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in pairs:
@@ -99,10 +93,7 @@ def _reject_json_constant(value: str) -> None:
 
 def _load_v2_explicit(path: str, context: DeadlineContext | None = None) -> tuple[LocalConfig, frozenset[ProviderKey]]:
     try:
-        if getattr(_read_config, "__module__", None) != __name__:
-            raw = _read_config(path)
-        else:
-            raw = read_v2_config(path, context or DeadlineContext.from_seconds(1))
+        raw = read_v2_config(path, context or DeadlineContext.from_seconds(1))
         value = json.loads(raw, object_pairs_hook=_unique_json_object, parse_constant=_reject_json_constant)
     except V2DeadlineError as error:
         raise V2DeadlineError("configuration deadline exhausted") from error
@@ -193,7 +184,6 @@ def main(
     argv: Sequence[str] | None = None,
     *,
     environment: Mapping[str, str] | None = None,
-    coordinator: RuntimeCoordinator | None = None,
     stdout: object | None = None,
     stderr: TextIO | None = None,
     platform_is_windows: Callable[[], bool] = _is_windows_runtime,
@@ -242,62 +232,58 @@ def main(
         coordination_data = None
         coordination_diagnostic = None
         try:
-            if coordinator is None and getattr(_read_config, "__module__", None) == __name__:
-                orchestrator = V2ExecutionOrchestrator()
-                runtime_context = DeadlineContext.from_seconds(config.deadline_seconds, t0_ns=t0_ns)
-                result = None
-                if not provider_errors and _v2_cache_eligible(config, effective_environment):
+            orchestrator = V2ExecutionOrchestrator()
+            runtime_context = DeadlineContext.from_seconds(config.deadline_seconds, t0_ns=t0_ns)
+            result = None
+            if not provider_errors and _v2_cache_eligible(config, effective_environment):
+                try:
+                    cache = V2QuotaCache(config, effective_environment, resolved_v2_path or "")
+                except Exception:  # noqa: BLE001 - cache setup is optional infrastructure
+                    cache = None
+                if cache is not None:
                     try:
-                        cache = V2QuotaCache(config, effective_environment, resolved_v2_path or "")
-                    except Exception:  # noqa: BLE001 - cache setup is optional infrastructure
-                        cache = None
-                    if cache is not None:
-                        try:
-                            result = cache.get_or_refresh(
-                                runtime_context,
-                                lambda attempt_context: orchestrator.run_refresh_attempt(
-                                    config,
-                                    effective_environment,
-                                    attempt_context,
-                                    resolved_v2_path or "",
-                                    **({"provider_errors": provider_errors} if provider_errors else {}),
-                                ),
+                        result = cache.get_or_refresh(
+                            runtime_context,
+                            lambda attempt_context: orchestrator.run_refresh_attempt(
+                                config,
+                                effective_environment,
+                                attempt_context,
+                                resolved_v2_path or "",
+                                **({"provider_errors": provider_errors} if provider_errors else {}),
+                            ),
+                        )
+                    except Exception:  # noqa: BLE001 - cache coordination must fail closed
+                        result = None
+                        coordination_data = _v2_cache_failure(
+                            "deadline_exhausted" if runtime_context.usable_ns() <= 0 else "internal_error"
+                        )
+                    if result is not None:
+                        if result.cached_public_bytes is not None:
+                            cached_data = result.cached_public_bytes
+                        elif result.deadline_exhausted:
+                            coordination_data = _v2_cache_failure("deadline_exhausted")
+                        elif result.coordination_failed:
+                            coordination_data = _v2_cache_failure(result.coordination_error)
+                            coordination_diagnostic = (
+                                "guard_wait_timeout"
+                                if result.coordination_error == "guard_wait_timeout"
+                                else "runtime_error"
                             )
-                        except Exception:  # noqa: BLE001 - cache coordination must fail closed
-                            result = None
-                            coordination_data = _v2_cache_failure(
-                                "deadline_exhausted" if runtime_context.usable_ns() <= 0 else "internal_error"
-                            )
-                        if result is not None:
-                            if result.cached_public_bytes is not None:
-                                cached_data = result.cached_public_bytes
-                            elif result.deadline_exhausted:
-                                coordination_data = _v2_cache_failure("deadline_exhausted")
-                            elif result.coordination_failed:
-                                coordination_data = _v2_cache_failure(result.coordination_error)
-                                coordination_diagnostic = (
-                                    "guard_wait_timeout"
-                                    if result.coordination_error == "guard_wait_timeout"
-                                    else "runtime_error"
-                                )
-                            else:
-                                value = result.value
-                                if not isinstance(value, DocumentView):
-                                    raise TypeError("v2 cache did not return a document")
-                                document = value
-                if cached_data is None and coordination_data is None and result is None:
-                    document = orchestrator.run(
-                        config,
-                        effective_environment,
-                        runtime_context,
-                        resolved_v2_path or "",
-                        **({"provider_errors": provider_errors} if provider_errors else {}),
-                    )
-                if orchestrator.last_record is not None:
-                    opencode_evidence = orchestrator.last_record.opencode_evidence
-            else:
-                active_coordinator = coordinator if coordinator is not None else RuntimeCoordinator()
-                document = active_coordinator.run(config, effective_environment)
+                        else:
+                            value = result.value
+                            if not isinstance(value, DocumentView):
+                                raise TypeError("v2 cache did not return a document")
+                            document = value
+            if cached_data is None and coordination_data is None and result is None:
+                document = orchestrator.run(
+                    config,
+                    effective_environment,
+                    runtime_context,
+                    resolved_v2_path or "",
+                    **({"provider_errors": provider_errors} if provider_errors else {}),
+                )
+            if orchestrator.last_record is not None:
+                opencode_evidence = orchestrator.last_record.opencode_evidence
         except Exception:  # noqa: BLE001 - the machine boundary must never expose runtime details
             data = project_v2_failure_bytes("internal_error")
             _write(out, data)

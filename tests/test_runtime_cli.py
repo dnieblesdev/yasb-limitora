@@ -3,7 +3,6 @@ import json
 import ntpath
 import threading
 import time
-from collections.abc import Callable
 from types import SimpleNamespace
 from typing import cast
 
@@ -17,7 +16,6 @@ from yasb_limitora.coordinator import RuntimeCoordinator
 from yasb_limitora.limitora_api import (
     OpenCodeFailureEvidence,
     OpenCodeReadResult,
-    OpenCodeRequest,
     read_opencode_go,
 )
 from yasb_limitora.model import (
@@ -59,6 +57,18 @@ def enabled_config(codex=True, opencode=True, timeout=0.2):
         "codex": {"enabled": codex, "runner": r"C:\codex.exe", "timeout_seconds": timeout},
         "opencode_go": {"enabled": opencode, "timeout_seconds": timeout},
     })
+
+
+class _FakeOrchestrator:
+    last_record = None
+
+    def __init__(self, document):
+        self.document = document
+        self.calls = []
+
+    def run(self, config, environment, context, config_path, *, provider_errors=frozenset()):
+        self.calls.append((config, environment, context, config_path, provider_errors))
+        return self.document
 
 
 def test_coordinator_preserves_mixed_outcomes_and_fixed_order():
@@ -143,10 +153,16 @@ def test_codex_timeout_does_not_erase_opencode_success():
 def test_concurrent_timeouts_use_invocation_deadlines_not_collection_order():
     release, started, calls = threading.Event(), [threading.Event(), threading.Event()], []
     def blocked(index, provider):
-        started[index].set(); release.wait(1); return view(provider)
+        started[index].set()
+        release.wait(1)
+        return view(provider)
     class BlockedCodex:
-        def run(self, runner): calls.append("codex"); return blocked(0, ProviderKey.CODEX)
-    def blocked_opencode(request): calls.append("opencode"); return OpenCodeReadResult(blocked(1, ProviderKey.OPENCODE_GO))
+        def run(self, runner):
+            calls.append("codex")
+            return blocked(0, ProviderKey.CODEX)
+    def blocked_opencode(request):
+        calls.append("opencode")
+        return OpenCodeReadResult(blocked(1, ProviderKey.OPENCODE_GO))
     config = enabled_config(timeout=0.05)
     result, worker = {}, threading.Thread(target=lambda: result.setdefault("document", RuntimeCoordinator(BlockedCodex(), blocked_opencode).run(config, {"LIMITORA_OPENCODE_API_KEY": "key"})), daemon=True)
     started_at = time.monotonic()
@@ -181,15 +197,22 @@ def test_invalid_arguments_are_safe_and_exit_two(bad):
 
 
 def test_missing_cookie_is_unavailable_and_streams_are_isolated(monkeypatch):
-    monkeypatch.setattr(cli, "_read_config", lambda path: json.dumps({"codex": {}, "opencode_go": {}}))
+    monkeypatch.setattr(cli, "read_v2_config", lambda path, context: json.dumps({"codex": {}, "opencode_go": {}}))
+    orchestrator = _FakeOrchestrator(
+        DocumentView.ordered(
+            ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED),
+            ProviderView(
+                ProviderKey.OPENCODE_GO,
+                ProviderState.UNAVAILABLE,
+                outcome=ProviderOutcome.NOT_RUN,
+                not_run_reason="disabled",
+            ),
+        )
+    )
+    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
     code = main(
         (),
-
-        coordinator=RuntimeCoordinator(
-            Codex(view(ProviderKey.CODEX)),
-            cast(Callable[[OpenCodeRequest], OpenCodeReadResult], lambda _request: pytest.fail("reader must not run without credentials")),
-        ),
         environment={"LOCALAPPDATA": r"C:\Users\runtime-test\AppData\Local"}, stdout=stdout, stderr=stderr,
         platform_is_windows=lambda: True,
     )
@@ -201,18 +224,20 @@ def test_missing_cookie_is_unavailable_and_streams_are_isolated(monkeypatch):
 
 
 def test_runtime_safe_error_has_exit_one_and_sanitized_diagnostic(monkeypatch):
-    monkeypatch.setattr(cli, "_read_config", lambda path: json.dumps({"codex": {}, "opencode_go": {}}))
+    monkeypatch.setattr(cli, "read_v2_config", lambda path, context: json.dumps({"codex": {}, "opencode_go": {}}))
     stdout, stderr = io.BytesIO(), io.StringIO()
-    class FailingCoordinator:
-        def run(self, config, environment):
+    class FailingOrchestrator:
+        last_record = None
+
+        def run(self, config, environment, context, config_path, *, provider_errors=frozenset()):
             return DocumentView.ordered(
                 view(ProviderKey.CODEX, ProviderState.SAFE_ERROR, SafeErrorCode.TIMEOUT),
                 view(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE),
             )
-    coordinator = FailingCoordinator()
+
+    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", FailingOrchestrator)
     assert main(
         (),
-        coordinator=cast(RuntimeCoordinator, coordinator),
         environment={
             "LOCALAPPDATA": r"C:\Users\runtime-test\AppData\Local",
             "LIMITORA_OPENCODE_API_KEY": "key",
@@ -239,21 +264,28 @@ def test_v2_default_resolution_reads_injected_localappdata(monkeypatch):
     paths = []
     localappdata = r"C:\Users\runtime-test\AppData\Local"
 
-    def read_config(path):
+    def read_config(path, context):
         paths.append(path)
         return json.dumps({"codex": {}, "opencode_go": {}})
 
-    monkeypatch.setattr(cli, "_read_config", read_config)
-    coordinator = RuntimeCoordinator(
-        Codex(view(ProviderKey.CODEX, ProviderState.UNAVAILABLE)),
-        cast(Callable[[OpenCodeRequest], OpenCodeReadResult], lambda _request: pytest.fail("reader must not run without credentials")),
+    monkeypatch.setattr(cli, "read_v2_config", read_config)
+    orchestrator = _FakeOrchestrator(
+        DocumentView.ordered(
+            view(ProviderKey.CODEX, ProviderState.UNAVAILABLE),
+            ProviderView(
+                ProviderKey.OPENCODE_GO,
+                ProviderState.UNAVAILABLE,
+                outcome=ProviderOutcome.NOT_RUN,
+                not_run_reason="disabled",
+            ),
+        )
     )
+    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     assert main(
         (),
         environment={"LOCALAPPDATA": localappdata},
-        coordinator=coordinator,
         stdout=stdout,
         stderr=stderr,
         platform_is_windows=lambda: True,
@@ -428,20 +460,22 @@ def test_v2_provider_config_error_bypasses_cache_and_preserves_usable_peer(monke
 def test_v2_configuration_failure_starts_no_provider(monkeypatch):
     starts = []
 
-    def read_config(path):
+    def read_config(path, context):
         raise OSError("private config detail")
 
-    class UnexpectedCoordinator:
-        def run(self, config, environment):
-            starts.append((config, environment))
+    class UnexpectedOrchestrator:
+        def __init__(self):
+            starts.append(True)
+
+        def run(self, config, environment, context, config_path, *, provider_errors=frozenset()):
             raise AssertionError("provider execution started after configuration failure")
 
-    monkeypatch.setattr(cli, "_read_config", read_config)
+    monkeypatch.setattr(cli, "read_v2_config", read_config)
+    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", UnexpectedOrchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
     assert main(
         (),
         environment={"LOCALAPPDATA": r"C:\Users\runtime-test\AppData\Local"},
-        coordinator=cast(RuntimeCoordinator, UnexpectedCoordinator()),
         stdout=stdout,
         stderr=stderr,
         platform_is_windows=lambda: True,

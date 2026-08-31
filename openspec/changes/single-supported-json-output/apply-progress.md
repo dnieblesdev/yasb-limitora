@@ -599,3 +599,26 @@ This is the final public selector-removal work unit only. The semantic diff rema
 ### Workload / PR boundary
 
 This child is one focused dead-routing work unit on `refactor/137-cli-dead-routing`; the implementation diff is within the 400-line semantic budget. One local conventional commit is required after verification. Do not push, open a PR, merge, or close the issue/change from this child; the parent owns chained delivery after bounded children are ready.
+
+## Progress: CLI orchestrator-only seam cleanup
+
+- **Slice / branch:** Semantic 3 bounded child; `refactor/137-cli-orchestrator-only`
+- **Base / delivery:** `e737135`; feature-branch-chain / auto-chain, one local commit, no push or PR
+- **Completed:** Removed `RuntimeCoordinator`, `coordinator=`, `_read_config` origin detection, and the injected fallback; `V2ExecutionOrchestrator` is unconditional after configuration. Migrated direct CLI/runtime consumers to patch/fake that seam.
+- **Preserved:** Cache/single-flight, provider overlay, deadline, streams/exits, platform gate, freeze support, coordinator.py, legacy projection, v2 names, and immutable identities.
+
+### TDD Cycle Evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | New CLI signature/legacy-attribute contract test before production edits | **1 failed** |
+| GREEN | Focused CLI/runtime/platform/contracts suite | **134 passed, 3 skipped** |
+| TRIANGULATE | Required focused suite with worker/native checks | **167 passed, 3 skipped**; native proof alone **11 passed** |
+| TRIANGULATE / collection | Strict collection | **590 tests collected**, 0 errors |
+| REFACTOR | Ruff on changed Python files and `git diff --check` | Passed |
+| REFACTOR / full | `python -m pytest -q --strict-markers` | **586 passed, 3 skipped, 1 pre-existing** isolated safe-path provenance failure |
+
+- **Files:** `src/yasb_limitora/cli.py`; four allowed CLI/runtime/platform/contract tests; `tasks.md`; this artifact.
+- **Deviations:** None; later runtime cleanup, renames, and `coordinator.py` deletion remain out of scope.
+- **Remaining:** Later bounded cleanup, docs/examples, rename exceptions, and final verification.
+- **Workload / PR boundary:** No-renames accounting is **368 changed lines** (`git diff --no-renames --numstat`), below 400. One local commit only; no push, PR, rename, or issue/change closure.

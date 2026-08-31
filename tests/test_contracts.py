@@ -1,3 +1,4 @@
+import inspect
 import json
 import math
 from pathlib import Path
@@ -34,9 +35,14 @@ def test_v1_golden_artifacts_are_absent() -> None:
     assert not tuple((root / "tests/fixtures").glob("json_v1_*.json"))
 
 
-@pytest.mark.parametrize("name", ("_failure", "_LEGACY_READ_CONFIG", "_load_explicit", "_load_path", "_load"))
+@pytest.mark.parametrize("name", ("_failure", "_LEGACY_READ_CONFIG", "_read_config", "_load_explicit", "_load_path", "_load"))
 def test_removed_cli_helpers_are_absent(name: str) -> None:
     assert not hasattr(cli, name)
+
+
+def test_cli_main_has_no_legacy_coordinator_injection() -> None:
+    assert "coordinator" not in inspect.signature(cli.main).parameters
+    assert not hasattr(cli, "RuntimeCoordinator")
 
 
 def test_config_is_immutable_and_repr_redacts_private_values() -> None:
