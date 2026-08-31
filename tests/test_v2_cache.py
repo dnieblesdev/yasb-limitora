@@ -749,6 +749,7 @@ def test_stale_generation_cannot_publish_after_authority_is_lost(tmp_path, monke
     assert result.cached_public_bytes is None
     assert cache.load(context()) is None
     marker = cache._read_marker(context())
+    # pi-lens-ignore: hardcoded-password
     assert marker is not None and marker["generation"] == 2 and marker["owner_token"] == "new-authority"
 
 
@@ -840,6 +841,7 @@ def test_process_identity_query_failure_is_unknown_and_never_reclaimed(tmp_path,
     assert calls == []
     assert result.coordination_failed
     current = cache._read_marker(context())
+    # pi-lens-ignore: hardcoded-password
     assert current is not None and current["generation"] == 3 and current["owner_token"] == "owner-token"
 
 

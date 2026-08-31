@@ -945,3 +945,51 @@ This is one bounded corrective test-quality work unit. The cumulative diff remai
 ### Workload / PR boundary
 
 This is one focused roadmap documentation work unit on `docs/137-roadmap-supersession`. It is below the 400-line budget, contains no runtime changes or renames, and is ready for one local commit only; do not push or open a PR from this child.
+
+## Progress: rejected roadmap-child evidence remediation
+
+### Status
+
+- **Slice:** Corrective evidence for the roadmap supersession child
+- **Branch:** `docs/137-roadmap-supersession`
+- **Base:** `8e99e81`
+- **Remediates:** rejected gate evidence `sha256:9b256a136d473f8c3cba28dcc2cac92fca8f54487c3bd3a7918a0228d71dcb2c`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local commit, no push or PR
+- **Allowed edit surfaces:** `tests/test_v2_cache.py` and this artifact only
+- **Cumulative diff:** below the 400-line budget
+
+### Completed tasks
+
+- Validated the two already-written `pi-lens-ignore: hardcoded-password` comments directly above the synthetic `owner_token` assertion fixtures.
+- Preserved all fixture values, cache-marker behavior, and test assertions; no production, documentation-content, rename, or unrelated changes were made.
+- Confirmed exactly two targeted suppressions remain and no other suppression or fixture edit was introduced.
+
+### Strict TDD cycle evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Prior audited ast-grep/lens gate evidence `sha256:9b256a136d473f8c3cba28dcc2cac92fca8f54487c3bd3a7918a0228d71dcb2c` reported exactly two hardcoded-password findings on synthetic `owner_token` assertion fixtures. | **2 findings; gate rejected** |
+| GREEN | Validated the parent-written targeted comments with a fresh Python AST/token equivalent lens check. | **PASS**; matches only lines 753 and 845, both directly suppressed; no unsuppressed findings |
+| TRIANGULATE | `python -m pytest -q --strict-markers tests/test_v2_cache.py tests/test_windows_only_documentation_contract.py` on the native Windows host. | **71 passed** |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **588 tests collected**, 0 collection errors |
+| REFACTOR | `ruff check tests/test_v2_cache.py` and `git diff --check` | All checks passed |
+
+### Files changed
+
+- `tests/test_v2_cache.py` — two targeted suppression comments only
+- `openspec/changes/single-supported-json-output/apply-progress.md` — this cumulative evidence entry
+
+### Deviations from design
+
+- None. This remediation changes neither fixture values nor behavior and is limited to the rejected evidence plus its corrective record.
+
+### Remaining tasks
+
+- Parent gate: acquire and settle this corrected child using the distinct progress hash below.
+- Continue the remaining chain work and final verification at the designated boundary.
+
+### Workload / PR boundary
+
+This corrective work unit contains exactly the two required test comments and cumulative evidence, remains below 400 changed lines, and is ready for one local commit only. Do not push, open, merge, or close the issue/change from this child.
+
+Apply-progress content hash (excluding this line): sha256:a5f45935c62aa69b83bc62dbc06e3b3a87823908b6f93c5caaea4bfba41e9e5d
