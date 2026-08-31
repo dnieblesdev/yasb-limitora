@@ -344,3 +344,54 @@ Assigned test-only remediation slice; the 381-line total no-rename diff remains 
 - **TRIANGULATE:** CLI/platform/runtime tests: **89 passed, 4 skipped**; diff check passed.
 - **Budget:** 24 insertions + 6 deletions, below 400.
 - **Scope:** `src/yasb_limitora/cli.py` only; no selector behavior change, rename, push, or PR.
+
+## Progress: intermediate CLI current-default slice
+
+### Status
+
+- **Slice:** Semantic 2 intermediate — selector-free current routing and explicit-v1 rejection
+- **Branch:** `feature/137-json-cli-default-current`
+- **Base:** `feature/137-json-cli-imports` at `be5e06f`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local commit only, no push or PR
+- **Provider/no-rename budget:** 35 additions + 31 deletions before this progress entry; under the 400-line limit including the bounded progress update
+
+### Completed tasks
+
+- Made `_output_version` select the current (v2) contract when no selector is supplied.
+- Rejected explicit `--output-version 1` and `--output-version=1` before configuration or coordinator execution.
+- Kept explicit v2 selector spellings as a temporary no-op compatibility seam for this intermediate child.
+- Updated only directly affected assertions in `tests/test_cli_output_version.py` for current-contract invalid output and selector-free current routing.
+
+### TDD cycle evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Updated selector-free/current and explicit-v1 tests first; `python -m pytest -q tests/test_cli_output_version.py -k 'explicit_v1_is_rejected_with_current_contract or selector_free'` | **5 failed, 53 deselected**; failures were the expected legacy v1 routing/shape mismatches |
+| GREEN | Implemented the bounded selector seam and current invalid-invocation envelope in `src/yasb_limitora/cli.py`; `python -m pytest -q tests/test_cli_output_version.py` | **59 passed** |
+| TRIANGULATE | `python -m pytest -q --strict-markers tests/test_cli_output_version.py tests/test_cli_platform_boundary.py` | **63 passed, 4 skipped** |
+| TRIANGULATE / runtime current path | `python -m pytest -q --strict-markers tests/test_runtime_cli.py -k 'v2'` | **14 passed, 12 deselected** |
+| TRIANGULATE / required dependent command | `python -m pytest -q --strict-markers tests/test_cli_output_version.py tests/test_cli_platform_boundary.py tests/test_runtime_cli.py` | **6 failures** in un-migrated selector-free legacy expectations in `tests/test_runtime_cli.py`; no edits made there per handoff scope |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **590 tests collected**, 0 collection errors |
+| REFACTOR / diagnostics | `ruff check src/yasb_limitora/cli.py tests/test_cli_output_version.py`, `python -m py_compile ...`, and `git diff --check` | Passed; no new diagnostics |
+
+### Files changed
+
+- `src/yasb_limitora/cli.py`
+- `tests/test_cli_output_version.py`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- This is intentionally an intermediate compatibility slice: v2 filenames, symbols, legacy coordinator/serializer code, and explicit v2 selector spellings remain unchanged for later children.
+- Remaining selector-free legacy expectations in `tests/test_runtime_cli.py` are intentionally not migrated in this child, so the complete three-file dependent command is not yet green; the current v2 subset and directly affected CLI tests are green.
+- No task checkbox was changed because no existing broad task item is fully completed by this bounded slice.
+
+### Remaining tasks
+
+- Migrate remaining selector invocations and selector-free legacy test expectations in the later CLI/runtime child.
+- Eventually remove selector 2 and the legacy routing/coordinator/projection paths in the designated follow-up slices.
+- Run final full strict-marker and native Windows verification at the final chain boundary.
+
+### Workload / PR boundary
+
+This child contains only the current-default/v1-rejection behavior and directly affected output-version tests. The no-rename diff remains below 400 changed lines. Explicit v2 selectors are temporary and must not be described as final selector removal. One local commit is authorized after the focused green tests and collection evidence; no push or PR.

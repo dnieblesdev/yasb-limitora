@@ -74,28 +74,29 @@ def _config_path(argv: Sequence[str]) -> str | None:
 
 
 def _output_version(argv: Sequence[str]) -> tuple[int | None, tuple[str, ...]]:
-    """Remove one exact output selector, leaving the frozen v1 arguments intact."""
+    """Select the current output contract, retaining temporary v2 no-op syntax."""
 
     if not all(isinstance(item, str) for item in argv):
         raise InvocationError
-    version: int | None = None
+    version: int | None = 2
+    selector_seen = False
     remaining: list[str] = []
     index = 0
     while index < len(argv):
         argument = argv[index]
         if argument == "--output-version":
-            if version is not None or index + 1 >= len(argv):
+            if selector_seen or index + 1 >= len(argv):
                 raise InvocationError
             value = argv[index + 1]
-            if value not in {"1", "2"}:
+            if value != "2":
                 raise InvocationError
-            version = 1 if value == "1" else 2
+            selector_seen = True
             index += 2
             continue
         if argument.startswith("--output-version="):
-            if version is not None or argument[17:] not in {"1", "2"}:
+            if selector_seen or argument[17:] != "2":
                 raise InvocationError
-            version = 1 if argument[17:] == "1" else 2
+            selector_seen = True
             index += 1
             continue
         remaining.append(argument)
@@ -270,7 +271,7 @@ def main(
     try:
         version, load_args = _output_version(args)
     except InvocationError:
-        _write(out, project_bytes(_failure(SafeErrorCode.INVOCATION_INVALID)))
+        _write(out, project_v2_failure_bytes("invocation_invalid"))
         err.write("yasb-limitora: invocation_invalid\n")
         err.flush()
         return 2

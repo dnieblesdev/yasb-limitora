@@ -107,14 +107,14 @@ class _Coordinator:
 
 
 @pytest.mark.parametrize("argv", (("--output-version", "1"), ("--output-version=1",)))
-def test_explicit_v1_routes_the_frozen_projection(argv):
-    code, document, stderr, raw = _run(argv, coordinator=_Coordinator(_disabled_document()))
-    assert code == 0
-    assert document == {"version": 1, "providers": [
-        {"provider": "codex", "state": "unavailable"},
-        {"provider": "opencode_go", "state": "unavailable"},
-    ]}
-    assert stderr == ""
+def test_explicit_v1_is_rejected_with_current_contract(argv):
+    coordinator = _Coordinator(_disabled_document())
+    code, document, stderr, raw = _run(argv, coordinator=coordinator)
+    assert code == 2
+    assert "version" not in document
+    assert document["execution_error"] == {"code": "invocation_invalid", "phase": "configuration"}
+    assert stderr == "yasb-limitora: invocation_invalid\n"
+    assert coordinator.calls == []
     assert raw.endswith(b"\n") and not raw.endswith(b"\n\n")
 
 
@@ -147,29 +147,30 @@ def test_untrusted_selectors_reject_before_config_or_coordinator(monkeypatch, ar
     coordinator = _Coordinator(_disabled_document())
     code, document, stderr, raw = _run(argv, coordinator=coordinator)
     assert code == 2
-    assert document["version"] == 1
-    assert document["providers"][0]["error"]["code"] == "invocation_invalid"
+    assert "version" not in document
+    assert document["execution_error"] == {"code": "invocation_invalid", "phase": "configuration"}
     assert stderr == "yasb-limitora: invocation_invalid\n"
     assert b"token" not in raw
     assert coordinator.calls == []
 
 
 @pytest.mark.parametrize("argv", (("--unknown",), ("positional",)))
-def test_later_v1_invocation_rejection_loads_then_skips_coordinator(monkeypatch, argv):
+def test_selector_free_invocation_rejection_uses_current_contract(monkeypatch, argv):
     events = []
 
-    def controlled_load(load_args):
-        events.append(("load", tuple(load_args)))
+    def controlled_resolve(load_args, environment):
+        events.append(("resolve", tuple(load_args), environment))
         raise cli.InvocationError
 
-    monkeypatch.setattr(cli, "_load", controlled_load)
+    monkeypatch.setattr(cli, "_resolve_config_path", controlled_resolve)
     coordinator = _Coordinator(_disabled_document())
     code, document, stderr, _ = _run(argv, coordinator=coordinator)
 
     assert code == 2
-    assert document["version"] == 1
+    assert "version" not in document
+    assert document["execution_error"] == {"code": "invocation_invalid", "phase": "configuration"}
     assert stderr == "yasb-limitora: invocation_invalid\n"
-    assert events == [("load", argv)]
+    assert events == [("resolve", argv, {})]
     assert coordinator.calls == []
 
 
@@ -255,7 +256,8 @@ def test_duplicate_config_flags_fail_safely(tmp_path):
     path = str(tmp_path / "config.json")
     for selector in ((), ("--output-version", "1"), ("--output-version", "2")):
         code, document, stderr, _ = _run((*selector, "--config", path, "-c", path))
-        assert code == 2 and ("version" not in document if selector == ("--output-version", "2") else document["version"] == 1)
+        assert code == 2 and "version" not in document
+        assert document["execution_error"] == {"code": "invocation_invalid", "phase": "configuration"}
         assert stderr == "yasb-limitora: invocation_invalid\n"
 
 
@@ -474,14 +476,15 @@ def test_v2_grammar_rejects_duplicate_unknown_and_trailing_data(tmp_path, raw):
     assert stderr == "yasb-limitora: configuration_invalid\n"
 
 
-def test_v1_loader_keeps_deadline_seconds_out_of_its_grammar(tmp_path):
+def test_selector_free_loader_uses_current_grammar(tmp_path):
     path = tmp_path / "config.json"
     path.write_text(json.dumps({"deadline_seconds": 7}), encoding="utf-8")
-    code, document, stderr, _ = _run(("--config", str(path)))
-    assert code == 2
-    assert document["version"] == 1
-    assert stderr == "yasb-limitora: configuration_invalid\n"
-
+    coordinator = _Coordinator(_disabled_document())
+    code, document, stderr, _ = _run(("--config", str(path)), coordinator=coordinator)
+    assert code == 0
+    assert "version" not in document
+    assert all(provider["outcome"] == "not_run" for provider in document["providers"])
+    assert stderr == ""
 
 @pytest.mark.parametrize(
     ("peer_outcome", "expected_code", "expected_state"),
