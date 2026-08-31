@@ -6,10 +6,11 @@
 calls from YASB.
 
 > **Current status:** R1-R10 and generic real YASB CustomWidget manual acceptance
-> are complete. Automated native Windows proof covers the `yasb-limitora` CLI/JSON v2
+> are complete. OpenCode Bearer API migration #130 is implemented and integrated
+> via PR #159. Automated native Windows proof covers the `yasb-limitora` CLI/JSON v2
 > contract; real OpenCode provider acceptance remains an external pending gate for
-> R11/#130. No automated YASB rendering or external YASB E2E is claimed; the CLI is
-> Windows-only.
+> R11. No automated YASB rendering or external YASB E2E is
+> claimed; the CLI is Windows-only.
 
 ## Runtime support boundary
 
@@ -114,8 +115,9 @@ not authorize native YASB implementation work.
 ## Roadmap gate
 
 R1-R10 are the completed product units recorded in
-[`docs/roadmap.md`](docs/roadmap.md). Generic YASB CustomWidget acceptance is complete;
-real OpenCode provider acceptance remains an external manual gate for R11/#130.
+[`docs/roadmap.md`](docs/roadmap.md). Generic YASB CustomWidget acceptance is complete,
+and OpenCode Bearer API migration #130 is implemented and integrated via PR #159;
+real OpenCode provider acceptance remains an external manual gate for R11.
 Automated proof covers the native CLI/JSON v2 boundary; abandoned R10 automation is
 historical context only, with no automated YASB rendering claim.
 

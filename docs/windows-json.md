@@ -249,11 +249,13 @@ paths must not be published in configuration, documentation, or issue logs.
 
 ## Manual native YASB acceptance
 
-R10 generic YASB CustomWidget acceptance is complete. This is the remaining real
-OpenCode provider acceptance for R11/#130: a **manual acceptance procedure, not
-automated E2E**. Run it only with an existing real Windows YASB installation and
-authorized test environment; do not install/embed YASB, invent a key, or make an
-unauthorized request. Otherwise the provider gate remains externally pending.
+R10 generic YASB CustomWidget acceptance is complete, and OpenCode Bearer API
+migration #130 is complete and integrated via PR #159. This is the remaining R11
+gate after completed #130: real OpenCode provider acceptance is a **manual
+acceptance procedure, not automated E2E**. Run it only with an existing real
+Windows YASB installation and authorized test environment; do not install/embed
+YASB, invent a key, or make an unauthorized request. Otherwise the provider gate
+remains externally pending.
 
 Using the copy-ready example in `examples/customwidget/`:
 

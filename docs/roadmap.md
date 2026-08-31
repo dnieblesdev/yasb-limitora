@@ -28,7 +28,7 @@ runtime portability or Windows integration proof.
 | R8 | Add the cross-process execution guard | Add bounded guard acquisition, deadlines, and cleanup behavior | Complete — merged to `main` at `5bee184` |
 | R9 | Package CustomWidget examples and static CSS | Package the CustomWidget examples and static presentation assets | Complete — merged to `main` at `2d529ae` |
 | R10 | Prove pinned YASB integration on Windows | Validate the YASB CustomWidget integration on Windows | Complete — automated native CLI/JSON proof plus maintainer manual YASB acceptance |
-| R11 | Release and smoke-test 0.2.0 | Complete release readiness and the final smoke test | Next, gated by #130 and the released Limitora 0.3.1 dependency/manual OpenCode acceptance |
+| R11 | Release and smoke-test 0.2.0 | Complete release readiness and the final smoke test | Next — migration #130 complete and integrated via #159; gated by manual OpenCode acceptance and release/smoke-test #62 |
 
 ## Official architecture
 
@@ -284,9 +284,10 @@ two explicit proof boundaries, and makes no automated YASB rendering claim:
 This closeout does not claim automated YASB rendering, an external YASB E2E
 harness, or OpenCode real-provider acceptance. The earlier unsupported
 automation harness remains historical context only. OpenCode Bearer API
-migration #130 is the next R11 dependency and must be completed and manually
-accepted in real YASB before R11 release readiness; #62 remains the broader
-release and smoke-test gate.
+migration #130 is complete and integrated via PR #159 at `main` merge
+`bdcd29f6`; the separate manual OpenCode acceptance in a real YASB
+installation remains the manual R11 gate, with #62 as the broader release
+and smoke-test gate.
 
 ### R10 final stabilization evidence
 
@@ -297,9 +298,12 @@ empty stderr, no remaining process.
 
 ## Current gate
 
-R1-R10 are complete. R11 is next, gated by the released Limitora 0.3.1 dependency,
-approved OpenCode migration #130, and separate manual OpenCode acceptance in a
-real YASB installation. No R11 release claim is made here.
+R1-R10 are complete. OpenCode Bearer API migration #130 is complete and
+integrated via PR #159 at `main` merge `bdcd29f6`; final `main` run
+`33345080629` (Limitora 0.3.1) passed the selected 11 checks with checkpoint 9
+and the full suite (598 passed, 4 skipped). R11 is next, gated by the separate
+manual OpenCode acceptance in a real YASB installation and release/smoke-test
+#62. No R11 release claim is made here.
 
 ## Explicit exclusions for 0.2
 

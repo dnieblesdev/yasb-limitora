@@ -44,9 +44,10 @@ R10 is complete at two separate boundaries:
    contract.
 2. The maintainer accepted the real YASB CustomWidget manually on YASB v2.0.6.
 
-OpenCode supported-API validation remains an R11 gate under migration #130. It
-requires a separate maintainer manual acceptance in a real YASB installation
-after that migration; it is not an R10 or automated-YASB-rendering claim.
+OpenCode supported-API implementation under migration #130 is complete and
+integrated via PR #159 at `main` merge `bdcd29f6`. The remaining R11 gate is a
+separate maintainer manual acceptance of the real OpenCode provider in a real
+YASB installation; it is not an R10 or automated-YASB-rendering claim.
 
 ## Rejected research paths
 

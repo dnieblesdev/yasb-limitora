@@ -122,7 +122,7 @@ def test_opencode_operator_contract_documents_the_copy_ready_flow():
         "register it in a YASB bar",
         "providers[1]"))
     assert "default `limitora_r9` entry is Codex-only" in example_readme and 'run_cmd: "yasb-limitora --output-version 2"' in yaml and "providers][1]" in yaml
-    assert all(needle in normalized for needle in ("### v1 commands (frozen)", "### v2 commands", "--output-version 2", "integer `version: 2`", "fixed order `codex`, then `opencode_go`", "Codex and OpenCode outcomes are independent", "manual acceptance procedure", "Temporarily add `limitora_r9_opencode_manual` to YASB's `widgets:` config and bar list", "remove/revert the temporary widget from both the YASB bar list and `widgets:` config", "not automated E2E", "install/embed YASB", "extra commercial periods are discarded", "Unavailable is reserved for those fixed-slot cases", "Limitora #55 was implemented and released in v0.3.0", "#133 remains the downstream follow-up", "outside the #130/0.2 migration", "generic YASB CustomWidget acceptance", "OpenCode provider acceptance", "R11/#130"))
+    assert all(needle in normalized for needle in ("### v1 commands (frozen)", "### v2 commands", "--output-version 2", "integer `version: 2`", "fixed order `codex`, then `opencode_go`", "Codex and OpenCode outcomes are independent", "manual acceptance procedure", "Temporarily add `limitora_r9_opencode_manual` to YASB's `widgets:` config and bar list", "remove/revert the temporary widget from both the YASB bar list and `widgets:` config", "not automated E2E", "install/embed YASB", "extra commercial periods are discarded", "Unavailable is reserved for those fixed-slot cases", "Limitora #55 was implemented and released in v0.3.0", "#133 remains the downstream follow-up", "outside the #130/0.2 migration", "generic YASB CustomWidget acceptance", "OpenCode provider acceptance", "remaining R11 gate"))
     for code in ("guard_acquisition_failed", "guard_wait_timeout", "deadline_exhausted", "credential_invalid", "provider_timeout", "provider_rate_limited", "provider_failed", "provider_unavailable", "invalid_provider_data", "unknown_provider_state"):
         assert code in windows
     for state in ("available", "partial", "unavailable", "unauthorized", "rate_limited", "transient_error", "invalid_data"):
@@ -203,3 +203,67 @@ def test_source_of_truth_docs_use_the_consumed_limitora_bearer_contract():
     assert all(period in specification for period in ("five_hour", "monthly", "weekly"))
     assert "technical-only" in specification
     assert "- fixed assumptions about provider window count or names;" not in specification
+
+
+def test_completed_migration_130_is_not_documented_as_a_pending_gate():
+    texts = {path: path.read_text(encoding="utf-8") for path in STATUS_DOCUMENTS}
+    windows = (ROOT / "docs/windows-json.md").read_text(encoding="utf-8")
+    readme = texts[ROOT / "README.md"]
+    roadmap = texts[ROOT / "docs/roadmap.md"]
+    research = texts[ROOT / "docs/research/README.md"]
+    specification = texts[ROOT / "docs/specifications/json-v2.md"]
+    combined = "\n".join(texts[path] for path in STATUS_DOCUMENTS) + "\n" + windows
+
+    # Migration #130 is complete and integrated; no document may describe
+    # it as a pending implementation gate or an unmet R11 dependency again.
+    for pattern in (
+        r"R11/#130",
+        r"gated by[^.]{0,120}#130",
+        r"\bpending[^.\n]{0,80}#130",
+        r"deferred to[^.\n]{0,60}#130",
+        r"#130[^.\n]{0,80}(?:is|was|remains)[^.\n]{0,40}\b(?:pending|next)\b",
+        r"#130[^.\n]{0,80}must be completed|must be completed[^.\n]{0,60}#130",
+        r"next R11 dependency",
+    ):
+        assert not re.search(pattern, combined, re.IGNORECASE), pattern
+
+    # Completion/integration must stay visible on the migration-gate status surfaces.
+    assert re.search(
+        r"#130[^.\n]{0,120}(?:complete|implemented)[^.\n]{0,120}#159", readme, re.IGNORECASE
+    )
+    assert re.search(r"#130[^.\n]{0,120}\bcomplete", research, re.IGNORECASE)
+    assert re.search(
+        r"(?:complete|completed)[^.\n]{0,80}#130[^.\n]{0,80}implementation base",
+        specification,
+        re.IGNORECASE,
+    )
+    roadmap_r11 = next(line for line in roadmap.splitlines() if "| R11 |" in line)
+    assert re.search(r"#130[^|\n]{0,120}\bcomplete", roadmap_r11, re.IGNORECASE)
+
+    # The concise #159/main integration evidence remains recorded.
+    for evidence in (
+        "#159",
+        "`bdcd29f6`",
+        "`33345080629`",
+        "Limitora 0.3.1",
+        "598 passed",
+        "4 skipped",
+        "checkpoint 9",
+    ):
+        assert evidence in roadmap
+
+    # The separate external manual OpenCode gate wording must survive.
+    assert "external pending gate" in readme
+    assert re.search(r"manual\s+OpenCode\s+acceptance", roadmap, re.IGNORECASE)
+    manual = " ".join(
+        windows.split("## Manual native YASB acceptance", 1)[1]
+        .split("## Verified limitations and troubleshooting", 1)[0]
+        .split()
+    )
+    for needle in (
+        "migration #130 is complete",
+        "remaining R11 gate",
+        "manual acceptance procedure, not automated E2E",
+        "externally pending",
+    ):
+        assert needle in manual
