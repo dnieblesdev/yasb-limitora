@@ -802,3 +802,54 @@ This child is limited to the unified safe-error model and its assigned active co
 ### Workload / PR boundary
 
 This corrective child contains one explicit type-narrowing invariant and cumulative evidence only. It remains well below the 400-line budget and is limited to one corrective local commit; do not push, open a PR, rename files, or close the issue/change from this child.
+
+## Progress: CustomWidget current-output examples/docs child
+
+### Status
+
+- **Slice:** Semantic 4 bounded child — current-only CustomWidget examples and directly coupled assertions
+- **Branch:** `docs/137-customwidget-current-output`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local commit, no push or PR
+- **Allowed edit surfaces:** `examples/customwidget/customwidget.yaml`, `examples/customwidget/README.md`, `tests/test_customwidget_examples.py`, `tests/test_windows_only_documentation_contract.py`, this artifact, and `tasks.md`
+- **No-rename budget:** 43 changed lines before this progress entry; below the 400-line semantic limit
+
+### Completed tasks
+
+- Changed both canonical CustomWidget entries to invoke selector-free `yasb-limitora`.
+- Updated the example README to describe the sole current JSON contract without output-selector negotiation or active version claims, while preserving PATH, configuration, credential, reload, provider-order, and manual-acceptance instructions.
+- Retained exact `providers[0]`/`providers[1]` YASB paths and immutable provider source IDs `codex-app-server-v2` and `opencode-go-api` in fixture validation.
+- Reworked example assertions to name the current contract, require selector-free commands, and retain the exact three root fields and provider mappings.
+- Updated only the directly coupled documentation-contract assertions for the example command and README.
+
+### TDD Cycle Evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Updated CustomWidget assertions first; `python -m pytest -q --strict-markers tests/test_customwidget_examples.py` | **1 failed, 6 passed** because the YAML still used `yasb-limitora --output-version 2` |
+| GREEN | Updated the two YAML commands and current-only README; focused example/documentation suite `python -m pytest -q --strict-markers tests/test_customwidget_examples.py tests/test_windows_only_documentation_contract.py` | **14 passed** |
+| TRIANGULATE | `python -m pytest -q --strict-markers --collect-only`; `python -m pytest -q`; `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` | **587 collected**, 0 collection errors; full suite **583 passed, 3 skipped, 1 pre-existing environment failure** in isolated safe-path package provenance; native proof **10 passed, 1 pre-existing/flaky provider-barrier failure** |
+| REFACTOR | `ruff check tests/test_customwidget_examples.py tests/test_windows_only_documentation_contract.py`; `git diff --check`; YAML safe-load/path/source validation; example residue grep excluding immutable source IDs | Ruff passed; diff check passed; YAML and residue checks passed |
+
+### Files changed
+
+- `examples/customwidget/customwidget.yaml`
+- `examples/customwidget/README.md`
+- `tests/test_customwidget_examples.py`
+- `tests/test_windows_only_documentation_contract.py`
+- `openspec/changes/single-supported-json-output/tasks.md`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- No runtime, normative specification, root README, Windows JSON, architecture, roadmap, schema, module-name, or provider implementation changes were made.
+- The documentation-contract test retains its existing normative Windows v1/v2 historical assertions; only example-coupled expectations were migrated.
+- The native Windows provider-barrier proof failed once because the child sentinel was observed empty after the existing `owned` synchronization; no assigned files or runtime code were changed.
+
+### Remaining tasks
+
+- Parent chain: remaining semantic/runtime cleanup, mechanical normalization rename exceptions, final active-residue verification, and final full/native verification disposition.
+- Recheck the pre-existing isolated-safe-path full-suite failure and the native provider-barrier proof in the supported verification environment.
+
+### Workload / PR boundary
+
+This is the assigned bounded CustomWidget examples/docs child on `docs/137-customwidget-current-output`. The no-rename diff is below 400 lines and contains only the allowed surfaces. Commit locally as one reviewable work unit; do not push, open, merge, or close the issue/change from this child.

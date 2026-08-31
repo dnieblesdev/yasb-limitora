@@ -1,7 +1,6 @@
 import re
 from pathlib import Path
 
-
 ROOT = Path(__file__).parents[1]
 DOCUMENTS = (
     ROOT / "README.md",
@@ -111,6 +110,7 @@ def test_scoped_docs_declare_one_bounded_windows_only_contract():
 def test_opencode_operator_contract_documents_the_copy_ready_flow():
     readme, windows = [(ROOT / name).read_text(encoding="utf-8") for name in ("README.md", "docs/windows-json.md")]
     example_readme = (ROOT / "examples/customwidget/README.md").read_text(encoding="utf-8")
+    example_readme_normalized = " ".join(example_readme.split())
     yaml = (ROOT / "examples/customwidget/customwidget.yaml").read_text(encoding="utf-8")
     combined = " ".join((readme + windows).split())
     normalized = " ".join(windows.split())
@@ -121,7 +121,10 @@ def test_opencode_operator_contract_documents_the_copy_ready_flow():
         '"opencode_go": {', '"enabled": true', "--output-version 2",
         "register it in a YASB bar",
         "providers[1]"))
-    assert "default `limitora_r9` entry is Codex-only" in example_readme and 'run_cmd: "yasb-limitora --output-version 2"' in yaml and "providers][1]" in yaml
+    assert "default `limitora_r9` entry is Codex-only" in example_readme
+    assert "sole current JSON contract" in example_readme_normalized
+    assert "--output-version" not in example_readme and "--output-version" not in yaml
+    assert yaml.count('run_cmd: "yasb-limitora"') == 2 and "providers][1]" in yaml
     assert all(needle in normalized for needle in ("### v1 commands (frozen)", "### v2 commands", "--output-version 2", "integer `version: 2`", "fixed order `codex`, then `opencode_go`", "Codex and OpenCode outcomes are independent", "manual acceptance procedure", "Temporarily add `limitora_r9_opencode_manual` to YASB's `widgets:` config and bar list", "remove/revert the temporary widget from both the YASB bar list and `widgets:` config", "not automated E2E", "install/embed YASB", "extra commercial periods are discarded", "Unavailable is reserved for those fixed-slot cases", "Limitora #55 was implemented and released in v0.3.0", "#133 remains the downstream follow-up", "outside the #130/0.2 migration", "generic YASB CustomWidget acceptance", "OpenCode provider acceptance", "remaining R11 gate"))
     for code in ("guard_acquisition_failed", "guard_wait_timeout", "deadline_exhausted", "credential_invalid", "provider_timeout", "provider_rate_limited", "provider_failed", "provider_unavailable", "invalid_provider_data", "unknown_provider_state"):
         assert code in windows
