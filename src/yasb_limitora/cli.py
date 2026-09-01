@@ -36,7 +36,7 @@ from .projection import (
 )
 from .v2_deadline import DeadlineContext
 from .v2_path import V2DeadlineError, read_v2_config
-from .v2_worker import V2ExecutionOrchestrator
+from .worker import ExecutionOrchestrator
 
 _SECRET = re.compile(r"auth.?cookie|cookie|token|password|secret|credential|api.?key|authorization", re.IGNORECASE)
 
@@ -231,7 +231,7 @@ def main(
         coordination_data = None
         coordination_diagnostic = None
         try:
-            orchestrator = V2ExecutionOrchestrator()
+            orchestrator = ExecutionOrchestrator()
             runtime_context = DeadlineContext.from_seconds(config.deadline_seconds, t0_ns=t0_ns)
             result = None
             if not provider_errors and _cache_eligible(config, effective_environment):

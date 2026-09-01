@@ -33,7 +33,7 @@ from yasb_limitora.projection import (
 )
 from yasb_limitora.v2_deadline import DeadlineContext
 from yasb_limitora.v2_guard import GuardError, V2Guard
-from yasb_limitora.v2_worker import OpenCodeWorkerProcess, V2ExecutionOrchestrator
+from yasb_limitora.worker import ExecutionOrchestrator, OpenCodeWorkerProcess
 
 
 def view(provider, state=ProviderState.SUCCESS, code=None, display_label=None):
@@ -81,7 +81,7 @@ def test_missing_cookie_is_unavailable_and_streams_are_isolated(monkeypatch):
             ),
         )
     )
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", lambda: orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
     code = main(
         (),
@@ -107,7 +107,7 @@ def test_runtime_safe_error_has_exit_one_and_sanitized_diagnostic(monkeypatch):
                 view(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE),
             )
 
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", FailingOrchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", FailingOrchestrator)
     assert main(
         (),
         environment={
@@ -152,7 +152,7 @@ def test_v2_default_resolution_reads_injected_localappdata(monkeypatch):
             ),
         )
     )
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", lambda: orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     assert main(
@@ -191,12 +191,12 @@ def test_v2_cli_missing_opencode_credentials_is_clean_not_run(monkeypatch, tmp_p
         def run_with_deadline(self, request, context):
             return read_opencode_go(request).view
 
-    orchestrator = V2ExecutionOrchestrator(
+    orchestrator = ExecutionOrchestrator(
         guard_factory=cast(type[V2Guard], Guard),
         opencode_factory=cast(type[OpenCodeWorkerProcess], Worker),
     )
 
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", lambda: orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     code = main(
@@ -256,11 +256,11 @@ def test_v2_cli_consumes_private_opencode_evidence_sidecar(evidence, expected, m
             self.last_result = OpenCodeReadResult(view, evidence)
             return view
 
-    orchestrator = V2ExecutionOrchestrator(
+    orchestrator = ExecutionOrchestrator(
         guard_factory=cast(type[V2Guard], Guard),
         opencode_factory=cast(type[OpenCodeWorkerProcess], Worker),
     )
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", lambda: orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     code = main(
@@ -308,7 +308,7 @@ def test_provider_config_error_bypasses_cache_and_preserves_usable_peer(monkeypa
             )
 
     monkeypatch.setattr(cli, "RefreshCoordinator", Cache)
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", Orchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", Orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     code = main(
@@ -343,7 +343,7 @@ def test_v2_configuration_failure_starts_no_provider(monkeypatch):
             raise AssertionError("provider execution started after configuration failure")
 
     monkeypatch.setattr(cli, "read_v2_config", read_config)
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", UnexpectedOrchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", UnexpectedOrchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
     assert main(
         (),
@@ -407,15 +407,15 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
 
     codex: _MatrixCodex | None = None
     if scenario == "guard_wait_timeout":
-        orchestrator = V2ExecutionOrchestrator(guard_factory=cast(type[V2Guard], lambda: _MatrixGuard(error=scenario)))
+        orchestrator = ExecutionOrchestrator(guard_factory=cast(type[V2Guard], lambda: _MatrixGuard(error=scenario)))
         expected = project_not_run_bytes(scenario)
         expected_stderr = "yasb-limitora: guard_wait_timeout\n"
     elif scenario == "guard_acquisition_failed":
-        orchestrator = V2ExecutionOrchestrator(guard_factory=cast(type[V2Guard], lambda: _MatrixGuard(error=scenario)))
+        orchestrator = ExecutionOrchestrator(guard_factory=cast(type[V2Guard], lambda: _MatrixGuard(error=scenario)))
         expected = project_failure_bytes(scenario)
         expected_stderr = "yasb-limitora: runtime_error\n"
     elif scenario == "deadline_exhausted":
-        orchestrator = V2ExecutionOrchestrator(guard_factory=cast(type[V2Guard], _MatrixGuard))
+        orchestrator = ExecutionOrchestrator(guard_factory=cast(type[V2Guard], _MatrixGuard))
         real_from_seconds = DeadlineContext.from_seconds
         calls = []
 
@@ -430,7 +430,7 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
         expected_stderr = "yasb-limitora: runtime_error\n"
     else:
         codex = _MatrixCodex()
-        orchestrator = V2ExecutionOrchestrator(
+        orchestrator = ExecutionOrchestrator(
             guard_factory=cast(type[V2Guard], lambda: _MatrixGuard(lease=_MatrixLease(close=False))),
             codex_executor=codex,
         )
@@ -442,7 +442,7 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
         expected = project_bytes(ProjectionInput(expected_document, frozenset({ProviderKey.CODEX})))
         expected_stderr = "yasb-limitora: runtime_error\n"
 
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", lambda: orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
     code = main(("--config", str(path)), environment={"LOCALAPPDATA": str(tmp_path), "LIMITORA_OPENCODE_API_KEY": "key"}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
 
@@ -504,11 +504,11 @@ def test_cli_second_invocation_uses_published_cache_without_rerunning_producer(m
             return RunLease()
 
     codex = _MatrixCodex()
-    orchestrator = V2ExecutionOrchestrator(
+    orchestrator = ExecutionOrchestrator(
         guard_factory=cast(type[V2Guard], RunGuard),
         codex_executor=codex,
     )
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", lambda: orchestrator)
     environment = {"LOCALAPPDATA": str(tmp_path)}
     outputs = []
     for _ in range(2):
@@ -549,7 +549,7 @@ def test_cli_cache_producer_failure_fails_closed_without_direct_run(monkeypatch,
         def get_or_refresh(self, context, producer):
             return producer(context)
 
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", FailingOrchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", FailingOrchestrator)
     monkeypatch.setattr(cli, "RefreshCoordinator", lambda config, environment, config_path: Cache())
     stdout, stderr = io.BytesIO(), io.StringIO()
 
@@ -589,7 +589,7 @@ def test_cli_cache_constructor_failure_runs_orchestrator(monkeypatch, tmp_path):
         raise OSError("private cache setup failure")
 
     monkeypatch.setattr(cli, "read_v2_config", lambda path, context: json.dumps(config).encode())
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", Orchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", Orchestrator)
     monkeypatch.setattr(cli, "RefreshCoordinator", fail_cache)
     stdout, stderr = io.BytesIO(), io.StringIO()
 
@@ -625,7 +625,7 @@ def test_cli_cache_guard_timeout_preserves_diagnostic_without_running_producer(m
             return SingleFlightResult(coordination_failed=True, coordination_error="guard_wait_timeout")
 
     monkeypatch.setattr(cli, "read_v2_config", lambda path, context: json.dumps(config).encode())
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", Orchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", Orchestrator)
     monkeypatch.setattr(cli, "RefreshCoordinator", lambda *args: Cache())
     stdout, stderr = io.BytesIO(), io.StringIO()
     code = main(("--config", str(path)), environment={"LOCALAPPDATA": str(tmp_path)}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)

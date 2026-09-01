@@ -21,7 +21,7 @@ from yasb_limitora.model import (
 
 def _run(argv, *, orchestrator=None, environment=None):
     stdout, stderr = io.BytesIO(), io.StringIO()
-    seam = patch.object(cli, "V2ExecutionOrchestrator", lambda: orchestrator) if orchestrator is not None else nullcontext()
+    seam = patch.object(cli, "ExecutionOrchestrator", lambda: orchestrator) if orchestrator is not None else nullcontext()
     with seam:
         code = main(
             argv,
@@ -56,7 +56,7 @@ def test_windows_freeze_support_claims_terminal_child_before_cli_dispatch(monkey
 
     monkeypatch.setattr(cli.multiprocessing, "freeze_support", terminal_freeze_support)
     monkeypatch.setattr(cli, "_resolve_config_path", lambda argv, environment: unexpected("config_resolution"))
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: unexpected("orchestrator"))
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", lambda: unexpected("orchestrator"))
 
     with pytest.raises(FreezeSupportClaimed):
         main(

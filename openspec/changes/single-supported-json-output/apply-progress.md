@@ -1399,3 +1399,39 @@ Native/no-rename count is **3,778 changed lines** (1,911 additions + 1,867 delet
 ### Workload / PR boundary
 
 Native/no-rename accounting is **4,490 changed lines** including this progress/task evidence; Git rename-aware accounting is **200 changed lines** (123 additions + 77 deletions). This remains within the approved **4,500-line** exception ceiling. Rollback is limited to this cache source/test rename and direct cache reference updates. Commit locally only; do not push or open a PR.
+
+## Progress: size:exception 4 — worker source/tests rename
+
+### Status
+
+- **Slice:** Mechanical worker normalization; `feature/137-json-rename-worker`.
+- **Authorization:** Maintainer-approved `size:exception 4`; native/no-rename ceiling 2,700 lines.
+- **Delivery:** Feature-branch-chain / auto-chain; leave changes uncommitted for parent inspection; no push or PR.
+
+### Completed tasks
+
+- Renamed `src/yasb_limitora/v2_worker.py` to `src/yasb_limitora/worker.py` and `tests/test_v2_worker.py` to `tests/test_worker.py`.
+- Renamed the active `V2ExecutionOrchestrator` and `V2ExecutionRecord` symbols and migrated direct CLI, runtime, output, native, and platform-boundary consumers.
+- Preserved worker/process assertions, test identities, source IDs, and the later-slice `v2_guard`, `v2_deadline`, and `v2_path` spellings without compatibility aliases.
+
+### Strict TDD and verification evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Focused platform-boundary suite after the provider rename and before its consumer migration | **1 failed, 3 passed, 3 skipped**: the stale `cli.V2ExecutionOrchestrator` monkeypatch raised `AttributeError` |
+| GREEN | Migrated the approved platform-boundary consumer to `cli.ExecutionOrchestrator` | Worker/process/CLI/platform/cache/native suite: **175 passed, 3 skipped** |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **593 tests collected**, 0 collection errors |
+| REFACTOR / compile | `python -m py_compile` on changed Python source and test files | Passed |
+| REFACTOR / diagnostics | Ruff on changed Python files, compared with `47b1f91` worker test | Worker and non-worker changed files clean; four worker-test findings remain, all pre-existing debt: `PLR0402`, `PIE790`, `FURB157`, and `RUF023`. The base had those same four plus import-only `I001` and `PLR0402` for the former `v2_worker` alias; the rename removes those two rather than introducing findings. |
+
+### Files and boundary
+
+- `src/yasb_limitora/worker.py` (renamed from `v2_worker.py`)
+- `tests/test_worker.py` (renamed from `test_v2_worker.py`)
+- Direct consumers: `src/yasb_limitora/cli.py`, `tests/test_runtime_cli.py`, `tests/test_cli_output_version.py`, `tests/test_windows_native_proof.py`, and `tests/test_cli_platform_boundary.py`
+- Rename-only checklist/progress evidence: `tasks.md` and this artifact
+- No semantic process/runtime behavior, assertion, identity, source ID, or later-slice path spelling changed. Rollback is limited to this worker/test rename and its direct consumers.
+
+### Accounting
+
+Final native/no-rename count versus `47b1f91` is **2,579 changed lines** (1,311 additions + 1,268 deletions); Git rename-aware count is **165 changed lines** (104 additions + 61 deletions). Both include the direct consumer and task/progress evidence; native is within the approved 2,700-line ceiling.

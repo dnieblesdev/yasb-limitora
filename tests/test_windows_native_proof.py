@@ -37,7 +37,7 @@ from yasb_limitora.model import (
 from yasb_limitora.v2_deadline import DeadlineContext
 from yasb_limitora.v2_guard import V2Guard
 from yasb_limitora.v2_path import V2FileError, canonicalize_v2_path, read_v2_config
-from yasb_limitora.v2_worker import cleanup_complete
+from yasb_limitora.worker import cleanup_complete
 
 TEST_SID = bytes((1, 1, 0, 0, 0, 0, 0, 5, 21, 0, 0, 0))
 
