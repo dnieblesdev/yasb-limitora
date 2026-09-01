@@ -2,31 +2,31 @@ import os
 
 import pytest
 
-from yasb_limitora.v2_deadline import DeadlineContext
-from yasb_limitora.v2_path import V2DeadlineError, V2FileError, read_v2_config
+from yasb_limitora.deadline import DeadlineContext
+from yasb_limitora.path import DeadlineError, FileError, read_config
 
 
 def _context():
     return DeadlineContext(t0_ns=0, deadline_ns=10_000_000_000, reserve_ns=250_000_000, clock_ns=lambda: 0)
 
 
-def test_v2_config_read_accepts_16384_bytes_and_rejects_the_extra_byte(tmp_path):
+def test_config_read_accepts_16384_bytes_and_rejects_the_extra_byte(tmp_path):
     valid = tmp_path / "valid.json"
     valid.write_bytes(b"{" + b" " * 16_382 + b"}")
-    assert len(read_v2_config(valid, _context())) == 16_384
+    assert len(read_config(valid, _context())) == 16_384
 
     oversized = tmp_path / "oversized.json"
     oversized.write_bytes(b"x" * 16_385)
-    with pytest.raises(V2FileError):
-        read_v2_config(oversized, _context())
+    with pytest.raises(FileError):
+        read_config(oversized, _context())
 
 
-def test_v2_config_read_rejects_non_regular_files_without_fallback(tmp_path):
-    with pytest.raises(V2FileError):
-        read_v2_config(tmp_path, _context())
+def test_config_read_rejects_non_regular_files_without_fallback(tmp_path):
+    with pytest.raises(FileError):
+        read_config(tmp_path, _context())
 
 
-def test_v2_config_read_does_not_open_after_deadline_expiry(tmp_path):
+def test_config_read_does_not_open_after_deadline_expiry(tmp_path):
     path = tmp_path / "config.json"
     path.write_text("{}", encoding="utf-8")
     opened = []
@@ -36,21 +36,21 @@ def test_v2_config_read_does_not_open_after_deadline_expiry(tmp_path):
         opened.append(args)
         return os.open(*args)
 
-    with pytest.raises(V2FileError):
-        read_v2_config(path, expired, open_fn=open_file)
+    with pytest.raises(FileError):
+        read_config(path, expired, open_fn=open_file)
     assert opened == []
 
 
-def test_v2_config_read_uses_usable_budget_before_cleanup_reserve(tmp_path):
+def test_config_read_uses_usable_budget_before_cleanup_reserve(tmp_path):
     path = tmp_path / "config.json"
     path.write_text("{}", encoding="utf-8")
     context = DeadlineContext(t0_ns=0, deadline_ns=1_000_000_000, reserve_ns=250_000_000, clock_ns=lambda: 800_000_000)
 
-    with pytest.raises(V2DeadlineError):
-        read_v2_config(path, context, open_fn=lambda *args: os.open(*args))
+    with pytest.raises(DeadlineError):
+        read_config(path, context, open_fn=lambda *args: os.open(*args))
 
 
-def test_v2_config_read_closes_descriptor_when_deadline_expires_during_read(tmp_path):
+def test_config_read_closes_descriptor_when_deadline_expires_during_read(tmp_path):
     path = tmp_path / "config.json"
     path.write_text("{}", encoding="utf-8")
     opened = []
@@ -62,8 +62,8 @@ def test_v2_config_read_closes_descriptor_when_deadline_expires_during_read(tmp_
         return descriptor
 
     context = DeadlineContext(t0_ns=0, deadline_ns=1, reserve_ns=0, clock_ns=lambda: next(ticks))
-    with pytest.raises(V2DeadlineError):
-        read_v2_config(path, context, open_fn=open_file, close_fn=lambda descriptor: os.close(descriptor))
+    with pytest.raises(DeadlineError):
+        read_config(path, context, open_fn=open_file, close_fn=lambda descriptor: os.close(descriptor))
 
     descriptor = opened[0]
     try:
@@ -76,19 +76,19 @@ def test_v2_config_read_closes_descriptor_when_deadline_expires_during_read(tmp_
             pass
 
 
-def test_v2_config_read_close_failure_is_sanitized(tmp_path):
+def test_config_read_close_failure_is_sanitized(tmp_path):
     path = tmp_path / "config.json"
     path.write_text("{}", encoding="utf-8")
 
     def close_file(_fd):
         raise OSError("private close detail")
 
-    with pytest.raises(V2FileError) as error:
-        read_v2_config(path, _context(), close_fn=close_file)
+    with pytest.raises(FileError) as error:
+        read_config(path, _context(), close_fn=close_file)
     assert str(error.value) == "configuration read failed"
 
 
-def test_v2_config_read_kills_a_blocking_injected_read_within_remaining_budget(tmp_path):
+def test_config_read_kills_a_blocking_injected_read_within_remaining_budget(tmp_path):
     path = tmp_path / "config.json"
     path.write_text("{}", encoding="utf-8")
 
@@ -98,12 +98,12 @@ def test_v2_config_read_kills_a_blocking_injected_read_within_remaining_budget(t
         return b"{}"
 
     context = DeadlineContext(t0_ns=0, deadline_ns=100_000_000, reserve_ns=20_000_000, clock_ns=lambda: 0)
-    with pytest.raises(V2FileError):
-        read_v2_config(path, context, read_fn=blocking_read)
+    with pytest.raises(FileError):
+        read_config(path, context, read_fn=blocking_read)
 
 
 def test_bounded_file_call_closes_both_pipe_endpoints_when_start_fails(monkeypatch):
-    from yasb_limitora import v2_path
+    from yasb_limitora import path as path_module
 
     events = []
 
@@ -144,11 +144,11 @@ def test_bounded_file_call_closes_both_pipe_endpoints_when_start_fails(monkeypat
     monkeypatch.setenv("LIMITORA_TEST_SECRET", "must-not-leak")
     monkeypatch.setenv("SYSTEMROOT", "public-sentinel")
     expected = dict(os.environ)
-    monkeypatch.setattr(v2_path.multiprocessing, "get_all_start_methods", lambda: ["spawn"])
-    monkeypatch.setattr(v2_path.multiprocessing, "get_context", lambda method: Context())
+    monkeypatch.setattr(path_module.multiprocessing, "get_all_start_methods", lambda: ["spawn"])
+    monkeypatch.setattr(path_module.multiprocessing, "get_context", lambda method: Context())
 
-    with pytest.raises(V2FileError) as error:
-        v2_path._bounded_file_call(lambda: None, (), _context())
+    with pytest.raises(FileError) as error:
+        path_module._bounded_file_call(lambda: None, (), _context())
 
     assert str(error.value) == "configuration read failed"
     assert events == ["process", "receiver", "sender"]
@@ -159,7 +159,7 @@ def test_bounded_file_call_closes_both_pipe_endpoints_when_start_fails(monkeypat
 def test_windows_spawn_passes_only_public_environment_to_create_process(monkeypatch):
     from multiprocessing import popen_spawn_win32
 
-    from yasb_limitora import v2_path
+    from yasb_limitora import path as path_module
     captured = {}
     winapi = vars(popen_spawn_win32)["_winapi"]
     real_create_process = winapi.CreateProcess
@@ -172,16 +172,16 @@ def test_windows_spawn_passes_only_public_environment_to_create_process(monkeypa
     monkeypatch.setenv("PATH", public_path)
     monkeypatch.setenv("LIMITORA_TEST_SECRET", "must-not-leak")
     monkeypatch.setattr(winapi, "CreateProcess", capture_create_process)
-    assert v2_path._bounded_file_call(bytes, (b"ok",), _context()) == b"ok"
+    assert path_module._bounded_file_call(bytes, (b"ok",), _context()) == b"ok"
     environment = captured["environment"]
-    public_keys = vars(v2_path)["_PUBLIC_CHILD_ENV_KEYS"]
+    public_keys = vars(path_module)["_PUBLIC_CHILD_ENV_KEYS"]
     assert environment["PATH"] == public_path
     assert "LIMITORA_TEST_SECRET" not in environment and set(environment) <= public_keys | {"__PYVENV_LAUNCHER__"}
 
 
 @pytest.mark.parametrize("operation", ("read", "call"))
 def test_bounded_private_job_and_process_cleanup_are_retained_and_retried(monkeypatch, operation):
-    from yasb_limitora import v2_path
+    from yasb_limitora import path as path_module
 
     close_attempts = []
     process_close_attempts = []
@@ -243,31 +243,31 @@ def test_bounded_private_job_and_process_cleanup_are_retained_and_retried(monkey
 
     jobs = []
     module = type("WindowsJobModule", (), {"WindowsJobBoundary": lambda: jobs.append(Job()) or jobs[-1]})
-    monkeypatch.setattr(v2_path.os, "name", "nt")
-    monkeypatch.setattr(v2_path.multiprocessing, "get_all_start_methods", lambda: ["spawn"])
-    monkeypatch.setattr(v2_path.multiprocessing, "get_context", lambda method: Context())
-    monkeypatch.setitem(v2_path.__dict__, "__import__", lambda *args, **kwargs: module)
+    monkeypatch.setattr(path_module.os, "name", "nt")
+    monkeypatch.setattr(path_module.multiprocessing, "get_all_start_methods", lambda: ["spawn"])
+    monkeypatch.setattr(path_module.multiprocessing, "get_context", lambda method: Context())
+    monkeypatch.setitem(path_module.__dict__, "__import__", lambda *args, **kwargs: module)
 
     if operation == "read":
-        invoke = lambda: v2_path._bounded_file_read("C:\\config.json", _context())
+        invoke = lambda: path_module._bounded_file_read("C:\\config.json", _context())
     else:
-        invoke = lambda: v2_path._bounded_file_call(lambda: None, (), _context())
+        invoke = lambda: path_module._bounded_file_call(lambda: None, (), _context())
     try:
-        with pytest.raises(V2FileError):
+        with pytest.raises(FileError):
             invoke()
-        assert close_attempts == [1] and len(v2_path._PENDING_JOB_OWNERS) == 1
-        assert process_close_attempts == [1] and len(v2_path._PENDING_PROCESS_OWNERS) == 1
+        assert close_attempts == [1] and len(path_module._PENDING_JOB_OWNERS) == 1
+        assert process_close_attempts == [1] and len(path_module._PENDING_PROCESS_OWNERS) == 1
         assert invoke() == b"{}"
         assert close_attempts == [1, 2, 3]
         assert process_close_attempts == [1, 2, 3]
-        assert not v2_path._PENDING_JOB_OWNERS and not v2_path._PENDING_PROCESS_OWNERS
+        assert not path_module._PENDING_JOB_OWNERS and not path_module._PENDING_PROCESS_OWNERS
     finally:
-        v2_path._PENDING_JOB_OWNERS.clear()
-        v2_path._PENDING_PROCESS_OWNERS.clear()
+        path_module._PENDING_JOB_OWNERS.clear()
+        path_module._PENDING_PROCESS_OWNERS.clear()
 
 
 def test_bounded_file_call_authorizes_child_after_private_job_assignment(monkeypatch):
-    from yasb_limitora import v2_path
+    from yasb_limitora import path as path_module
 
     events = []
 
@@ -320,19 +320,19 @@ def test_bounded_file_call_authorizes_child_after_private_job_assignment(monkeyp
             events.append("job-close")
 
     module = type("WindowsJobModule", (), {"WindowsJobBoundary": Job})
-    monkeypatch.setattr(v2_path.os, "name", "nt")
-    monkeypatch.setattr(v2_path.multiprocessing, "get_all_start_methods", lambda: ["spawn"])
-    monkeypatch.setattr(v2_path.multiprocessing, "get_context", lambda method: Context())
-    monkeypatch.setitem(v2_path.__dict__, "__import__", lambda *args, **kwargs: module)
+    monkeypatch.setattr(path_module.os, "name", "nt")
+    monkeypatch.setattr(path_module.multiprocessing, "get_all_start_methods", lambda: ["spawn"])
+    monkeypatch.setattr(path_module.multiprocessing, "get_context", lambda method: Context())
+    monkeypatch.setitem(path_module.__dict__, "__import__", lambda *args, **kwargs: module)
 
     callback = lambda: events.append("callback") or b"value"
 
-    assert v2_path._bounded_file_call(callback, (), _context()) == b"value"
+    assert path_module._bounded_file_call(callback, (), _context()) == b"value"
     assert events.index("job-assign") < events.index("authorize") < events.index("child-wait") < events.index("callback")
 
 
 def test_bounded_file_call_ipc_cleanup_failure_is_retained_and_retried(monkeypatch):
-    from yasb_limitora import v2_path
+    from yasb_limitora import path as path_module
 
     receiver_failure = [True]
 
@@ -384,23 +384,23 @@ def test_bounded_file_call_ipc_cleanup_failure_is_retained_and_retried(monkeypat
             pass
 
     module = type("WindowsJobModule", (), {"WindowsJobBoundary": Job})
-    monkeypatch.setattr(v2_path.os, "name", "nt")
-    monkeypatch.setattr(v2_path.multiprocessing, "get_all_start_methods", lambda: ["spawn"])
-    monkeypatch.setattr(v2_path.multiprocessing, "get_context", lambda method: Context())
-    monkeypatch.setitem(v2_path.__dict__, "__import__", lambda *args, **kwargs: module)
+    monkeypatch.setattr(path_module.os, "name", "nt")
+    monkeypatch.setattr(path_module.multiprocessing, "get_all_start_methods", lambda: ["spawn"])
+    monkeypatch.setattr(path_module.multiprocessing, "get_context", lambda method: Context())
+    monkeypatch.setitem(path_module.__dict__, "__import__", lambda *args, **kwargs: module)
 
     try:
-        with pytest.raises(V2FileError):
-            v2_path._bounded_file_call(lambda: b"value", (), _context())
-        assert len(v2_path._PENDING_IPC_OWNERS) == 1
-        assert v2_path._bounded_file_call(lambda: b"value", (), _context()) == b"value"
-        assert not v2_path._PENDING_IPC_OWNERS
+        with pytest.raises(FileError):
+            path_module._bounded_file_call(lambda: b"value", (), _context())
+        assert len(path_module._PENDING_IPC_OWNERS) == 1
+        assert path_module._bounded_file_call(lambda: b"value", (), _context()) == b"value"
+        assert not path_module._PENDING_IPC_OWNERS
     finally:
-        v2_path._PENDING_IPC_OWNERS.clear()
+        path_module._PENDING_IPC_OWNERS.clear()
 
 
 def test_bounded_file_call_rechecks_deadline_before_authorization(monkeypatch):
-    from yasb_limitora import v2_path
+    from yasb_limitora import path as path_module
 
     events = []
 
@@ -457,20 +457,20 @@ def test_bounded_file_call_rechecks_deadline_before_authorization(monkeypatch):
             events.append("job-close")
 
     module = type("WindowsJobModule", (), {"WindowsJobBoundary": Job})
-    monkeypatch.setattr(v2_path.os, "name", "nt")
-    monkeypatch.setattr(v2_path.multiprocessing, "get_all_start_methods", lambda: ["spawn"])
-    monkeypatch.setattr(v2_path.multiprocessing, "get_context", lambda method: Context())
-    monkeypatch.setitem(v2_path.__dict__, "__import__", lambda *args, **kwargs: module)
+    monkeypatch.setattr(path_module.os, "name", "nt")
+    monkeypatch.setattr(path_module.multiprocessing, "get_all_start_methods", lambda: ["spawn"])
+    monkeypatch.setattr(path_module.multiprocessing, "get_context", lambda method: Context())
+    monkeypatch.setitem(path_module.__dict__, "__import__", lambda *args, **kwargs: module)
 
-    with pytest.raises(V2DeadlineError):
-        v2_path._bounded_file_call(lambda: b"value", (), ExpiringContext())
+    with pytest.raises(DeadlineError):
+        path_module._bounded_file_call(lambda: b"value", (), ExpiringContext())
 
     assert "job-assign" in events and "authorize" not in events
     assert "job-close" in events and "process-close" in events and "event-close" in events
 
 
 def test_frozen_windows_spawn_uses_bundle_executable_and_required_bootloader_context(monkeypatch):
-    from yasb_limitora import v2_path
+    from yasb_limitora import path as path_module
 
     bundle_executable = r"C:\\bundle\\yasb-limitora.exe"
     source = {
@@ -482,10 +482,10 @@ def test_frozen_windows_spawn_uses_bundle_executable_and_required_bootloader_con
         "LIMITORA_OPENCODE_API_KEY": "must-not-leak",
         "OPENAI_API_KEY": "must-not-leak",
     }
-    monkeypatch.setattr(v2_path._PRIVATE_SYS, "frozen", True, raising=False)
+    monkeypatch.setattr(path_module._PRIVATE_SYS, "frozen", True, raising=False)
 
-    environment = v2_path._private_child_environment(source)
-    application = v2_path._windows_spawn_executable(
+    environment = path_module._private_child_environment(source)
+    application = path_module._windows_spawn_executable(
         bundle_executable, replace_with_base=True, base_executable=r"C:\\Python\\python.exe"
     )
 
@@ -501,7 +501,7 @@ def test_frozen_windows_spawn_uses_bundle_executable_and_required_bootloader_con
 
 
 def test_non_frozen_windows_spawn_keeps_base_executable_and_public_environment(monkeypatch):
-    from yasb_limitora import v2_path
+    from yasb_limitora import path as path_module
 
     source = {
         "PATH": "public-sentinel",
@@ -510,10 +510,10 @@ def test_non_frozen_windows_spawn_keeps_base_executable_and_public_environment(m
         "_PYI_PARENT_PROCESS_LEVEL": "1",
         "LIMITORA_OPENCODE_API_KEY": "must-not-leak",
     }
-    monkeypatch.delattr(v2_path._PRIVATE_SYS, "frozen", raising=False)
+    monkeypatch.delattr(path_module._PRIVATE_SYS, "frozen", raising=False)
 
-    environment = v2_path._private_child_environment(source)
-    application = v2_path._windows_spawn_executable(
+    environment = path_module._private_child_environment(source)
+    application = path_module._windows_spawn_executable(
         r"C:\\venv\\Scripts\\python.exe", replace_with_base=True, base_executable=r"C:\\Python\\python.exe"
     )
 

@@ -1,10 +1,10 @@
 """Immutable, local-only configuration contracts for provider execution."""
 
-from collections.abc import Mapping, MutableSet
-from dataclasses import dataclass
 import math
 import ntpath
 import re
+from collections.abc import Mapping, MutableSet
+from dataclasses import dataclass
 
 from .model import ProviderKey
 
@@ -36,17 +36,6 @@ def _reject_credential_keys(value: object) -> None:
             _reject_credential_keys(nested)
 
 
-def _reject_nested_provider_credentials(value: object) -> None:
-    if isinstance(value, Mapping):
-        for key, nested in value.items():
-            if isinstance(key, str) and _CREDENTIAL_KEY.search(key):
-                raise ConfigError("credential-like configuration is not accepted")
-            if isinstance(nested, (Mapping, list, tuple)):
-                _reject_credential_keys(nested)
-    elif isinstance(value, (list, tuple)):
-        _reject_credential_keys(value)
-
-
 def _mapping(value: object) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise ConfigError("provider configuration must be an object")
@@ -57,7 +46,7 @@ def _fields(value: Mapping[str, object], allowed: set[str]) -> None:
         raise ConfigError("unsupported provider configuration field")
 
 def _timeout(value: object, maximum: float) -> float:
-    if isinstance(value, bool):
+    if type(value) not in (int, float):
         raise ConfigError(_INVALID_TIMEOUT)
     try:
         result = float(value)
@@ -66,12 +55,6 @@ def _timeout(value: object, maximum: float) -> float:
     if not math.isfinite(result) or not 0 < result <= maximum:
         raise ConfigError(_INVALID_TIMEOUT)
     return result
-
-
-def _strict_timeout(value: object, maximum: float) -> float:
-    if type(value) not in (int, float):
-        raise ConfigError(_INVALID_TIMEOUT)
-    return _timeout(value, maximum)
 
 
 def _deadline(value: object) -> float:
@@ -116,14 +99,8 @@ class CodexConfig:
     def from_mapping(cls, value: object) -> "CodexConfig":
         fields = _mapping(value)
         _fields(fields, {"enabled", "runner", "timeout_seconds"})
-        return cls(**fields)
-
-    @classmethod
-    def from_v2_mapping(cls, value: object) -> "CodexConfig":
-        fields = _mapping(value)
-        _fields(fields, {"enabled", "runner", "timeout_seconds"})
         if "timeout_seconds" in fields:
-            _strict_timeout(fields["timeout_seconds"], MAX_CODEX_TIMEOUT_SECONDS)
+            _timeout(fields["timeout_seconds"], MAX_CODEX_TIMEOUT_SECONDS)
         return cls(**fields)
 
     def __repr__(self) -> str:
@@ -143,14 +120,8 @@ class OpenCodeGoConfig:
     def from_mapping(cls, value: object) -> "OpenCodeGoConfig":
         fields = _mapping(value)
         _fields(fields, {"enabled", "timeout_seconds"})
-        return cls(**fields)
-
-    @classmethod
-    def from_v2_mapping(cls, value: object) -> "OpenCodeGoConfig":
-        fields = _mapping(value)
-        _fields(fields, {"enabled", "timeout_seconds"})
         if "timeout_seconds" in fields:
-            _strict_timeout(fields["timeout_seconds"], MAX_OPENCODE_TIMEOUT_SECONDS)
+            _timeout(fields["timeout_seconds"], MAX_OPENCODE_TIMEOUT_SECONDS)
         return cls(**fields)
 
     def __repr__(self) -> str:
@@ -168,33 +139,17 @@ class LocalConfig:
         object.__setattr__(self, "deadline_seconds", _deadline(self.deadline_seconds))
 
     @classmethod
-    def from_mapping(cls, value: object) -> "LocalConfig":
-        _reject_credential_keys(value)
-        fields = _mapping(value)
-        _fields(fields, {"codex", "opencode_go"})
-        return cls(
-            codex=CodexConfig.from_mapping(fields.get("codex", {})),
-            opencode_go=OpenCodeGoConfig.from_mapping(fields.get("opencode_go", {})),
-        )
-
-    @classmethod
-    def from_v2_mapping(
+    def from_mapping(
         cls,
         value: object,
         provider_errors: MutableSet[ProviderKey] | None = None,
     ) -> "LocalConfig":
+        _reject_credential_keys(value)
         fields = _mapping(value)
         _fields(fields, {"deadline_seconds", "codex", "opencode_go"})
-        for key, nested in fields.items():
-            if key in {"codex", "opencode_go"}:
-                _reject_nested_provider_credentials(nested)
-            else:
-                _reject_credential_keys(nested)
-        if any(isinstance(key, str) and _CREDENTIAL_KEY.search(key) for key in fields):
-            raise ConfigError("credential-like configuration is not accepted")
 
         try:
-            codex = CodexConfig.from_v2_mapping(fields.get("codex", {}))
+            codex = CodexConfig.from_mapping(fields.get("codex", {}))
         except ConfigError:
             if provider_errors is None:
                 raise
@@ -202,7 +157,7 @@ class LocalConfig:
             codex = CodexConfig()
 
         try:
-            opencode_go = OpenCodeGoConfig.from_v2_mapping(fields.get("opencode_go", {}))
+            opencode_go = OpenCodeGoConfig.from_mapping(fields.get("opencode_go", {}))
         except ConfigError:
             if provider_errors is None:
                 raise
