@@ -7,7 +7,7 @@ from typing import cast
 
 import pytest
 
-import yasb_limitora.projection_v2 as projection_module
+import yasb_limitora.projection as projection_module
 from yasb_limitora.limitora_api import OpenCodeFailureEvidence
 from yasb_limitora.model import (
     DocumentView,
@@ -26,11 +26,11 @@ from yasb_limitora.model import (
     SafeErrorCode,
     SnapshotFreshness,
 )
-from yasb_limitora.projection_v2 import (
-    V2ProjectionInput,
-    project_v2_bytes,
-    project_v2_document,
-    project_v2_failure_bytes,
+from yasb_limitora.projection import (
+    ProjectionInput,
+    project_bytes,
+    project_document,
+    project_failure_bytes,
 )
 
 STAMP = datetime(2026, 8, 1, 12, tzinfo=timezone.utc)
@@ -159,9 +159,9 @@ def _assert_document(value):
 
 
 def test_snapshot_projection_has_schema_and_semantic_invariants():
-    projection = V2ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [_window("weekly", "plus"), _window("five_hour")]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), frozenset({ProviderKey.CODEX, ProviderKey.OPENCODE_GO}))
-    encoded = project_v2_bytes(projection)
-    assert encoded == project_v2_bytes(projection)
+    projection = ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [_window("weekly", "plus"), _window("five_hour")]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), frozenset({ProviderKey.CODEX, ProviderKey.OPENCODE_GO}))
+    encoded = project_bytes(projection)
+    assert encoded == project_bytes(projection)
     value = json.loads(encoded)
     _assert_document(value)
     assert [window["period"] for window in value["providers"][0]["windows"]] == ["five_hour", "weekly"]
@@ -170,8 +170,8 @@ def test_snapshot_projection_has_schema_and_semantic_invariants():
 def test_fresh_snapshot_uses_the_published_grammar_and_nullable_identities():
     window = _window("weekly")
     object.__setattr__(window, "reset_at", None)
-    provider = project_v2_document(
-        V2ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [window]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
+    provider = project_document(
+        ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [window]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
     )["providers"][0]
     assert set(provider["most_depleted_window"]) == {"kind", "scope", "period", "plan_id", "unit", "source_id", "remaining_percentage"}
     assert provider["most_depleted_window"]["plan_id"] is None
@@ -190,8 +190,8 @@ def test_tooltip_formats_utc_resets_injected_local_timezone_and_locale_format():
         _window("monthly", source="opencode-go-api", remaining_value="5", reset=datetime(2026, 9, 6, 18, 35, 42, 123456, tzinfo=timezone.utc)),
         _window("five_hour", source="opencode-go-api", remaining_value="100", reset=datetime(2026, 8, 18, 11, 42, 59, 999999, tzinfo=timezone.utc)),
     ]
-    provider = project_v2_document(
-        V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), _snapshot(ProviderKey.OPENCODE_GO, windows))),
+    provider = project_document(
+        ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), _snapshot(ProviderKey.OPENCODE_GO, windows))),
         timestamp_formatter=_format_test_timestamp,
     )["providers"][1]
 
@@ -206,8 +206,8 @@ def test_tooltip_formats_utc_resets_injected_local_timezone_and_locale_format():
 def test_tooltip_never_invents_zero_for_unavailable_partial_windows():
     partial = _snapshot(ProviderKey.OPENCODE_GO, [])
     object.__setattr__(_snapshot_of(partial), "public_state", PublicProviderState.PARTIAL)
-    tooltip = project_v2_document(
-        V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), partial))
+    tooltip = project_document(
+        ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), partial))
     )["providers"][1]["tooltip_text"]
 
     assert tooltip == (
@@ -240,8 +240,8 @@ def test_tooltip_keeps_a_valid_reset_when_percentage_basis_is_unavailable(provid
         _snapshot(ProviderKey.OPENCODE_GO, [window]) if provider_key is ProviderKey.OPENCODE_GO else ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE),
     )
 
-    provider = project_v2_document(
-        V2ProjectionInput(document),
+    provider = project_document(
+        ProjectionInput(document),
         timestamp_formatter=_format_test_timestamp,
     )["providers"][0 if provider_key is ProviderKey.CODEX else 1]
 
@@ -256,8 +256,8 @@ def test_tooltip_reset_converts_non_utc_offset_before_injected_local_formatting(
         reset=datetime(2026, 8, 24, tzinfo=timezone(timedelta(hours=-4))),
         remaining_value="60",
     )
-    provider = project_v2_document(
-        V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), _snapshot(ProviderKey.OPENCODE_GO, [window]))),
+    provider = project_document(
+        ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), _snapshot(ProviderKey.OPENCODE_GO, [window]))),
         timestamp_formatter=_format_test_timestamp,
     )["providers"][1]
 
@@ -297,8 +297,8 @@ def test_tooltip_marks_partial_stale_codex_data_and_missing_reset_without_zero()
     snapshot = _snapshot(ProviderKey.CODEX, [_window("weekly", reset=None, remaining_value="0")])
     object.__setattr__(_snapshot_of(snapshot), "public_state", PublicProviderState.PARTIAL)
     object.__setattr__(_snapshot_of(snapshot), "freshness", SnapshotFreshness.STALE)
-    tooltip = project_v2_document(
-        V2ProjectionInput(_document(snapshot, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
+    tooltip = project_document(
+        ProjectionInput(_document(snapshot, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
     )["providers"][0]["tooltip_text"]
 
     assert tooltip == "Codex\nState: Partial · Stale\nLowest quota: 0% remaining\nWeekly: 0% remaining"
@@ -313,8 +313,8 @@ def test_tooltip_lowest_quota_uses_the_most_depleted_window_not_the_first_window
             _window("weekly", remaining_value="0", reset=None),
         ],
     )
-    provider = project_v2_document(
-        V2ProjectionInput(_document(snapshot, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
+    provider = project_document(
+        ProjectionInput(_document(snapshot, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
     )["providers"][0]
     tooltip = provider["tooltip_text"]
 
@@ -329,7 +329,7 @@ def test_tooltip_lowest_quota_uses_the_most_depleted_window_not_the_first_window
 
 
 def test_public_projection_maps_all_disabled_providers_to_not_run():
-    value = project_v2_document(V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
+    value = project_document(ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
     assert value["execution_state"] == "not_run"
     assert [(p["outcome"], p["not_run_reason"]) for p in value["providers"]] == [("not_run", "disabled"), ("not_run", "disabled")]
     assert all(provider["compact_text"] == "Quota not run" for provider in value["providers"])
@@ -338,7 +338,7 @@ def test_public_projection_maps_all_disabled_providers_to_not_run():
 
 
 def test_public_projection_maps_provider_execution_error_safely():
-    value = project_v2_document(V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.SAFE_ERROR, SafeError(SafeErrorCode.TIMEOUT), outcome=ProviderOutcome.EXECUTION_ERROR), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
+    value = project_document(ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.SAFE_ERROR, SafeError(SafeErrorCode.TIMEOUT), outcome=ProviderOutcome.EXECUTION_ERROR), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
     provider = value["providers"][0]
     assert provider["execution_error"] == {"code": "provider_timeout", "phase": "provider"}
     assert provider["outcome"] == value["execution_state"] == "execution_error"
@@ -354,7 +354,7 @@ def test_public_projection_maps_provider_execution_error_safely():
         (OpenCodeFailureEvidence.UNAVAILABLE, "provider_unavailable"),
     ),
 )
-def test_opencode_private_sidecar_maps_only_the_bounded_v2_taxonomy(evidence, mapped):
+def test_opencode_private_sidecar_maps_only_the_bounded_current_taxonomy(evidence, mapped):
     document = _document(
         ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE),
         ProviderView(
@@ -365,8 +365,8 @@ def test_opencode_private_sidecar_maps_only_the_bounded_v2_taxonomy(evidence, ma
         ),
     )
 
-    projection = V2ProjectionInput(document, opencode_evidence=evidence)
-    value = project_v2_document(projection)
+    projection = ProjectionInput(document, opencode_evidence=evidence)
+    value = project_document(projection)
 
     assert "version" not in value
     assert "OpenCodeFailureEvidence" not in repr(projection)
@@ -378,8 +378,8 @@ def test_opencode_private_sidecar_maps_only_the_bounded_v2_taxonomy(evidence, ma
 def test_presentation_fallbacks_stale_markers_and_depleted_tie_are_observable():
     stale = _snapshot(ProviderKey.CODEX, [_window("five_hour"), _window("weekly", values=False)])
     object.__setattr__(_snapshot_of(stale), "freshness", SnapshotFreshness.STALE)
-    value = project_v2_document(
-        V2ProjectionInput(_document(stale, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), frozenset({ProviderKey.CODEX})),
+    value = project_document(
+        ProjectionInput(_document(stale, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), frozenset({ProviderKey.CODEX})),
         timestamp_formatter=_format_test_timestamp,
     )
     provider = value["providers"][0]
@@ -390,13 +390,13 @@ def test_presentation_fallbacks_stale_markers_and_depleted_tie_are_observable():
         "Codex\nState: Available · Stale\nLowest quota: 75% remaining\n"
         "5-hour: 75% remaining\nWeekly: Quota unavailable\nResets: 01/08/2026 14:00:00"
     )
-    tie = project_v2_document(V2ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [_window("z"), _window("a")]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
+    tie = project_document(ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [_window("z"), _window("a")]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
     assert tie["providers"][0]["most_depleted_window"]["period"] == "a"
-    empty = project_v2_document(V2ProjectionInput(_document(_snapshot(ProviderKey.CODEX, []), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
+    empty = project_document(ProjectionInput(_document(_snapshot(ProviderKey.CODEX, []), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
     assert empty["providers"][0]["compact_text"] == "Quota percentage unavailable; state=available; freshness=fresh"
     assert empty["providers"][0]["alternate_text"] == empty["providers"][0]["compact_text"]
     assert empty["providers"][0]["tooltip_text"] == "Codex\nState: Available · Fresh\nLowest quota: Quota unavailable\nNo quota windows"
-    undetected = project_v2_document(V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), frozenset({ProviderKey.CODEX, ProviderKey.OPENCODE_GO})))
+    undetected = project_document(ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), frozenset({ProviderKey.CODEX, ProviderKey.OPENCODE_GO})))
     assert all(provider["compact_text"] == "Quota not detected" for provider in undetected["providers"])
 
 
@@ -405,8 +405,8 @@ def test_public_projection_excludes_numeric_non_known_windows_from_presentation(
     non_eligible = _window("non-eligible")
     object.__setattr__(non_eligible, "availability", availability)
     object.__setattr__(non_eligible, "remaining", QuotaQuantity(Decimal(10), QuotaMetricKind.COMMERCIAL_QUOTA, "percentage_points"))
-    value = project_v2_document(
-        V2ProjectionInput(
+    value = project_document(
+        ProjectionInput(
             _document(_snapshot(ProviderKey.CODEX, [non_eligible, _window("known")]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))
         )
     )
@@ -431,7 +431,7 @@ def test_derived_percentage_uses_decimal34_half_even_at_rounding_boundary():
         QuotaQuantity(remaining, QuotaMetricKind.COMMERCIAL_QUOTA, "percentage_points"),
         STAMP,
     )
-    value = project_v2_document(V2ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [window]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
+    value = project_document(ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [window]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
     assert value["providers"][0]["most_depleted_window"]["remaining_percentage"] == "1.234567890123456789012345678901234"
 
 
@@ -439,16 +439,16 @@ def test_unrepresentable_derived_percentage_fails_closed_without_synthetic_basis
     window = _window("extreme")
     object.__setattr__(window, "limit", QuotaQuantity(Decimal("1e255"), QuotaMetricKind.COMMERCIAL_QUOTA, "percentage_points"))
     object.__setattr__(window, "remaining", QuotaQuantity(Decimal(1), QuotaMetricKind.COMMERCIAL_QUOTA, "percentage_points"))
-    projection = V2ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [window]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
-    provider = project_v2_document(projection)["providers"][0]
+    projection = ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [window]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
+    provider = project_document(projection)["providers"][0]
     assert provider["most_depleted_window"] is None
     assert "Extreme: Quota unavailable" in provider["tooltip_text"]
 
 
 def test_tooltip_unit_comes_only_from_consistent_quantity_evidence():
     def tooltip(window):
-        value = project_v2_document(
-            V2ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [window]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
+        value = project_document(
+            ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [window]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
         )
         return value["providers"][0]["tooltip_text"]
 
@@ -494,8 +494,8 @@ def test_tooltip_unit_comes_only_from_consistent_quantity_evidence():
     ),
 )
 def test_presentation_contract_maps_not_run_and_safe_errors_without_raw_details(code, mapped, phase):
-    error = project_v2_document(
-        V2ProjectionInput(
+    error = project_document(
+        ProjectionInput(
             _document(
                 ProviderView(ProviderKey.CODEX, ProviderState.SAFE_ERROR, SafeError(code), outcome=ProviderOutcome.EXECUTION_ERROR),
                 ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE),
@@ -505,7 +505,7 @@ def test_presentation_contract_maps_not_run_and_safe_errors_without_raw_details(
     assert error["execution_error"] == {"code": mapped, "phase": phase}
     assert error["compact_text"] == error["alternate_text"] == error["tooltip_text"] == "Quota error"
 
-    not_run = json.loads(project_v2_failure_bytes("internal_error"))["providers"][0]
+    not_run = json.loads(project_failure_bytes("internal_error"))["providers"][0]
     assert not_run["outcome"] == "not_run"
     assert not_run["not_run_reason"] == "document_aborted"
     assert not_run["compact_text"] == not_run["alternate_text"] == "Quota not run"
@@ -514,8 +514,8 @@ def test_presentation_contract_maps_not_run_and_safe_errors_without_raw_details(
 
 def test_tooltip_quotes_identity_delimiters_and_backslashes():
     window = _window("five=hour", scope="team;west", unit=r"requests\hour")
-    projection = V2ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [window]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
-    provider = project_v2_document(projection)["providers"][0]
+    projection = ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [window]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
+    provider = project_document(projection)["providers"][0]
 
     assert "Five=hour: 75% remaining" in provider["tooltip_text"]
     assert 'Quota "team;west" / "five=hour": 75% remaining' in provider["alternate_text"]
@@ -527,7 +527,7 @@ def test_tooltip_quotes_identity_delimiters_and_backslashes():
 
 def test_presentation_is_bounded_and_sources_are_reviewed_before_emission():
     document = _large_document(64)
-    value = project_v2_document(V2ProjectionInput(document))
+    value = project_document(ProjectionInput(document))
     for provider in value["providers"]:
         assert len(provider["compact_text"]) <= 128
         assert len(provider["alternate_text"]) <= 128
@@ -535,7 +535,7 @@ def test_presentation_is_bounded_and_sources_are_reviewed_before_emission():
     snapshot = _snapshot_of(document.providers[0])
     object.__setattr__(snapshot, "source_id", "private-secret-source")
     object.__setattr__(snapshot.windows[0], "source_id", "workspace-id-secret")
-    encoded = project_v2_bytes(V2ProjectionInput(document))
+    encoded = project_bytes(ProjectionInput(document))
     assert b"private-secret-source" not in encoded and b"workspace-id-secret" not in encoded
     assert json.loads(encoded)["providers"][0]["source_id"] is None
 
@@ -551,7 +551,7 @@ def test_projection_normalizes_root_and_window_sources_per_provider_and_drops_un
         object.__setattr__(window, "limit", object())
         object.__setattr__(window, "reset_at", object())
 
-    value = project_v2_document(V2ProjectionInput(document))
+    value = project_document(ProjectionInput(document))
 
     for provider in value["providers"]:
         assert provider["source_id"] is None
@@ -567,7 +567,7 @@ def test_opencode_projection_completes_fixed_slots_when_root_source_is_null():
     other_duplicate = _window("weekly", source="opencode-go-api", scope="workspace")
     snapshot = _snapshot(ProviderKey.OPENCODE_GO, [known, duplicate, other_duplicate])
     object.__setattr__(_snapshot_of(snapshot), "source_id", None)
-    value = project_v2_document(V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), snapshot)))
+    value = project_document(ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), snapshot)))
 
     provider = value["providers"][1]
     assert provider["source_id"] is None
@@ -581,7 +581,7 @@ def test_opencode_projection_completes_fixed_slots_when_root_source_is_null():
         assert all(window[field] is None for field in ("plan_id", "limit", "used", "remaining", "reset_at"))
     swapped = _snapshot(ProviderKey.OPENCODE_GO, [known, other_duplicate, duplicate])
     object.__setattr__(_snapshot_of(swapped), "source_id", None)
-    assert project_v2_bytes(V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), snapshot))) == project_v2_bytes(V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), swapped)))
+    assert project_bytes(ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), snapshot))) == project_bytes(ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), swapped)))
 
 
 def test_opencode_projection_rate_limited_preserves_only_technical_windows_and_allows_empty():
@@ -592,13 +592,13 @@ def test_opencode_projection_rate_limited_preserves_only_technical_windows_and_a
     object.__setattr__(_snapshot_of(empty), "public_state", PublicProviderState.RATE_LIMITED)
 
     for snapshot, expected in ((rate_limited, [("technical_rate_limit", "opencode-go-api")]), (empty, [])):
-        value = project_v2_document(V2ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), snapshot)))
+        value = project_document(ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), snapshot)))
         assert [(window["kind"], window["source_id"]) for window in value["providers"][1]["windows"]] == expected
 
 
 def test_summary_truncation_preserves_the_complete_qualifier_and_tooltip_lines():
     document = _document(_snapshot(ProviderKey.CODEX, [_window("p" * 64, "x" * 64)]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))
-    provider = project_v2_document(V2ProjectionInput(document))["providers"][0]
+    provider = project_document(ProjectionInput(document))["providers"][0]
     assert len(provider["compact_text"]) <= 128 and len(provider["alternate_text"]) <= 128
     assert provider["compact_text"].endswith("; state=available; freshness=fresh")
     assert provider["alternate_text"].endswith("; state=available; freshness=fresh")
@@ -611,8 +611,14 @@ def test_unknown_evidence_fails_closed_without_echoing_the_rejected_value():
     snapshot = _snapshot(ProviderKey.CODEX, [])
     object.__setattr__(_snapshot_of(snapshot), "public_state", "future-secret-state")
     with pytest.raises(ValueError) as error:
-        project_v2_document(V2ProjectionInput(_document(snapshot, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
+        project_document(ProjectionInput(_document(snapshot, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
     assert "future-secret-state" not in str(error.value)
+
+
+@pytest.mark.parametrize(("public_state", "freshness"), ((None, "fresh"), ("available", None)))
+def test_snapshot_presentation_rejects_missing_state_or_freshness(public_state, freshness):
+    with pytest.raises(ValueError, match="invalid snapshot presentation"):
+        projection_module._presentation(ProviderKey.CODEX, ProviderOutcome.SNAPSHOT.value, [], public_state, freshness)
 
 
 @pytest.mark.parametrize(("adjustment", "candidate_size"), (("boundary_65389", 65_389), ("boundary_65390", 65_390), ("oversize", 65_696)))
@@ -629,12 +635,12 @@ def test_document_byte_boundaries_are_allowed_or_replaced_whole(adjustment, cand
                 object.__setattr__(window, "plan_id", "p" * 64)
                 object.__setattr__(window, "scope", "é" * 64)
     raw = json.dumps(
-        project_v2_document(V2ProjectionInput(document), timestamp_formatter=_format_test_timestamp),
+        project_document(ProjectionInput(document), timestamp_formatter=_format_test_timestamp),
         ensure_ascii=False,
         separators=(",", ":"),
         allow_nan=False,
     ).encode("utf-8") + b"\n"
-    encoded = project_v2_bytes(V2ProjectionInput(document), timestamp_formatter=_format_test_timestamp)
+    encoded = project_bytes(ProjectionInput(document), timestamp_formatter=_format_test_timestamp)
     assert len(encoded) <= 65_536
     if candidate_size <= 65_536:
         assert len(encoded) == candidate_size
@@ -667,22 +673,22 @@ def test_document_byte_boundaries_are_allowed_or_replaced_whole(adjustment, cand
 
 def test_serialized_windows_follow_all_normative_sort_dimensions():
     windows = [_window("a"), _window("b", "plus", "codex-app-server-v2"), _window("a", source="codex-app-server-v2", scope="b"), _window("a", source="codex-app-server-v2", kind=QuotaWindowKind.TECHNICAL_RATE_LIMIT), _window("z", "plus", "codex-app-server-v2", scope="z", kind=QuotaWindowKind.OTHER)]
-    value = json.loads(project_v2_bytes(V2ProjectionInput(_document(_snapshot(ProviderKey.CODEX, windows), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))))
+    value = json.loads(project_bytes(ProjectionInput(_document(_snapshot(ProviderKey.CODEX, windows), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))))
     assert [(w["kind"], w["scope"], w["period"], w["plan_id"], w["source_id"]) for w in value["providers"][0]["windows"]] == [("commercial_quota", "account", "a", None, "codex-app-server-v2"), ("commercial_quota", "account", "b", "plus", "codex-app-server-v2"), ("commercial_quota", "b", "a", None, "codex-app-server-v2"), ("technical_rate_limit", "account", "a", None, "codex-app-server-v2"), ("other", "z", "z", "plus", "codex-app-server-v2")]
 
 
 def test_presentation_is_identical_for_equivalent_window_permutations():
     first = _snapshot(ProviderKey.CODEX, [_window("weekly"), _window("five_hour")])
     second = _snapshot(ProviderKey.CODEX, [_window("five_hour"), _window("weekly")])
-    left = project_v2_bytes(V2ProjectionInput(_document(first, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
-    right = project_v2_bytes(V2ProjectionInput(_document(second, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
+    left = project_bytes(ProjectionInput(_document(first, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
+    right = project_bytes(ProjectionInput(_document(second, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
     assert left == right
     assert json.loads(left)["providers"][0]["most_depleted_window"]["period"] == "five_hour"
 
 
 def test_null_quantities_and_reset_are_preserved_and_offsets_normalize_to_utc():
     offset = datetime(2026, 8, 1, 8, tzinfo=timezone(timedelta(hours=-4)))
-    value = json.loads(project_v2_bytes(V2ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [_window("open", values=False)], stamp=offset), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))))
+    value = json.loads(project_bytes(ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [_window("open", values=False)], stamp=offset), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))))
     provider, window = value["providers"][0], value["providers"][0]["windows"][0]
     assert provider["status_observed_at"] == "2026-08-01T12:00:00.000000Z"
     assert window["limit"] is None and window["used"] is None and window["reset_at"] is None
@@ -690,28 +696,28 @@ def test_null_quantities_and_reset_are_preserved_and_offsets_normalize_to_utc():
 
 def test_invalid_projection_inputs_fail_closed_and_unsupported_document_codes_are_rejected():
     with pytest.raises(TypeError):
-        V2ProjectionInput(cast(DocumentView, object()))
+        ProjectionInput(cast(DocumentView, object()))
     with pytest.raises(ValueError):
-        V2ProjectionInput(DocumentView.ordered(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), cast(frozenset[ProviderKey], {"secret"}))
+        ProjectionInput(DocumentView.ordered(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), cast(frozenset[ProviderKey], {"secret"}))
     with pytest.raises(ValueError):
-        V2ProjectionInput(DocumentView.ordered(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), opencode_evidence=object())
+        ProjectionInput(DocumentView.ordered(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), opencode_evidence=object())
     bad = _snapshot(ProviderKey.CODEX, [])
     object.__setattr__(_snapshot_of(bad), "fetched_at", None)
     with pytest.raises(ValueError):
-        project_v2_bytes(V2ProjectionInput(_document(bad, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
+        project_bytes(ProjectionInput(_document(bad, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
     for code in ("provider_failed", "timeout", "unknown", SafeErrorCode.TIMEOUT):
         with pytest.raises(ValueError):
-            project_v2_failure_bytes(code)
+            project_failure_bytes(code)
     overflow = _large_document()
     object.__setattr__(_snapshot_of(overflow.providers[1]), "public_state", PublicProviderState.AVAILABLE)
-    value = json.loads(project_v2_bytes(V2ProjectionInput(overflow)))
+    value = json.loads(project_bytes(ProjectionInput(overflow)))
     assert value["execution_error"] == {"code": "internal_error", "phase": "document"}
     _assert_document(value)
 
 
 @pytest.mark.parametrize("code", ("invocation_invalid", "configuration_invalid", "internal_error"))
 def test_safe_document_failure_mappings_are_canonical(code):
-    value = json.loads(project_v2_failure_bytes(code))
+    value = json.loads(project_failure_bytes(code))
     _assert_document(value)
     assert value["execution_error"] == {"code": code, "phase": "document" if code == "internal_error" else "configuration"}
     reason = {"invocation_invalid": "invocation_invalid", "configuration_invalid": "invalid_configuration", "internal_error": "document_aborted"}[code]

@@ -159,13 +159,13 @@ class CustomWidgetExamplesTests(unittest.TestCase):
         assert expected <= {path.name for path in EXAMPLE.iterdir() if path.is_file()}
         assert {f"{name}.json" for name in ALL_FIXTURES} == {path.name for path in FIXTURES.iterdir()}
 
-    def test_fixture_matrix_is_exact_and_strict_v2(self):
+    def test_fixture_matrix_is_exact_and_current_contract(self):
         for name, (execution_state, expected, percentages) in ALL_FIXTURES.items():
             raw = (FIXTURES / f"{name}.json").read_bytes()
             assert raw.endswith(bytes([0x0A])) and b"\r" not in raw
             value = _json_document(FIXTURES / f"{name}.json")
             assert list(value) == ["execution_state", "execution_error", "providers"]
-            assert "version" not in value and value["execution_state"] == execution_state and len(value["providers"]) == 2
+            assert value["execution_state"] == execution_state and len(value["providers"]) == 2
             assert [provider["provider"] for provider in value["providers"]] == ["codex", "opencode_go"]
             serialized = json.dumps(value).lower()
             assert all(key not in serialized for key in ("opencode-go-dashboard", "exit_code", "stderr", "stdout", "traceback", "password", "api_key", "cookie", "/home/", "c:\\"))
@@ -237,12 +237,24 @@ class CustomWidgetExamplesTests(unittest.TestCase):
         assert 'label: "{data[providers][1][compact_text]}"' in manual
         assert 'label_alt: "{data[providers][1][alternate_text]}"' in manual
         assert 'tooltip_label: "{data[providers][1][tooltip_text]}"' in manual
-        assert 'run_cmd: "yasb-limitora --output-version 2"' in text
+        assert text.count('run_cmd: "yasb-limitora"') == 2
+        assert "--output-version" not in text
         assert "use_shell: false" in text and "LIMITORA_OPENCODE_API_KEY" not in text
+
         assert not re.search(r"run_cmd:.*(?:;|&&|\|\||\||`|\$\(|>|<)", text)
         assert re.findall(r"^      ([a-z_]+):", default, re.MULTILINE) == ["class_name", "label", "label_alt", "tooltip", "tooltip_label", "exec_options"]
         assert re.findall(r"^        ([a-z_]+):", default, re.MULTILINE) == ["run_cmd", "run_once", "run_interval", "return_format", "hide_empty", "use_shell"]
         assert "execution_state" not in text and "windows" not in text and "most_depleted_window" not in text
+
+    def test_readme_describes_the_sole_current_output(self):
+        text = (EXAMPLE / "README.md").read_text(encoding="utf-8")
+        normalized = " ".join(text.split())
+        assert "sole current JSON contract" in normalized
+        assert "--output-version" not in normalized
+
+        assert "providers[0]" in normalized and "providers[1]" in normalized
+        assert "codex-app-server-v2" not in normalized
+        assert "opencode-go-api" not in normalized
 
     def test_css_is_static_and_matches_supported_descendants(self):
         css = (EXAMPLE / "styles.css").read_text(encoding="utf-8")

@@ -1,21 +1,27 @@
+# pyright: reportMissingImports=false, reportArgumentType=false, reportOptionalMemberAccess=false, reportPossiblyUnboundVariable=false, reportAttributeAccessIssue=false
+# ruff: noqa: BLE001
+
 import inspect
 import os
 import subprocess
 import sys
+from contextlib import suppress
 from unittest.mock import Mock
 
 import pytest
 
-from yasb_limitora.codex_job_resources import _JobAcquisitionFailure, _JobAssignmentError
 import yasb_limitora.codex_supervisor as s
+from yasb_limitora.codex_job_resources import (
+    _JobAcquisitionFailure,
+    _JobAssignmentError,
+)
 
 
 def _bootstrap_wrapper():
     return (
         "import sys,types; m=types.ModuleType('msvcrt'); "
         "m.open_osfhandle=lambda handle,flags: handle; "
-        "sys.modules['msvcrt']=m; exec(%r)"
-        % s._BOOTSTRAP
+        f"sys.modules['msvcrt']=m; exec({s._BOOTSTRAP!r})"
     )
 
 
@@ -33,10 +39,8 @@ def _windows_startup_metadata(gate_read, data_write):
 
 def _reap(process):
     if process.poll() is None:
-        try:
+        with suppress(Exception):
             process.terminate()
-        except Exception:
-            pass
     try:
         process.wait(timeout=2)
     except subprocess.TimeoutExpired:
@@ -46,10 +50,8 @@ def _reap(process):
 
 def _reset_inheritable(handles):
     for handle in reversed(handles):
-        try:
+        with suppress(Exception):
             os.set_handle_inheritable(handle, False)
-        except Exception:
-            pass
     handles.clear()
 
 
@@ -116,16 +118,12 @@ def _run_real_bootstrap(signal, nonce, *, include_metadata=True):
     finally:
         _reset_inheritable(inheritable_handles)
         if process is not None:
-            try:
+            with suppress(Exception):
                 _reap(process)
-            except Exception:
-                pass
         for fd in (gate_read, gate_write, data_read, data_write):
             if fd >= 0:
-                try:
+                with suppress(Exception):
                     os.close(fd)
-                except Exception:
-                    pass
 
 
 def test_real_bootstrap_emits_exact_nonce_bound_ready_frame():
@@ -409,7 +407,7 @@ def test_transport_times_out_during_nonblocking_read_stall():
     assert clock.sleeps and all(seconds > 0 for seconds in clock.sleeps)
 
 
-def test_v2_transport_consumes_one_absolute_context_endpoint_without_reset():
+def test_transport_consumes_one_absolute_context_endpoint_without_reset():
     class Context:
         deadline_ns = 2_000_000
         def __init__(self): self.now = 0
@@ -582,10 +580,8 @@ def test_fd_cleanup_retains_compound_owner_across_real_fd_reuse():
     finally:
         for fd in (old_read, old_write, replacement_read, replacement_write):
             if fd >= 0:
-                try:
+                with suppress(OSError):
                     os.close(fd)
-                except OSError:
-                    pass
 
 
 def test_fd_handle_and_inheritable_seams_validate_owned_inputs(monkeypatch):
@@ -793,8 +789,12 @@ def _real_supervisor(monkeypatch, events, job=None):
             "-c",
             _bootstrap_wrapper(),
         ]
-        handle_adapter = lambda fd: fd
-        set_inheritable = lambda handle, value: None
+
+        def handle_adapter(fd):
+            return fd
+
+        def set_inheritable(handle, value):
+            return None
 
         def peek(fd):
             if not select.select([fd], [], [], 0)[0]:
@@ -885,7 +885,7 @@ def test_unit_b_readiness_failures_rollback_without_orphan(
 def test_unit_b_commit_failure_rolls_back_real_helper(monkeypatch):
     events = []
     job = _PreparedJob(events, fail_close=True)
-    supervisor, captured = _real_supervisor(monkeypatch, events, job=job)
+    supervisor, _captured = _real_supervisor(monkeypatch, events, job=job)
 
     def fail_commit(self, entries=()):
         raise RuntimeError("commit failed")
@@ -1022,7 +1022,7 @@ def test_prepared_acquisition_serializes_acquire_and_close_state(monkeypatch):
     def acquire():
         try:
             results.append(_unit_a_prepare(supervisor))
-        except Exception as error:  # noqa: BLE001 - retain concurrent failure evidence
+        except Exception as error:  # Retain concurrent failure evidence.
             results.append(error)
 
     first = s._threading.Thread(target=acquire)
