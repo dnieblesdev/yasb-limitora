@@ -4,7 +4,7 @@ import ntpath
 from contextlib import nullcontext
 from unittest.mock import patch
 
-import pytest
+import pytest  # pyright: ignore[reportMissingImports] - optional test dependency is present at runtime
 
 from yasb_limitora import cli
 from yasb_limitora.cli import main
@@ -17,6 +17,7 @@ from yasb_limitora.model import (
     SafeError,
     SafeErrorCode,
 )
+from yasb_limitora.path import DeadlineError
 
 
 def _run(argv, *, orchestrator=None, environment=None):
@@ -335,7 +336,7 @@ def test_current_selected_inaccessible_file_does_not_fall_back(monkeypatch):
 
 def test_current_config_deadline_expiry_emits_bounded_deadline_document(monkeypatch, tmp_path):
     def expired_config(path, context):
-        raise cli.DeadlineError("configuration deadline exhausted")
+        raise DeadlineError("configuration deadline exhausted")
 
     monkeypatch.setattr(cli, "read_config", expired_config)
     path = tmp_path / "config.json"
