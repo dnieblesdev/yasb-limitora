@@ -19,6 +19,7 @@ from .codex_helper import (
     _run_internal_helper,
 )
 from .config import ConfigError, LocalConfig
+from .deadline import DeadlineContext
 from .model import (
     DocumentView,
     ProviderKey,
@@ -28,15 +29,14 @@ from .model import (
     SafeError,
     SafeErrorCode,
 )
+from .path import DeadlineError, read_config
 from .projection import (
     ProjectionInput,
     project_bytes,
     project_failure_bytes,
     project_not_run_bytes,
 )
-from .v2_deadline import DeadlineContext
-from .v2_path import V2DeadlineError, read_v2_config
-from .v2_worker import V2ExecutionOrchestrator
+from .worker import ExecutionOrchestrator
 
 _SECRET = re.compile(r"auth.?cookie|cookie|token|password|secret|credential|api.?key|authorization", re.IGNORECASE)
 
@@ -90,12 +90,12 @@ def _reject_json_constant(value: str) -> None:
     raise ConfigError("non-finite configuration number")
 
 
-def _load_v2_explicit(path: str, context: DeadlineContext | None = None) -> tuple[LocalConfig, frozenset[ProviderKey]]:
+def _load_explicit(path: str, context: DeadlineContext | None = None) -> tuple[LocalConfig, frozenset[ProviderKey]]:
     try:
-        raw = read_v2_config(path, context or DeadlineContext.from_seconds(1))
+        raw = read_config(path, context or DeadlineContext.from_seconds(1))
         value = json.loads(raw, object_pairs_hook=_unique_json_object, parse_constant=_reject_json_constant)
-    except V2DeadlineError as error:
-        raise V2DeadlineError("configuration deadline exhausted") from error
+    except DeadlineError as error:
+        raise DeadlineError("configuration deadline exhausted") from error
     except ConfigError:
         raise
     except Exception as error:
@@ -104,8 +104,8 @@ def _load_v2_explicit(path: str, context: DeadlineContext | None = None) -> tupl
     return LocalConfig.from_mapping(value, provider_errors=provider_errors), frozenset(provider_errors)
 
 
-def _load_v2_path(path: str | None, context: DeadlineContext | None = None) -> tuple[LocalConfig, frozenset[ProviderKey]]:
-    return (LocalConfig(), frozenset()) if path is None else _load_v2_explicit(path, context)
+def _load_path(path: str | None, context: DeadlineContext | None = None) -> tuple[LocalConfig, frozenset[ProviderKey]]:
+    return (LocalConfig(), frozenset()) if path is None else _load_explicit(path, context)
 
 
 def _resolve_config_path(argv: Sequence[str], environment: Mapping[str, str]) -> str:
@@ -124,7 +124,7 @@ def _cache_eligible(config: LocalConfig, environment: Mapping[str, str]) -> bool
     )
 
 
-def _v2_provider_error_overlay(document: DocumentView, provider_errors: frozenset[ProviderKey]) -> DocumentView:
+def _provider_error_overlay(document: DocumentView, provider_errors: frozenset[ProviderKey]) -> DocumentView:
     if not provider_errors:
         return document
     providers = tuple(
@@ -142,7 +142,7 @@ def _v2_provider_error_overlay(document: DocumentView, provider_errors: frozense
     return DocumentView(providers, document.document_error)
 
 
-def _v2_exit_code(document: DocumentView, enabled: frozenset[ProviderKey]) -> int:
+def _exit_code(document: DocumentView, enabled: frozenset[ProviderKey]) -> int:
     if document.document_error is not None:
         return 2
     if not any(view.state is ProviderState.SAFE_ERROR for view in document.providers):
@@ -201,9 +201,9 @@ def main(
     # The current contract is the only runtime path; args remain untouched so
     # removed selectors are rejected by ordinary invocation validation.
     try:
-        resolved_v2_path = _resolve_config_path(args, effective_environment)
-        config, provider_errors = _load_v2_path(
-            resolved_v2_path,
+        resolved_path = _resolve_config_path(args, effective_environment)
+        config, provider_errors = _load_path(
+            resolved_path,
             DeadlineContext.from_seconds(1, t0_ns=t0_ns),
         )
     except InvocationError:
@@ -212,7 +212,7 @@ def main(
         err.write(f"yasb-limitora: {diagnostic}\n")
         err.flush()
         return 2
-    except V2DeadlineError:
+    except DeadlineError:
         data, diagnostic = project_failure_bytes("deadline_exhausted"), "runtime_error"
         _write(out, data)
         err.write(f"yasb-limitora: {diagnostic}\n")
@@ -231,12 +231,12 @@ def main(
         coordination_data = None
         coordination_diagnostic = None
         try:
-            orchestrator = V2ExecutionOrchestrator()
+            orchestrator = ExecutionOrchestrator()
             runtime_context = DeadlineContext.from_seconds(config.deadline_seconds, t0_ns=t0_ns)
             result = None
             if not provider_errors and _cache_eligible(config, effective_environment):
                 try:
-                    cache = RefreshCoordinator(config, effective_environment, resolved_v2_path or "")
+                    cache = RefreshCoordinator(config, effective_environment, resolved_path or "")
                 except Exception:  # noqa: BLE001 - cache setup is optional infrastructure
                     cache = None
                 if cache is not None:
@@ -247,7 +247,7 @@ def main(
                                 config,
                                 effective_environment,
                                 attempt_context,
-                                resolved_v2_path or "",
+                                resolved_path or "",
                                 **({"provider_errors": provider_errors} if provider_errors else {}),
                             ),
                         )
@@ -278,7 +278,7 @@ def main(
                     config,
                     effective_environment,
                     runtime_context,
-                    resolved_v2_path or "",
+                    resolved_path or "",
                     **({"provider_errors": provider_errors} if provider_errors else {}),
                 )
             if orchestrator.last_record is not None:
@@ -296,7 +296,7 @@ def main(
         else:
             try:
                 if not isinstance(document, DocumentView):
-                    raise TypeError("v2 runtime did not return a document")
+                    raise TypeError("current runtime did not return a document")
                 enabled = frozenset(
                     provider
                     for provider, enabled_flag in (
@@ -305,8 +305,8 @@ def main(
                     )
                     if enabled_flag
                 )
-                document = _v2_provider_error_overlay(document, provider_errors)
-                exit_code = _v2_exit_code(document, enabled)
+                document = _provider_error_overlay(document, provider_errors)
+                exit_code = _exit_code(document, enabled)
                 diagnostic = (
                     "guard_wait_timeout"
                     if document.document_error is not None
