@@ -1,15 +1,13 @@
 # Current JSON Normative Specification
 
 **Product:** `yasb-limitora` 0.2
-**Review unit:** R2
 **Status:** Normative contract. The current JSON document is the sole supported
-output; the historical R2 SPEC/TEST review scope is closed.
+output.
 
 The current JSON document is the sole supported output at the machine boundary
 for `YASB CustomWidget -> yasb-limitora CLI -> Limitora public API`. It has no
-version-selection mode or public root version. The companion structural support
-file is [`json-v2.schema.json`](json-v2.schema.json). The filename remains
-`json-v2.schema.json` until the later mechanical normalization rename.
+output selector or public root version. The companion structural support
+file is [`json-output.schema.json`](json-output.schema.json).
 
 The product runtime is Windows-only. The installed console route and
 `python -m yasb_limitora` converge on one CLI boundary that rejects every
@@ -17,7 +15,7 @@ non-Windows invocation with exit `2`, exact stderr
 `yasb-limitora: unsupported_platform\n`, and zero stdout bytes before argv,
 environment, configuration, provider, native-process, or clock activity.
 Hermetic test injection does not offer non-Windows compatibility or replace the
-separate R10 automated native proof and maintainer manual YASB acceptance.
+separate automated native proof and maintainer manual YASB acceptance.
 
 The shared cache refresh contract is intentionally minimal. A Windows
 cross-process mutex protects only short cache-key state inspection, marker
@@ -45,11 +43,10 @@ implementation MAY use a streaming JSON parser or a different language, but it
 MUST produce the same validated values, ordering, limits, and bytes. It SHOULD
 NOT silently coerce unknown states, floats, duplicate keys, or trailing data.
 
-The R2 review was a specification and test unit: it did not authorize changes
-to `src/`, current JSON execution, or a native YASB widget. That historical
-review boundary does not describe the later R3-R10 runtime closeouts. This
-specification is not itself the R10 evidence record; the roadmap records the
-completed automated native proof and manual YASB acceptance.
+Earlier review boundaries did not authorize changes to `src/`, current JSON
+execution, or a native YASB widget. This specification defines the current
+contract; the roadmap records the completed automated native proof and manual
+YASB acceptance.
 
 ## 2. Scope and Invariants
 
@@ -323,7 +320,7 @@ failures. Provider fields not shown as variable MUST follow section 4.5.
 | Valid current invocation, document/global configuration missing/malformed | `execution_error` | `configuration_invalid/configuration` | Every provider `not_run` | `not_run_reason: invalid_configuration` |
 | One provider object is invalid and a peer is usable | `partial` | `null` | One `execution_error`, one `snapshot`/`undetected` | Invalid provider has `provider_failed/provider`; usable peer keeps its own outcome |
 | One provider object is invalid and no provider is usable | `execution_error` | `provider_failed/provider` | One `execution_error`, one `not_run` or `execution_error` | Invalid provider has `provider_failed/provider`; peers retain their own truthful outcome |
-| Valid current selection, invalid flag combination | `execution_error` | `invocation_invalid/configuration` | Every provider `not_run` | `not_run_reason: invocation_invalid` |
+| Valid invocation with an invalid flag combination | `execution_error` | `invocation_invalid/configuration` | Every provider `not_run` | `not_run_reason: invocation_invalid` |
 | Guard wait expires | `not_run` | `guard_wait_timeout/guard_wait` | Every provider `not_run` | `not_run_reason: guard_wait_timeout` |
 | All provider calls are prevented by the absolute deadline | `not_run` | `deadline_exhausted/document` | Every provider `not_run` | At least one `deadline_exhausted`; other unattempted providers may be `disabled` |
 | One provider times out and another returns a snapshot/undetected result | `partial` | `null` | At least one `execution_error` and one `snapshot`/`undetected` | Timed provider has `provider_timeout/provider`; other provider follows its outcome |
@@ -621,27 +618,26 @@ the trio; `not_run` uses `Quota not run` in compact/alternate and
 invalid`, `invocation_invalid -> invocation invalid`, and `document_aborted ->
 document aborted`. Safe-error mappings are `timeout -> provider_timeout`,
 `invalid_provider_data -> invalid_provider_data`,
-`unknown_provider_state -> unknown_provider_state`. PR2A sidecar mappings are
+`unknown_provider_state -> unknown_provider_state`. Provider-side mappings are
 `credential_invalid -> credential_invalid`, `timeout -> provider_timeout`,
 `rate_limited -> provider_rate_limited`, and `unavailable -> provider_unavailable`;
 the aggregate remains `provider_failed`. Raw reasons and errors MUST NOT appear.
 
 `execution_error.code: cleanup_failed` MUST remain independently visible while
 each provider's recorded presentation remains truthful; a valid snapshot is
-not relabeled as unavailable or error. R6 changes no existing current fields,
-schema, model, object-key order, or historical output. It adds no new
-synthetic windows, percentages, resets, plans, periods, severity, CSS/classes,
-refresh, defaults, execution guards, deadlines, YASB assets, unsupported
-providers/metrics, or R7+ behavior.
+not relabeled as unavailable or error. These presentation rules change no
+existing current fields, schema, model, object-key order, or historical output.
+They add no new synthetic windows, percentages, resets, plans, periods,
+severity, CSS/classes, refresh, defaults, execution guards, deadlines, YASB
+assets, unsupported providers/metrics, or unrelated behavior.
 
 ## 11. Current contract boundary
 
-The current JSON document is the sole supported output. It is semantically
-current rather than one selectable version among several, and its root contains
-exactly `execution_state`, `execution_error`, and `providers` in that order.
-There is no public root `version` field. Historical v1 material is retained only
-in `docs/roadmap.md`; it is not an active output, serializer, schema, or fixture
-contract.
+The current JSON document is the sole supported output. It is the only current
+contract, and its root contains exactly `execution_state`, `execution_error`, and
+`providers` in that order. There is no public root `version` field. Historical
+versioned material is retained only in `docs/roadmap.md`; it is not an active
+output, serializer, schema, or fixture contract.
 
 Current examples and contract tests compare the complete JSON values, canonical
 object order, UTF-8 bytes, and exactly one final LF. A failure is a contract
@@ -855,19 +851,19 @@ corrupt, expired, or incompatible. Provider errors, timeouts, cleanup-failed,
 and all-disabled results do not publish; an older valid entry is not deleted by
 a failed publication.
 
-## 14. YASB Validation
+## 14. Native YASB Validation
 
-R10 is complete at two separate boundaries, with no automated YASB rendering
-claim. Automated native Windows proof
-covers the installed `yasb-limitora` executable, current JSON presentation leaves,
-exit behavior, sanitization, static YAML/CSS compatibility, and clean process
-termination. Real YASB CustomWidget behavior was accepted manually by the
-maintainer on YASB v2.0.6. Passing the repository proof does not substitute for
+Validation is complete at two separate boundaries, with no automated YASB
+rendering claim. Automated native Windows proof covers the installed
+`yasb-limitora` executable, current JSON presentation leaves, exit behavior,
+sanitization, static YAML/CSS compatibility, and clean process termination. Real
+YASB CustomWidget behavior was accepted manually by the maintainer on YASB
+v2.0.6. Passing the repository proof does not substitute for
 manual acceptance, and manual acceptance does not claim automated YASB E2E.
 
 ### 14.1 Historical abandoned automation
 
-The following subsection records an abandoned R10 automation proposal. Its MUST
+The following subsection records an abandoned automation proposal. Its MUST
 language described an unsupported external YASB harness and is not a current
 delivery requirement. It remains here only to preserve the malformed-JSON and
 stock-CustomWidget behavior that informed the final manual boundary.
@@ -890,7 +886,7 @@ copy-ready configuration. The fixture executable path contains no spaces so it
 is compatible with the pinned `run_cmd.split(" ")` behavior.
 
 ```yaml
-class_name: limitora-r2-invalid-json
+class_name: limitora-invalid-json
 label: "Quota: {data}"
 label_alt: "Quota: {data}"
 label_placeholder: "Loading..."
@@ -940,12 +936,12 @@ A separate opt-in smoke may use current Codex credentials, but it is not an
 automated YASB proof and must not be confused with OpenCode acceptance.
 Completed OpenCode Bearer API migration #130 is the implementation base
 (integrated via PR #159); OpenCode real-provider acceptance remains deferred to
-the R11 release gate. Credentials, cookies, workspace IDs, raw payloads, and
-private diagnostics must never be stored or printed.
+the remaining external release gate. Credentials, cookies, workspace IDs, raw
+payloads, and private diagnostics must never be stored or printed.
 
-## 15. Explicit Exclusions
+## 15. Current Exclusions
 
-R2 excludes:
+The current contract excludes:
 
 - native or upstream YASB work, plugin/extension maintainer approval, and native
   popovers or tabs;
@@ -962,12 +958,12 @@ R2 excludes:
 - Claude and Gemini;
 - costs, tokens, history, predictions, `usage`, and
   `rate_limit_reset_credits`; and
-    - the historical R2 review boundary; current runtime behavior is specified
-      by the active contract and its reviewed implementation.
+    - historical review-boundary claims; current runtime behavior is specified by
+      the active contract and its reviewed implementation.
 
 ## 16. Acceptance Criteria
 
-Each user rule is mapped to a reviewable acceptance criterion.
+Each contract rule is mapped to a reviewable acceptance criterion.
 
 | Rule | Acceptance criterion |
 |------|----------------------|
@@ -983,16 +979,16 @@ Each user rule is mapped to a reviewable acceptance criterion.
 | 10 | All four required timestamp fields use six-digit UTC precision and `Z`. |
 | 11 | Cardinalities, string lengths, separate decimal bounds, byte/frame limits, duplicate-key/trailing-data/UTF-8 rules, and deterministic ordering are explicit. |
 | 12 | The current contract keeps canonical UTF-8 bytes, one final LF, and current-contract examples/tests without a legacy output path. |
-| 13 | Exact top-level/provider config grammar, v1 compatibility, explicit selectors, v2-only config precedence, environment variable, canonical path, legal flag combinations, parsing order, missing-file behavior, and stream/exit table are present. |
+| 13 | Exact top-level/provider config grammar, selector-free precedence, environment variable, canonical path, legal flag combinations, parsing order, missing-file behavior, and stream/exit table are present. |
 | 14 | One absolute deadline starts at CLI entry, bounds path/config I/O, reserves cleanup, and defines guard timeout, provider timeout, all-deadline, mixed deadline/provider failure, document, and cleanup failures. |
 | 15 | The guard is named correctly and its user/path scope, bounded wait, abandonment, failures, release, and no-coalescing rules are explicit. |
 | 16 | Presentation fields, control-character rules, fallback strings, cleanup preservation, depleted-window formula/eligibility/ties, empty-window behavior, and excluded UI features are explicit. |
 | 17 | Deterministic pinned-YASB and separate live-provider proofs, malformed-JSON `None` behavior/assertions, fixture scenarios, evidence, and bounded termination are explicit. |
-| 18 | The exclusion section names every requested native, provider, metric, and historical R3 exclusion. |
+| 18 | The exclusion section names every requested native, provider, metric, and historical exclusion. |
 
-## 17. R2 Review Gate (Historical)
+## 17. Contract Review Evidence
 
-The R2 review gate required:
+The contract review required:
 
 - this specification and its schema are internally consistent;
 - the schema and fixture files parse as UTF-8 JSON;
@@ -1002,15 +998,15 @@ The R2 review gate required:
 - the reviewer can trace every rule in section 16 to a document, schema, test,
   or explicit manual proof.
 
-That gate was subsequently passed. The old R3-blocked state is historical and
-does not override the current R1-R10 implementation status. R10's completion
-is recorded at the separate automated-native/manual-YASB boundaries above.
+That gate was subsequently passed. Earlier blocked states are historical and
+do not override the current implementation status. Completion is recorded at
+the separate automated-native/manual-YASB boundaries above.
 
 ## 18. Complete Examples
 
 The following examples are complete current-contract documents. They are normative examples
 of shape and legal combinations, not provider fixtures or runtime output from
-this R2 unit.
+this specification.
 
 ### 18.1 Completed snapshot
 
