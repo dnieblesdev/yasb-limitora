@@ -1,15 +1,14 @@
 import json
 import re
 from copy import deepcopy
-from decimal import Decimal, ROUND_HALF_EVEN, localcontext
+from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).parents[1]
-SPEC = ROOT / "docs/specifications/json-v2.md"
-SCHEMA = ROOT / "docs/specifications/json-v2.schema.json"
+SPEC = ROOT / "docs/specifications/json-output.md"
+SCHEMA = ROOT / "docs/specifications/json-output.schema.json"
 
 DOCUMENT_FIELD_ORDER = ("execution_state", "execution_error", "providers")
 PROVIDER_FIELD_ORDER = (
@@ -99,7 +98,7 @@ def _expected_snapshot_presentation(provider):
             if quantity is not None
         }
         unit = next(iter(units)) if len(units) == 1 else "null"
-        if _window_identity(window) == basis_identity:
+        if basis is not None and _window_identity(window) == basis_identity:
             result = f"{basis['remaining_percentage']}% remaining"
         elif window["availability"] == "known":
             result = "percentage unavailable"
@@ -119,9 +118,83 @@ def _schema():
     return json.loads(SCHEMA.read_text(encoding="utf-8"))
 
 
-def _v2_examples():
-    blocks = re.findall(r"```json\n(.*?)\n```", SPEC.read_text(encoding="utf-8"), re.S)
+def _current_examples():
+    blocks = re.findall(r"```json\n(.*?)\n```", SPEC.read_text(encoding="utf-8"), re.DOTALL)
     return [json.loads(block) for block in blocks if json.loads(block).get("execution_state") in {"complete", "partial", "not_run", "execution_error"}]
+
+
+def test_spec_uses_current_contract_labels_outside_cli_block():
+    text = SPEC.read_text(encoding="utf-8")
+    before_cli, cli_and_after = text.split("## 12. CLI and Configuration", 1)
+    cli_block, after_cli = cli_and_after.split("## 13.", 1)
+    active = before_cli + after_cli
+
+    for fragment in (
+        "Review unit:",
+        "R2",
+        "R6",
+        "R10",
+        "R3-R10",
+        "R11 release gate",
+        "PR2A sidecar",
+        "historical R2",
+        "R6 changes",
+        "R7+ behavior",
+        "R2 excludes",
+        "R2 Review Gate",
+        "R1-R10 implementation status",
+        "this R2 unit",
+        "v1 compatibility",
+        "v2-only config precedence",
+        "selectable version among several",
+        "version-selection mode",
+        "Valid current selection",
+    ):
+        assert fragment not in active
+
+    assert "## 14. Native YASB Validation" in active
+    assert "## 15. Current Exclusions" in active
+    assert "## 17. Contract Review Evidence" in active
+    assert "Each contract rule is mapped to a reviewable acceptance criterion" in active
+    assert cli_block.startswith("\n\nThe command has exactly one invocation grammar.")
+
+
+
+def test_current_contract_metadata_and_root_shape_are_normative():
+    text = SPEC.read_text(encoding="utf-8")
+    schema = _schema()
+
+    assert text.startswith("# Current JSON Normative Specification\n")
+    assert "The current JSON document is the sole supported output." in text
+    assert "exactly three root fields" in text
+    assert "There is no public root `version` field." in text
+    assert "The current projection emits only this three-field root" in text
+    assert "schema-3" in text
+    assert "cold-refreshed" in text
+    assert "The companion structural support\nfile is" in text
+    assert "[`json-output.schema.json`](json-output.schema.json)" in text
+    assert "test_v1_golden_fixtures.py" not in text
+    assert schema["title"] == "yasb-limitora current JSON contract"
+    assert schema["description"] == (
+        "Structural support for the normative current JSON contract. "
+        "Semantic and deadline rules remain normative in json-output.md."
+    )
+    assert tuple(schema["properties"]) == DOCUMENT_FIELD_ORDER
+    assert set(schema["properties"]) == set(DOCUMENT_FIELD_ORDER)
+    assert "version" not in schema["properties"]
+
+
+def test_current_contract_preserves_external_and_persisted_identities():
+    text = SPEC.read_text(encoding="utf-8")
+
+    for identity in (
+        "Global" + chr(92) * 2 + "yasb-limitora-v2-guard-*",
+        "quota-v2-cache.json",
+        "codex-app-server-v2",
+        "opencode-go-api",
+    ):
+        assert identity in text
+
 
 
 def _is_success_outcome(outcome):
@@ -239,22 +312,22 @@ def _remaining_percentage(limit, remaining):
     with localcontext() as context:
         context.prec = 34
         context.rounding = ROUND_HALF_EVEN
-        result = remaining / limit * Decimal("100")
-    if not Decimal("0") <= result <= Decimal("100"):
+        result = remaining / limit * Decimal(100)
+    if not Decimal(0) <= result <= Decimal(100):
         raise ValueError("invalid derived percentage")
     return result
 
 
-def test_all_embedded_v2_examples_obey_the_document_matrix():
-    examples = _v2_examples()
+def test_all_embedded_current_examples_obey_the_document_matrix():
+    examples = _current_examples()
 
     assert len(examples) == 16
     for example in examples:
         _assert_document(example)
 
 
-def test_r6_examples_use_the_exact_snapshot_presentation_grammar():
-    examples = _v2_examples()
+def test_examples_use_the_exact_snapshot_presentation_grammar():
+    examples = _current_examples()
 
     codex = examples[0]["providers"][0]
     assert codex["compact_text"] == "Quota 75% remaining; state=available; freshness=fresh"
@@ -287,8 +360,8 @@ def test_r6_examples_use_the_exact_snapshot_presentation_grammar():
         )
 
 
-def test_r6_parsed_snapshot_examples_lock_every_presentation_string():
-    for example in _v2_examples():
+def test_parsed_snapshot_examples_lock_every_presentation_string():
+    for example in _current_examples():
         for provider in example["providers"]:
             if provider["outcome"] != "snapshot":
                 continue
@@ -297,7 +370,7 @@ def test_r6_parsed_snapshot_examples_lock_every_presentation_string():
             )
 
 
-def test_r6_parsed_examples_lock_all_non_snapshot_fallbacks_and_mappings():
+def test_parsed_examples_lock_all_non_snapshot_fallbacks_and_mappings():
     not_run_text = {
         "disabled": "provider disabled",
         "invalid_configuration": "configuration invalid",
@@ -305,7 +378,7 @@ def test_r6_parsed_examples_lock_all_non_snapshot_fallbacks_and_mappings():
         "document_aborted": "document aborted",
     }
 
-    for example in _v2_examples():
+    for example in _current_examples():
         for provider in example["providers"]:
             outcome = provider["outcome"]
             if outcome == "undetected":
@@ -324,8 +397,8 @@ def test_r6_parsed_examples_lock_all_non_snapshot_fallbacks_and_mappings():
             assert provider["alternate_text"] == expected
 
 
-def test_r6_parsed_examples_lock_canonical_window_order_and_nullable_identities():
-    for example in _v2_examples():
+def test_parsed_examples_lock_canonical_window_order_and_nullable_identities():
+    for example in _current_examples():
         for provider in example["providers"]:
             if provider["outcome"] != "snapshot":
                 continue
@@ -333,13 +406,14 @@ def test_r6_parsed_examples_lock_canonical_window_order_and_nullable_identities(
             assert windows == sorted(windows, key=_window_sort_key)
             tooltip_windows = [line for line in provider["tooltip_text"].splitlines() if line.startswith("Window: ")]
             assert len(tooltip_windows) == len(windows)
-            for window, line in zip(windows, tooltip_windows):
+            for window, line in zip(windows, tooltip_windows, strict=True):
                 assert f"plan_id={json.dumps(window['plan_id'], ensure_ascii=False)}" in line
                 assert f"source_id={json.dumps(window['source_id'], ensure_ascii=False)}" in line
 
 
-def test_r6_tied_parsed_windows_choose_the_canonical_sort_winner():
-    provider = deepcopy(_v2_examples()[0]["providers"][0])
+def test_tied_parsed_windows_choose_the_canonical_sort_winner():
+    provider = deepcopy(_current_examples()[0]["providers"][0])
+
     first = provider["windows"][0]
     tied = deepcopy(first)
     tied["period"] = "weekly"
@@ -349,15 +423,15 @@ def test_r6_tied_parsed_windows_choose_the_canonical_sort_winner():
     assert min((tied, first), key=_window_sort_key)["period"] == "five_hour"
 
 
-def test_r6_parsed_examples_obey_presentation_scalar_bounds():
-    for example in _v2_examples():
+def test_parsed_examples_obey_presentation_scalar_bounds():
+    for example in _current_examples():
         for provider in example["providers"]:
             assert len(provider["compact_text"]) <= 128
             assert len(provider["alternate_text"]) <= 128
             assert len(provider["tooltip_text"]) <= 4096
 
 
-def test_r6_fallback_mappings_and_exclusions_are_normative():
+def test_fallback_mappings_and_exclusions_are_normative():
     text = SPEC.read_text(encoding="utf-8")
 
     for fragment in (
@@ -373,12 +447,12 @@ def test_r6_fallback_mappings_and_exclusions_are_normative():
         "the aggregate remains `provider_failed`",
         "Missing evidence remains missing: no\nsynthetic value, zero, reset, identity, or raw error",
         "Partial snapshots preserve `state=partial`; stale snapshots preserve",
-        "R6 changes no existing v2 fields,\nschema, model, object-key order",
-        "no new\nsynthetic windows, percentages, resets, plans, periods, severity, CSS/classes",
+        "These presentation rules change no\nexisting current fields, schema, model, object-key order",
+        "They add no new synthetic windows, percentages, resets, plans, periods,\nseverity, CSS/classes",
     ):
         assert fragment in text
 
-    examples = _v2_examples()
+    examples = _current_examples()
     assert examples
     assert examples[2]["providers"][0]["tooltip_text"] == "Quota not detected"
     assert examples[5]["providers"][0]["tooltip_text"] == "Quota not run: provider disabled"
@@ -388,7 +462,7 @@ def test_r6_fallback_mappings_and_exclusions_are_normative():
     assert examples[4]["providers"][0]["tooltip_text"] == "Quota error"
 
 
-def test_pr2b_schema_and_spec_declare_provider_bound_api_sources():
+def test_schema_and_spec_declare_provider_bound_api_sources():
     schema = _schema()
     assert schema["$defs"]["sourceId"]["enum"] == ["codex-app-server-v2", "opencode-go-api", None]
     assert {
@@ -408,7 +482,8 @@ def test_pr2b_schema_and_spec_declare_provider_bound_api_sources():
     codex_source_rule = codex_rules[2]["properties"]
     assert codex_source_rule["source_id"] == {"enum": ["codex-app-server-v2", None]}
     codex_window_source_rule = codex_source_rule["windows"]["items"]["allOf"][1]["properties"]
-    assert codex_window_source_rule["source_id"] == {"enum": ["codex-app-server-v2", None]}; assert codex_source_rule["most_depleted_window"]["anyOf"][1]["properties"]["source_id"] == {"enum": ["codex-app-server-v2", None]}
+    assert codex_window_source_rule["source_id"] == {"enum": ["codex-app-server-v2", None]}
+    assert codex_source_rule["most_depleted_window"]["anyOf"][1]["properties"]["source_id"] == {"enum": ["codex-app-server-v2", None]}
     assert "opencode-go-api" not in codex_source_rule["source_id"]["enum"]
     opencode_rules = schema["$defs"]["opencodeProvider"]["allOf"]
     source_rule = opencode_rules[2]["properties"]
@@ -418,16 +493,20 @@ def test_pr2b_schema_and_spec_declare_provider_bound_api_sources():
     source_null_rule = next(rule for rule in schema["$defs"]["window"]["allOf"] if rule.get("if", {}).get("properties", {}).get("source_id", {}).get("type") == "null")
     assert source_null_rule["then"]["properties"]["plan_id"] == {"type": "null"}
     assert source_rule["most_depleted_window"]["anyOf"][1]["properties"]["source_id"] == {"enum": ["opencode-go-api", None]}
-    invalid = deepcopy(_v2_examples()[0]["providers"][0])
+    invalid = deepcopy(_current_examples()[0]["providers"][0])
     invalid["windows"][0]["source_id"] = None
-    with pytest.raises(AssertionError): _assert_provider(invalid)
+    with pytest.raises(AssertionError):
+        _assert_provider(invalid)
     invalid["windows"][0]["source_id"] = "opencode-go-api"
-    with pytest.raises(AssertionError): _assert_provider(invalid)
-    invalid["windows"][0]["source_id"] = "codex-app-server-v2"; invalid["most_depleted_window"]["source_id"] = "opencode-go-api"
-    with pytest.raises(AssertionError): _assert_provider(invalid)
+    with pytest.raises(AssertionError):
+        _assert_provider(invalid)
+    invalid["windows"][0]["source_id"] = "codex-app-server-v2"
+    invalid["most_depleted_window"]["source_id"] = "opencode-go-api"
+    with pytest.raises(AssertionError):
+        _assert_provider(invalid)
 
 
-def test_pr2c_schema_declares_exact_opencode_fixed_windows_and_rate_limit_filter():
+def test_schema_declares_exact_opencode_fixed_windows_and_rate_limit_filter():
     schema = _schema()
     opencode_rules = schema["$defs"]["opencodeProvider"]["allOf"]
     fixed_rule = next(rule for rule in opencode_rules if rule.get("if", {}).get("properties", {}).get("public_state", {}).get("enum") == ["available", "partial"])
@@ -439,14 +518,16 @@ def test_pr2c_schema_declares_exact_opencode_fixed_windows_and_rate_limit_filter
     assert rate_rule["then"]["properties"]["windows"]["items"]["properties"]["kind"] == {"const": "technical_rate_limit"}
 
 
-def test_pr2c_commercial_fixture_quantities_use_metric_not_unit():
+def test_commercial_fixture_quantities_use_metric_not_unit():
     for name in ("complete", "partial", "stale", "multiline-unicode", "missing-data", "provider-unavailable"):
         document = json.loads((ROOT / "examples/customwidget/fixtures" / f"{name}.json").read_text(encoding="utf-8"))
         for provider in document["providers"]:
             for window in provider["windows"]:
                 for quantity in (window[field] for field in ("limit", "used", "remaining") if window["kind"] == "commercial_quota" and window[field] is not None):
                     assert quantity["metric"] == "commercial_quota" and quantity["unit"] == "percentage_points"
-def test_r6_tooltip_identity_escaping_rule_is_normative():
+
+
+def test_tooltip_identity_escaping_rule_is_normative():
     text = SPEC.read_text(encoding="utf-8")
 
     for fragment in (
@@ -458,11 +539,11 @@ def test_r6_tooltip_identity_escaping_rule_is_normative():
         assert fragment in text
 
 
-def test_r6_near_cap_presentation_budget_and_boundary_fallback_are_normative():
+def test_near_cap_presentation_budget_and_boundary_fallback_are_normative():
     text = SPEC.read_text(encoding="utf-8")
 
     for fragment in (
-        "The 65,536-byte document limit is applied after the complete canonical JSON v2",
+        "The 65,536-byte document limit is applied after the complete current JSON",
         "one deterministic,\ndocument-local tooltip scalar budget shared by all snapshot providers",
         "MUST NOT remove or alter canonical `windows` evidence",
         "The largest budget whose encoded document fits MUST be selected",
@@ -472,7 +553,7 @@ def test_r6_near_cap_presentation_budget_and_boundary_fallback_are_normative():
         assert fragment in text
 
 
-def test_r6_preserves_schema_and_canonical_field_order():
+def test_preserves_schema_and_canonical_field_order():
     schema = _schema()
     assert tuple(schema["properties"]) == DOCUMENT_FIELD_ORDER
     assert tuple(schema["$defs"]["providerBase"]["properties"]) == PROVIDER_FIELD_ORDER
@@ -480,7 +561,7 @@ def test_r6_preserves_schema_and_canonical_field_order():
     assert tuple(schema["$defs"]["quantity"]["properties"]) == QUANTITY_FIELD_ORDER
     assert tuple(schema["$defs"]["depletedWindow"]["properties"]) == DEPLETED_WINDOW_FIELD_ORDER
 
-    for document in _v2_examples():
+    for document in _current_examples():
         assert tuple(document) == DOCUMENT_FIELD_ORDER
         for provider in document["providers"]:
             assert tuple(provider) == PROVIDER_FIELD_ORDER
@@ -491,17 +572,17 @@ def test_r6_preserves_schema_and_canonical_field_order():
 
 
 def test_document_matrix_rejects_illegal_state_combinations():
-    complete = deepcopy(_v2_examples()[0])
+    complete = deepcopy(_current_examples()[0])
     complete["execution_state"] = "not_run"
     with pytest.raises(AssertionError):
         _assert_document(complete)
 
-    cleanup = deepcopy(_v2_examples()[10])
+    cleanup = deepcopy(_current_examples()[10])
     cleanup["execution_error"] = {"code": "internal_error", "phase": "document"}
     with pytest.raises(AssertionError):
         _assert_document(cleanup)
 
-    wrong_cleanup_phase = deepcopy(_v2_examples()[10])
+    wrong_cleanup_phase = deepcopy(_current_examples()[10])
     wrong_cleanup_phase["execution_error"]["phase"] = "provider"
     with pytest.raises(AssertionError):
         _assert_document(wrong_cleanup_phase)
@@ -511,7 +592,7 @@ def test_document_matrix_rejects_illegal_state_combinations():
         (12, {"code": "provider_failed", "phase": "provider"}),
         (14, {"code": "deadline_exhausted", "phase": "document"}),
     ):
-        mixed = deepcopy(_v2_examples()[index])
+        mixed = deepcopy(_current_examples()[index])
         mixed["execution_state"] = "execution_error"
         mixed["execution_error"] = error
         with pytest.raises(AssertionError):
@@ -519,7 +600,7 @@ def test_document_matrix_rejects_illegal_state_combinations():
 
 
 def test_document_matrix_accepts_all_documented_mixed_outcomes():
-    examples = _v2_examples()
+    examples = _current_examples()
 
     for index in (4, 10, 11, 12, 13, 14, 15):
         _assert_document(examples[index])
@@ -582,41 +663,56 @@ def test_original_quantity_and_derived_percentage_bounds_are_distinct():
 
 
 def test_quantity_invariants_and_remaining_percentage_formula():
-    assert _valid_quantity_triplet(Decimal("100"), Decimal("25"), Decimal("75"))
-    assert not _valid_quantity_triplet(Decimal("100"), Decimal("101"), Decimal("0"))
-    assert not _valid_quantity_triplet(Decimal("100"), Decimal("0"), Decimal("101"))
-    assert not _valid_quantity_triplet(Decimal("100"), Decimal("25"), Decimal("76"))
-    assert _remaining_percentage(Decimal("40"), Decimal("25")) == Decimal("62.500")
-    assert _remaining_percentage(Decimal("0"), Decimal("0")) is None
-    assert _remaining_percentage(None, Decimal("1")) is None
+    assert _valid_quantity_triplet(Decimal(100), Decimal(25), Decimal(75))
+    assert not _valid_quantity_triplet(Decimal(100), Decimal(101), Decimal(0))
+    assert not _valid_quantity_triplet(Decimal(100), Decimal(0), Decimal(101))
+    assert not _valid_quantity_triplet(Decimal(100), Decimal(25), Decimal(76))
+    assert _remaining_percentage(Decimal(40), Decimal(25)) == Decimal("62.500")
+    assert _remaining_percentage(Decimal(0), Decimal(0)) is None
+    assert _remaining_percentage(None, Decimal(1)) is None
     try:
-        _remaining_percentage(Decimal("40"), Decimal("41"))
+        _remaining_percentage(Decimal(40), Decimal(41))
     except ValueError:
         pass
     else:
         raise AssertionError("remaining above limit must fail closed")
 
 
-def test_v2_config_grammar_is_explicit_and_v1_deadline_is_not_a_key():
+def test_current_cli_configuration_grammar_and_stream_exit_matrix_are_normative():
     text = SPEC.read_text(encoding="utf-8")
-    grammar = text.split("### 12.2 Exact v2 configuration grammar", 1)[1].split("### 12.3", 1)[0]
+    block = text.split("## 12. CLI and Configuration", 1)[1].split("## 13.", 1)[0]
+    normalized = " ".join(block.split())
 
-    assert "The v2 configuration is one UTF-8 JSON object." in text
-    assert "`deadline_seconds`, `codex`, and `opencode_go`" in text
-    assert "`deadline_seconds` is not a v1 key" in text
-    assert "`--output-version 2` or `=2`" in text
-    assert "32,767 UTF-16 code units" in text
-    assert "16,384 UTF-8 bytes" in text
-    assert "`opencode_go` | `enabled`, `timeout_seconds`" in grammar
-    assert "`workspace_id`" not in grammar
-    assert "cookie" not in grammar.lower()
-    assert "`LIMITORA_OPENCODE_API_KEY`" in grammar
-    assert "MUST NOT be supplied in JSON or CLI arguments" in grammar
-    assert "MUST NOT appear in" in grammar
-    assert "Codex `timeout_seconds`" in grammar and "`(0,120]`" in grammar
-    assert "OpenCode `timeout_seconds`" in grammar and "`(0,10]`" in grammar
-    assert "#55 is released upstream in" in text and "Limitora v0.3.0" in text
-    assert "yasb-limitora #133 remains a separate follow-up" in text
+    assert "The command has exactly one invocation grammar" in normalized
+    assert "no arguments" in normalized
+    assert "`--config PATH`, `-c PATH`, or `--config=PATH`" in normalized
+    assert "No other arguments are supported" in normalized
+    assert "explicit configuration path" in normalized
+    assert "non-empty `YASB_LIMITORA_CONFIG`" in normalized
+    assert "per-user default" in normalized
+    assert "### 12.2 Strict current configuration grammar" in normalized
+    assert "`deadline_seconds`, `codex`, and `opencode_go`" in normalized
+    assert "`opencode_go` | `enabled`, `timeout_seconds`" in normalized
+    assert "`workspace_id`" not in normalized
+    assert "cookie" not in normalized.lower()
+    assert "`LIMITORA_OPENCODE_API_KEY`" in normalized
+    assert "MUST NOT be supplied in JSON or CLI arguments" in normalized
+    assert "MUST NOT appear in" in normalized
+    assert "Codex `timeout_seconds`" in normalized and "`(0,120]`" in normalized
+    assert "OpenCode `timeout_seconds`" in normalized and "`(0,10]`" in normalized
+    assert "Former `--output-version` spellings are ordinary invalid invocation input" in normalized
+    assert "cannot load configuration or run providers" in normalized
+    assert "one stream/exit matrix" in normalized
+    assert "| Condition | stdout | stderr | Exit |" in block
+    assert "Current successful or unavailable-only result" in normalized
+    assert "Current provider-owned failure with no usable provider" in normalized
+    assert "Current global/document execution failure" in normalized
+    assert "Current invocation/configuration error" in normalized
+    assert "frozen v1" not in normalized
+    assert "default-v1" not in normalized
+    assert "explicit v2" not in normalized
+    assert "version scanning" not in normalized
+    assert "separate grammars" not in normalized
 
 
 def test_invalid_json_customwidget_fallback_is_copy_ready_and_stock_only():

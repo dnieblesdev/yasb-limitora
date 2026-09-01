@@ -58,7 +58,7 @@ Rename files with `git mv` and update static imports, dynamic imports, monkeypat
 | `V2SafeErrorCode` | remove; merge members into `SafeErrorCode` | No wire-value change. |
 | `CodexConfig.from_v2_mapping`, `OpenCodeGoConfig.from_v2_mapping`, `LocalConfig.from_v2_mapping` | `from_mapping` | Make the strict current grammar/provider-isolation behavior the one implementation; delete legacy mapping behavior. |
 | `docs/specifications/json-v2.md`, `json-v2.schema.json` | `json-output.md`, `json-output.schema.json` | Update `$id`, title, description, links, and normative heading to describe the current JSON contract. |
-| `test_json_v2_projection.py`, `test_json_v2_spec.py` | `test_json_projection.py`, `test_json_output_spec.py` | Rename current-contract tests and their helper imports. |
+| `test_json_v2_projection.py`, `test_json_v2_spec.py` | `test_json_projection.py`, `tests/test_json_spec.py` | Rename current-contract tests and their helper imports. |
 | `test_v2_cache.py`, `test_v2_guard.py`, `test_v2_file_read.py` | `test_cache.py`, `test_guard.py`, `test_file_read.py` | Rename all active test symbols/descriptions from `v2` to current/unversioned terminology. |
 
 Apply the same boundary rule to remaining active test names and assertions (for example `test_v2_*` runtime, deadline, transport, configuration, and platform labels): rename them to describe the behavior, not a supported version. Do **not** rename literal provider IDs, guard/cache names, historical roadmap references, or frozen historical commit/PR descriptions.
