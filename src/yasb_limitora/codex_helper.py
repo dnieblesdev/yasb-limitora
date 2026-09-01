@@ -7,25 +7,27 @@ import struct
 import sys
 import threading
 from collections.abc import Callable, Sequence
+from contextlib import suppress
 from datetime import datetime, timezone
+from typing import Any
 from unicodedata import normalize
 
 from .codex_supervisor import (
     _CONTROL_CAPACITY,
-    _CodexSupervisor,
     _NONCE_LIMIT,
-    _PipeTransport,
-    _TransportError,
-    _TransportTimeout,
+    _CodexSupervisor,
     _fd_handle,
     _peek_named_pipe,
     _peek_named_pipe_handle,
+    _PipeTransport,
+    _TransportError,
+    _TransportTimeout,
 )
 from .model import (
+    CODEX_SOURCE_ID,
     MAX_DISPLAY_LABEL_LENGTH,
     MAX_QUOTA_WINDOWS,
-    _legacy_state_for_snapshot,
-    _parse_canonical_decimal,
+    OPENCODE_SOURCE_ID,
     ProviderKey,
     ProviderOutcome,
     ProviderSnapshotView,
@@ -40,8 +42,8 @@ from .model import (
     SafeError,
     SafeErrorCode,
     SnapshotFreshness,
-    CODEX_SOURCE_ID,
-    OPENCODE_SOURCE_ID,
+    _legacy_state_for_snapshot,
+    _parse_canonical_decimal,
     canonical_identity,
 )
 
@@ -114,11 +116,14 @@ def _reject_json_constant(value: str) -> None:
 def _load_json(payload: bytes) -> object:
     if type(payload) is not bytes or not 0 < len(payload) <= _MAX_RESPONSE:
         raise ValueError("invalid JSON payload")
-    return json.loads(
-        payload.decode("utf-8"),
-        object_pairs_hook=_reject_duplicate_pairs,
-        parse_constant=_reject_json_constant,
-    )
+    try:
+        return json.loads(
+            payload.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_pairs,
+            parse_constant=_reject_json_constant,
+        )
+    except (UnicodeDecodeError, ValueError) as error:
+        raise ValueError("invalid JSON payload") from error
 
 
 def _object(value: object, fields: frozenset[str]) -> dict[str, object]:
@@ -232,7 +237,10 @@ def _has_internal_helper_environment() -> bool:
 
 
 def _child_main() -> None:
-    gate, data = int(os.environ.pop(_GATE)), int(os.environ.pop(_DATA))
+    try:
+        gate, data = int(os.environ.pop(_GATE)), int(os.environ.pop(_DATA))
+    except (KeyError, TypeError, ValueError) as error:
+        raise RuntimeError("invalid helper environment") from error
     try:
         size = struct.unpack(">I", _read_exact(gate, 4))[0]
         if not 0 < size <= _MAX_REQUEST:
@@ -281,10 +289,8 @@ def _run_frozen_helper_bootstrap() -> None:
     finally:
         for fd in (gate, data):
             if fd is not None:
-                try:
+                with suppress(Exception):
                     os.close(fd)
-                except Exception:
-                    pass
 
 
 def _run_internal_helper() -> int:
@@ -327,7 +333,7 @@ class _PersistentTransport(_PipeTransport):
 class CodexHelperExecutor:
     """Own one supervisor and dispatch only after its READY authorization."""
 
-    def __init__(self, supervisor_factory: Callable[..., object] = _CodexSupervisor, timeout_seconds: float = 2.0) -> None:
+    def __init__(self, supervisor_factory: Callable[..., Any] = _CodexSupervisor, timeout_seconds: float = 2.0) -> None:
         self._factory, self._timeout, self._pending_supervisor = supervisor_factory, timeout_seconds, None
         self._lifecycle, self._active, self._retrying = threading.Lock(), False, False
         self._last_supervisor = None
@@ -346,10 +352,13 @@ class CodexHelperExecutor:
         transport_box: list[_PersistentTransport] = []
 
         def transport_factory(read_fd, write_fd, *, nonblocking):
-            peek = _peek_named_pipe
-            if os.name == "nt":
-                read_handle = _fd_handle(read_fd)
-                peek = lambda _fd: _peek_named_pipe_handle(read_handle)
+            read_handle = _fd_handle(read_fd) if os.name == "nt" else None
+
+            def peek(fd: int) -> tuple[int, bool]:
+                if read_handle is not None:
+                    return _peek_named_pipe_handle(read_handle)
+                return _peek_named_pipe(fd)
+
             transport = _PersistentTransport(read_fd, write_fd, peek=peek, nonblocking=nonblocking)
             transport_box.append(transport)
             return transport
@@ -380,10 +389,9 @@ class CodexHelperExecutor:
                 ProviderOutcome.UNDETECTED,
                 ProviderOutcome.NOT_RUN,
             )
-        except (_TransportTimeout, TimeoutError):
-            result = _error(SafeErrorCode.TIMEOUT)
-        except Exception:  # noqa: BLE001 - map unknown worker failures safely
-            result = _error(SafeErrorCode.PROVIDER_ERROR)
+        except Exception as error:  # noqa: BLE001 - map worker failures to public safe errors
+            code = SafeErrorCode.TIMEOUT if isinstance(error, (_TransportTimeout, TimeoutError)) else SafeErrorCode.PROVIDER_ERROR
+            result = _error(code)
         finally:
             if supervisor is not None:
                 try:
@@ -419,10 +427,13 @@ class CodexHelperExecutor:
         transport_box: list[_PersistentTransport] = []
 
         def transport_factory(read_fd, write_fd, *, nonblocking):
-            peek = _peek_named_pipe
-            if os.name == "nt":
-                read_handle = _fd_handle(read_fd)
-                peek = lambda _fd: _peek_named_pipe_handle(read_handle)
+            read_handle = _fd_handle(read_fd) if os.name == "nt" else None
+
+            def peek(fd: int) -> tuple[int, bool]:
+                if read_handle is not None:
+                    return _peek_named_pipe_handle(read_handle)
+                return _peek_named_pipe(fd)
+
             transport = _PersistentTransport(read_fd, write_fd, peek=peek, nonblocking=nonblocking)
             transport_box.append(transport)
             return transport
@@ -450,15 +461,14 @@ class CodexHelperExecutor:
                 ProviderOutcome.UNDETECTED,
                 ProviderOutcome.NOT_RUN,
             )
-        except (_TransportTimeout, TimeoutError):
-            result = _error(SafeErrorCode.TIMEOUT)
-        except Exception:
-            result = _error(SafeErrorCode.PROVIDER_ERROR)
+        except Exception as error:  # noqa: BLE001 - map worker failures to public safe errors
+            code = SafeErrorCode.TIMEOUT if isinstance(error, (_TransportTimeout, TimeoutError)) else SafeErrorCode.PROVIDER_ERROR
+            result = _error(code)
         finally:
             if supervisor is not None:
                 try:
                     supervisor.close_with_deadline(context)
-                except Exception:
+                except Exception:  # noqa: BLE001 - retain owner for bounded retry
                     with self._lifecycle:
                         self._pending_supervisor = supervisor
                     if not decoded:
@@ -476,7 +486,7 @@ class CodexHelperExecutor:
             self._retrying, supervisor = True, self._pending_supervisor
         try:
             supervisor.close_with_deadline(context)
-        except Exception:
+        except Exception:  # noqa: BLE001 - retain owner for bounded retry
             with self._lifecycle:
                 self._retrying = False
             return False
@@ -489,17 +499,22 @@ class CodexHelperExecutor:
 
     def retry_cleanup(self) -> bool:
         with self._lifecycle:
-            if self._pending_supervisor is None: return True
-            if self._active or self._retrying: return False
+            if self._pending_supervisor is None:
+                return True
+            if self._active or self._retrying:
+                return False
             self._retrying, supervisor = True, self._pending_supervisor
-        try: supervisor.close(self._timeout)
+        try:
+            supervisor.close(self._timeout)
         except Exception:  # noqa: BLE001 - retain owner for another retry
-            with self._lifecycle: self._retrying = False
+            with self._lifecycle:
+                self._retrying = False
             return False
         with self._lifecycle:
             self._retrying = False
             released = self._pending_supervisor is supervisor
-            if released: self._pending_supervisor = None
+            if released:
+                self._pending_supervisor = None
         return released
 
 

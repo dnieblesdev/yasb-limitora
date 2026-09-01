@@ -3,19 +3,20 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import cast
 
 import pytest
 
-import yasb_limitora.cli as cli
+from yasb_limitora import cli
 from yasb_limitora.cli import main
-
 
 UNSUPPORTED_PLATFORM = "yasb-limitora: unsupported_platform\n"
 ROOT = Path(__file__).parents[1]
 
 
-@pytest.mark.parametrize("argv", ((), ("--anything",), ("--output-version",), ("--config",)))
+@pytest.mark.parametrize("argv", ((), ("--anything",), ("--config",)))
 def test_non_windows_rejects_exactly_without_stdout(argv):
     stdout, stderr = io.BytesIO(), io.StringIO()
 
@@ -44,20 +45,17 @@ def test_non_windows_rejects_before_product_side_effects(monkeypatch):
         events.append((args, kwargs))
         raise AssertionError("product execution started before platform rejection")
 
-    monkeypatch.setattr(cli, "_output_version", unexpected)
     monkeypatch.setattr(cli, "_config_path", unexpected)
     monkeypatch.setattr(cli, "_resolve_config_path", unexpected)
-    monkeypatch.setattr(cli, "_load", unexpected)
-    monkeypatch.setattr(cli, "_load_v2_path", unexpected)
+    monkeypatch.setattr(cli, "_load_path", unexpected)
     monkeypatch.setattr(cli.time, "monotonic_ns", unexpected)
-    monkeypatch.setattr(cli, "RuntimeCoordinator", unexpected)
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", unexpected)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", unexpected)
     monkeypatch.setattr(cli, "_write", unexpected)
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     assert main(
-        _ExplodingSequence(),
-        environment=_ExplodingEnvironment(),
+        cast(Sequence[str], _ExplodingSequence()),
+        environment=cast(Mapping[str, str], _ExplodingEnvironment()),
         stdout=stdout,
         stderr=stderr,
         platform_is_windows=lambda: False,
@@ -68,7 +66,7 @@ def test_non_windows_rejects_before_product_side_effects(monkeypatch):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="non-Windows boundary subprocess proof runs on non-Windows")
-@pytest.mark.parametrize("argv", ((), ("--output-version", "2"), ("--bad",), ("--config",)))
+@pytest.mark.parametrize("argv", ((), ("--bad",), ("--config",)))
 def test_public_routes_have_identical_non_windows_rejection(argv):
     console_script = shutil.which("yasb-limitora")
     if console_script is None:

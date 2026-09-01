@@ -3,34 +3,41 @@
 from __future__ import annotations
 
 import ctypes
-from ctypes import wintypes
 import io
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+from ctypes import wintypes
+from pathlib import Path
+from typing import Any
 
 import pytest
 
-from yasb_limitora.codex_helper import CodexHelperExecutor
 from yasb_limitora.cli import main
+from yasb_limitora.codex_helper import CodexHelperExecutor
+from yasb_limitora.deadline import DeadlineContext
+from yasb_limitora.guard import Guard
 from yasb_limitora.isolation.windows_job import (
     WAIT_OBJECT_0,
     JobError,
     JobErrorCode,
     WindowsJobBoundary,
 )
-from yasb_limitora.model import ProviderOutcome, ProviderState, PublicProviderState, SafeErrorCode, SnapshotFreshness
-from yasb_limitora.v2_deadline import DeadlineContext
-from yasb_limitora.v2_guard import GuardError, V2Guard
-from yasb_limitora.v2_path import V2FileError, canonicalize_v2_path, read_v2_config
-from yasb_limitora.v2_worker import cleanup_complete
-
+from yasb_limitora.model import (
+    ProviderOutcome,
+    ProviderState,
+    ProviderView,
+    PublicProviderState,
+    SafeErrorCode,
+    SnapshotFreshness,
+)
+from yasb_limitora.path import FileError, canonicalize_path, read_config
+from yasb_limitora.worker import cleanup_complete
 
 TEST_SID = bytes((1, 1, 0, 0, 0, 0, 0, 5, 21, 0, 0, 0))
 
@@ -66,7 +73,7 @@ class _OsStreamCapture:
         self.stdout_bytes = b""
         self.stderr_bytes = b""
 
-    def __enter__(self) -> "_OsStreamCapture":
+    def __enter__(self) -> _OsStreamCapture:  # noqa: PYI034 - Python 3.10-compatible Self annotation
         try:
             for fd, path in ((1, self.stdout_path), (2, self.stderr_path)):
                 self._saved[fd] = os.dup(fd)
@@ -116,7 +123,7 @@ def _write_checkpoint(stage: int) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, target)
-    except Exception as error:  # noqa: BLE001 - checkpoint failures stay redacted
+    except Exception as error:
         temporary.unlink(missing_ok=True)
         raise AssertionError("native proof checkpoint unavailable") from error
 
@@ -159,6 +166,13 @@ def _read_evidence(path: Path, timeout: float = 5.0) -> dict[str, object]:
             return value
         time.sleep(0.05)
     pytest.fail("native fixture did not reach the post-READY protocol boundary")
+    raise AssertionError("native fixture did not reach the post-READY protocol boundary")
+
+
+def _record_int(record: dict[str, object], key: str) -> int:
+    value = record[key]
+    assert isinstance(value, int)
+    return value
 
 def test_read_evidence_retries_transient_permission_error(monkeypatch, tmp_path: Path) -> None:
     expected = {"authorized": True, "helper_pid": 1}
@@ -221,7 +235,7 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
     assert success_record["fixture_stderr_attempted"] is True
     _assert_descendant_output_attempted(success_marker)
     _write_checkpoint(_CHECKPOINT_SUCCESS_VALIDATED)
-    success_pids = [int(success_record[key]) for key in ("helper_pid", "fixture_pid", "descendant_pid")]
+    success_pids = [_record_int(success_record, key) for key in ("helper_pid", "fixture_pid", "descendant_pid")]
     _assert_gone(success_pids)
     _write_checkpoint(_CHECKPOINT_SUCCESS_TREE_GONE)
 
@@ -240,13 +254,17 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
         )
         worker.start()
         timeout_record = _read_evidence(timeout_evidence)
-        timeout_pids = [int(timeout_record[key]) for key in ("helper_pid", "fixture_pid", "descendant_pid")]
+        timeout_pids = [_record_int(timeout_record, key) for key in ("helper_pid", "fixture_pid", "descendant_pid")]
         assert all(_process_is_running(pid) for pid in timeout_pids)
         _write_checkpoint(_CHECKPOINT_TIMEOUT_TREE_OBSERVED)
         worker.join(10.0)
         assert not worker.is_alive()
         timeout_view = result["view"]
+        assert isinstance(timeout_view, ProviderView)
+        assert timeout_view.error is not None
     _assert_streams_clean(timeout_streams)
+    timeout_error = timeout_view.error
+    assert timeout_error is not None
     assert timeout_record["fixture_stderr_attempted"] is True
     _assert_descendant_output_attempted(timeout_marker)
     _write_checkpoint(_CHECKPOINT_TIMEOUT_VALIDATED)
@@ -258,16 +276,16 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
     _assert_gone(timeout_pids)
     _write_checkpoint(_CHECKPOINT_TIMEOUT_TREE_GONE)
 
-    v2_executor = CodexHelperExecutor(timeout_seconds=5.0)
-    v2_result = v2_executor.run_with_deadline(
+    current_executor = CodexHelperExecutor(timeout_seconds=5.0)
+    current_result = current_executor.run_with_deadline(
         _runner("success", tmp_path / "v2-codex.json", "v2-proof", tmp_path / "v2-codex-descendant.attempted"),
         DeadlineContext.from_seconds(10.0),
     )
-    assert v2_result.state is ProviderState.SUCCESS, f"v2 provider error: {v2_result.error.code.value if v2_result.error else 'none'}"
-    assert v2_result.outcome is ProviderOutcome.SNAPSHOT
-    assert v2_result.snapshot is not None
-    assert v2_executor._pending_supervisor is None
-    assert cleanup_complete([], helpers=(v2_executor,))
+    assert current_result.state is ProviderState.SUCCESS, f"current provider error: {current_result.error.code.value if current_result.error else 'none'}"
+    assert current_result.outcome is ProviderOutcome.SNAPSHOT
+    assert current_result.snapshot is not None
+    assert current_executor._pending_supervisor is None
+    assert cleanup_complete([], helpers=(current_executor,))
 
     artifact_path = os.environ.get("YASB_NATIVE_EVIDENCE_PATH")
     if artifact_path:
@@ -275,7 +293,7 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
             "native": True,
             "ready_authorized": bool(success_record["authorized"] and timeout_record["authorized"]),
             "tree_terminated": True,
-            "bounded_timeout_error": timeout_view.error.code.value,
+            "bounded_timeout_error": timeout_error.code.value,
             "streams_clean": not (
                 success_streams.stdout_bytes
                 or success_streams.stderr_bytes
@@ -289,7 +307,7 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
-def test_native_v2_default_configuration_reads_localappdata() -> None:
+def test_native_default_configuration_reads_localappdata() -> None:
     real_localappdata = os.environ.get("LOCALAPPDATA")
     if not real_localappdata:
         pytest.fail("Windows native proof requires LOCALAPPDATA")
@@ -303,12 +321,12 @@ def test_native_v2_default_configuration_reads_localappdata() -> None:
     stdout, stderr = io.BytesIO(), io.StringIO()
     try:
         assert main(
-            ["--output-version", "2"],
+            [],
             environment={"LOCALAPPDATA": str(temp_localappdata)},
             stdout=stdout,
             stderr=stderr,
         ) == 0
-        assert json.loads(stdout.getvalue())["version"] == 2
+        assert "version" not in json.loads(stdout.getvalue())
         assert stderr.getvalue() == ""
         assert str(config_path) not in stdout.getvalue().decode() + stderr.getvalue()
     finally:
@@ -317,11 +335,65 @@ def test_native_v2_default_configuration_reads_localappdata() -> None:
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows launcher contract requires Windows")
 def test_native_yasb_limitora_launcher_contract(tmp_path: Path) -> None:
-    launcher = Path(sys.prefix) / "Scripts" / "yasb-limitora.exe"; assert launcher.is_file()
-    config = tmp_path / "disabled.json"; config.write_bytes(b'{"codex":{"enabled":false},"opencode_go":{"enabled":false}}'); environment = os.environ.copy(); environment["YASB_LIMITORA_CONFIG"] = str(config)
-    invoke = lambda *args: subprocess.run([os.fspath(launcher), *args], env=environment, capture_output=True, timeout=10, check=False)
-    valid = invoke("--output-version", "2"); expected = (Path(__file__).parents[1] / "examples/customwidget/fixtures/providers-disabled.json").read_bytes(); document = json.loads(valid.stdout); leaves = ("compact_text", "alternate_text", "tooltip_text"); assert valid.returncode == 0 and valid.stdout == expected and valid.stderr == b"" and list(document) == ["version", "execution_state", "execution_error", "providers"] and document["version"] == 2 and all(all(leaf in provider and isinstance(provider[leaf], str) and provider[leaf] and "\r" not in provider[leaf] and "stderr" not in provider[leaf].lower() for leaf in leaves) for provider in document["providers"])
-    invalid_config = tmp_path / "invalid.json"; invalid_config.write_text('{"codex":{"enabled":true}}', encoding="utf-8"); environment["YASB_LIMITORA_CONFIG"] = str(invalid_config); invalid = invoke("--output-version", "2"); environment["YASB_LIMITORA_CONFIG"] = str(config); invocation = invoke("--output-version", "2", "--unsupported"); assert invalid.returncode == 1 and json.loads(invalid.stdout)["providers"][0]["execution_error"] == {"code": "provider_failed", "phase": "provider"} and invalid.stderr == b"yasb-limitora: runtime_error\r\n" and str(invalid_config).encode() not in invalid.stdout + invalid.stderr and invocation.returncode == 2 and json.loads(invocation.stdout)["execution_error"] == {"code": "invocation_invalid", "phase": "configuration"} and invocation.stderr == b"yasb-limitora: invocation_invalid\r\n" and b"unsupported" not in invocation.stdout + invocation.stderr
+    launcher = Path(sys.prefix) / "Scripts" / "yasb-limitora.exe"
+    assert launcher.is_file()
+    config = tmp_path / "disabled.json"
+    config.write_bytes(b'{"codex":{"enabled":false},"opencode_go":{"enabled":false}}')
+    environment = os.environ.copy()
+    environment["YASB_LIMITORA_CONFIG"] = str(config)
+
+    def invoke(*args: str) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.run(
+            [os.fspath(launcher), *args],
+            env=environment,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+
+    valid = invoke()
+    expected = (
+        Path(__file__).parents[1] / "examples/customwidget/fixtures/providers-disabled.json"
+    ).read_bytes()
+    document = json.loads(valid.stdout)
+    leaves = ("compact_text", "alternate_text", "tooltip_text")
+    assert valid.returncode == 0
+    assert valid.stdout == expected
+    assert valid.stderr == b""
+    assert list(document) == ["execution_state", "execution_error", "providers"]
+    assert "version" not in document
+    assert all(
+        all(
+            leaf in provider
+            and isinstance(provider[leaf], str)
+            and provider[leaf]
+            and "\r" not in provider[leaf]
+            and "stderr" not in provider[leaf].lower()
+            for leaf in leaves
+        )
+        for provider in document["providers"]
+    )
+
+    invalid_config = tmp_path / "invalid.json"
+    invalid_config.write_text('{"codex":{"enabled":true}}', encoding="utf-8")
+    environment["YASB_LIMITORA_CONFIG"] = str(invalid_config)
+    invalid = invoke()
+    environment["YASB_LIMITORA_CONFIG"] = str(config)
+    invocation = invoke("--unsupported")
+    assert invalid.returncode == 1
+    assert json.loads(invalid.stdout)["providers"][0]["execution_error"] == {
+        "code": "provider_failed",
+        "phase": "provider",
+    }
+    assert invalid.stderr == b"yasb-limitora: runtime_error\r\n"
+    assert str(invalid_config).encode() not in invalid.stdout + invalid.stderr
+    assert invocation.returncode == 2
+    assert json.loads(invocation.stdout)["execution_error"] == {
+        "code": "invocation_invalid",
+        "phase": "configuration",
+    }
+    assert invocation.stderr == b"yasb-limitora: invocation_invalid\r\n"
+    assert b"unsupported" not in invocation.stdout + invocation.stderr
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
@@ -329,14 +401,14 @@ def test_native_global_guard_privilege_competition_and_provider_barrier(tmp_path
     # The real Global\ mutex acquisition is the runner privilege proof.
     script = """import sys, time
 from pathlib import Path
-from yasb_limitora.v2_deadline import DeadlineContext
-from yasb_limitora.v2_guard import GuardError, V2Guard
+from yasb_limitora.deadline import DeadlineContext
+from yasb_limitora.guard import GuardError, Guard
 path = sys.argv[1]
 sentinel = Path(sys.argv[3])
 def provider():
     sentinel.write_text("PROVIDER_STARTED\\n", encoding="ascii")
 try:
-    lease = V2Guard().acquire(path, DeadlineContext.from_seconds(float(sys.argv[2])))
+    lease = Guard().acquire(path, DeadlineContext.from_seconds(float(sys.argv[2])))
     print("owned", flush=True)
     provider()
     if len(sys.argv) > 4: time.sleep(30)
@@ -350,16 +422,19 @@ except GuardError as error:
     try:
         assert first.stdout is not None and first.stdout.readline().strip() == "owned"
         provider_deadline = time.monotonic() + 5
-        while not Path(owner_sentinel).exists() and time.monotonic() < provider_deadline:
+        owner_path = Path(owner_sentinel)
+        owner_output = ""
+        while owner_output != "PROVIDER_STARTED\n" and time.monotonic() < provider_deadline:
+            owner_output = owner_path.read_text(encoding="ascii") if owner_path.exists() else ""
             time.sleep(0.01)
-        assert Path(owner_sentinel).read_text(encoding="ascii") == "PROVIDER_STARTED\n"
-        blocked = subprocess.run([sys.executable, "-c", script, path, "1", blocked_sentinel], capture_output=True, text=True, timeout=5)
+        assert owner_output == "PROVIDER_STARTED\n"
+        blocked = subprocess.run([sys.executable, "-c", script, path, "1", blocked_sentinel], capture_output=True, text=True, timeout=5, check=False)
         assert blocked.stdout.strip() == "guard_wait_timeout"
         assert not Path(blocked_sentinel).exists()
         first.terminate()
         first.wait(timeout=5)
         abandoned_sentinel = str(tmp_path / "abandoned-provider.sentinel")
-        abandoned = subprocess.run([sys.executable, "-c", script, path, "5", abandoned_sentinel], capture_output=True, text=True, timeout=5)
+        abandoned = subprocess.run([sys.executable, "-c", script, path, "5", abandoned_sentinel], capture_output=True, text=True, timeout=5, check=False)
         assert abandoned.stdout.strip() == "owned"
         assert Path(abandoned_sentinel).read_text(encoding="ascii") == "PROVIDER_STARTED\n"
     finally:
@@ -372,13 +447,13 @@ except GuardError as error:
 def test_native_path_and_file_limits_reject_before_provider_open(tmp_path: Path) -> None:
     context = DeadlineContext.from_seconds(5)
     with pytest.raises(ValueError):
-        canonicalize_v2_path(r"\\server\share\config.json")
+        canonicalize_path(r"\\server\share\config.json")
     with pytest.raises(ValueError):
-        canonicalize_v2_path(r"\\?\C:\config.json")
+        canonicalize_path(r"\\?\C:\config.json")
     oversized = tmp_path / "oversized.json"
     oversized.write_bytes(b"x" * 16_385)
-    with pytest.raises(V2FileError):
-        read_v2_config(oversized, context)
+    with pytest.raises(FileError):
+        read_config(oversized, context)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
@@ -389,7 +464,7 @@ def test_native_release_fault_is_deterministic_and_sanitized() -> None:
         def ReleaseMutex(self, _): return False
         def CloseHandle(self, _): return True
 
-    lease = V2Guard(api=Api(), sid_provider=lambda: TEST_SID).acquire(r"C:\native.json", DeadlineContext.from_seconds(1))
+    lease = Guard(api=Api(), sid_provider=lambda: TEST_SID).acquire(r"C:\native.json", DeadlineContext.from_seconds(1))
     assert lease.release() is False
 
 
@@ -428,37 +503,37 @@ def test_checkpoint_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
 
 class _NestedJobApi:
-    def create_job(self):
+    def create_job(self) -> Any:
         return "job"
 
-    def make_non_inheritable(self, handle):
+    def make_non_inheritable(self, handle: Any) -> bool:
         return True
 
-    def enable_kill_on_close(self, handle):
+    def enable_kill_on_close(self, handle: Any) -> bool:
         return True
 
-    def open_process(self, pid, access):
+    def open_process(self, pid: int, access: int) -> Any:
         return "process"
 
-    def is_process_in_job(self, process, job):
+    def is_process_in_job(self, process: Any, job: Any) -> bool:
         return job is None
 
-    def assign(self, job, process):
+    def assign(self, job: Any, process: Any) -> bool:
         raise AssertionError("nested containment must not authorize assignment")
 
-    def query_active(self, job):
+    def query_active(self, job: Any) -> int:
         return 0
 
-    def terminate(self, job):
+    def terminate(self, job: Any) -> bool:
         return True
 
-    def terminate_process(self, process):
+    def terminate_process(self, process: Any) -> bool:
         return True
 
-    def wait(self, handle, timeout_ms):
+    def wait(self, handle: Any, timeout_ms: int) -> int:
         return WAIT_OBJECT_0
 
-    def close(self, handle):
+    def close(self, handle: Any) -> bool:
         return True
 
 
@@ -483,6 +558,7 @@ def test_supervisor_setup_failure_is_safe_and_does_not_run_runner() -> None:
     view = CodexHelperExecutor(fail_before_authorization).run((sys.executable, str(_FIXTURE), "success", "unused"))
     assert calls == ["setup"]
     assert view.state is ProviderState.SAFE_ERROR
+    assert view.error is not None
     assert view.error.code is SafeErrorCode.PROVIDER_ERROR
 
 
@@ -491,5 +567,5 @@ if __name__ == "__main__":
         if len(sys.argv) != 3 or sys.argv[1] != "--classify-checkpoint":
             raise ValueError
         print(_classify_checkpoint(Path(sys.argv[2])))
-    except Exception:
+    except Exception:  # noqa: BLE001 - classifier fails closed
         raise SystemExit(1) from None
