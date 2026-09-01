@@ -360,9 +360,16 @@ def test_configuration_failure_starts_no_provider(monkeypatch):
     assert starts == []
 
 
-def test_success_bytes_have_one_newline_and_provider_order():
+def test_success_bytes_have_one_newline_and_provider_order(monkeypatch):
+    monkeypatch.setattr(cli, "read_config", lambda _path, _context: b"{}")
     stdout, stderr = io.BytesIO(), io.StringIO()
-    code = main((), stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
+    code = main(
+        (),
+        environment={"LOCALAPPDATA": r"C:\Users\runtime-test\AppData\Local"},
+        stdout=stdout,
+        stderr=stderr,
+        platform_is_windows=lambda: True,
+    )
     data = stdout.getvalue()
     assert code == 0 and stderr.getvalue() == "" and data.endswith(b"\n") and not data.endswith(b"\n\n")
     assert [item["provider"] for item in json.loads(data)["providers"]] == ["codex", "opencode_go"]
