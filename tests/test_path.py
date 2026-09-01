@@ -1,6 +1,10 @@
-import pytest
+import pytest  # pyright: ignore[reportMissingImports] - optional test dependency is present at runtime
 
-from yasb_limitora.path import PathError, canonicalize_path, path_identity
+from yasb_limitora.path import (
+    PathError,
+    canonicalize_path,
+    path_identity,
+)
 
 
 @pytest.mark.parametrize(
