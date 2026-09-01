@@ -1,15 +1,13 @@
 # Current JSON Normative Specification
 
 **Product:** `yasb-limitora` 0.2
-**Review unit:** R2
 **Status:** Normative contract. The current JSON document is the sole supported
-output; the historical R2 SPEC/TEST review scope is closed.
+output.
 
 The current JSON document is the sole supported output at the machine boundary
 for `YASB CustomWidget -> yasb-limitora CLI -> Limitora public API`. It has no
-version-selection mode or public root version. The companion structural support
-file is [`json-v2.schema.json`](json-v2.schema.json). The filename remains
-`json-v2.schema.json` until the later mechanical normalization rename.
+output selector or public root version. The companion structural support
+file is [`json-output.schema.json`](json-output.schema.json).
 
 The product runtime is Windows-only. The installed console route and
 `python -m yasb_limitora` converge on one CLI boundary that rejects every
@@ -17,7 +15,7 @@ non-Windows invocation with exit `2`, exact stderr
 `yasb-limitora: unsupported_platform\n`, and zero stdout bytes before argv,
 environment, configuration, provider, native-process, or clock activity.
 Hermetic test injection does not offer non-Windows compatibility or replace the
-separate R10 automated native proof and maintainer manual YASB acceptance.
+separate automated native proof and maintainer manual YASB acceptance.
 
 The shared cache refresh contract is intentionally minimal. A Windows
 cross-process mutex protects only short cache-key state inspection, marker
@@ -45,11 +43,10 @@ implementation MAY use a streaming JSON parser or a different language, but it
 MUST produce the same validated values, ordering, limits, and bytes. It SHOULD
 NOT silently coerce unknown states, floats, duplicate keys, or trailing data.
 
-The R2 review was a specification and test unit: it did not authorize changes
-to `src/`, current JSON execution, or a native YASB widget. That historical
-review boundary does not describe the later R3-R10 runtime closeouts. This
-specification is not itself the R10 evidence record; the roadmap records the
-completed automated native proof and manual YASB acceptance.
+Earlier review boundaries did not authorize changes to `src/`, current JSON
+execution, or a native YASB widget. This specification defines the current
+contract; the roadmap records the completed automated native proof and manual
+YASB acceptance.
 
 ## 2. Scope and Invariants
 
@@ -323,7 +320,7 @@ failures. Provider fields not shown as variable MUST follow section 4.5.
 | Valid current invocation, document/global configuration missing/malformed | `execution_error` | `configuration_invalid/configuration` | Every provider `not_run` | `not_run_reason: invalid_configuration` |
 | One provider object is invalid and a peer is usable | `partial` | `null` | One `execution_error`, one `snapshot`/`undetected` | Invalid provider has `provider_failed/provider`; usable peer keeps its own outcome |
 | One provider object is invalid and no provider is usable | `execution_error` | `provider_failed/provider` | One `execution_error`, one `not_run` or `execution_error` | Invalid provider has `provider_failed/provider`; peers retain their own truthful outcome |
-| Valid current selection, invalid flag combination | `execution_error` | `invocation_invalid/configuration` | Every provider `not_run` | `not_run_reason: invocation_invalid` |
+| Valid invocation with an invalid flag combination | `execution_error` | `invocation_invalid/configuration` | Every provider `not_run` | `not_run_reason: invocation_invalid` |
 | Guard wait expires | `not_run` | `guard_wait_timeout/guard_wait` | Every provider `not_run` | `not_run_reason: guard_wait_timeout` |
 | All provider calls are prevented by the absolute deadline | `not_run` | `deadline_exhausted/document` | Every provider `not_run` | At least one `deadline_exhausted`; other unattempted providers may be `disabled` |
 | One provider times out and another returns a snapshot/undetected result | `partial` | `null` | At least one `execution_error` and one `snapshot`/`undetected` | Timed provider has `provider_timeout/provider`; other provider follows its outcome |
@@ -621,81 +618,100 @@ the trio; `not_run` uses `Quota not run` in compact/alternate and
 invalid`, `invocation_invalid -> invocation invalid`, and `document_aborted ->
 document aborted`. Safe-error mappings are `timeout -> provider_timeout`,
 `invalid_provider_data -> invalid_provider_data`,
-`unknown_provider_state -> unknown_provider_state`. PR2A sidecar mappings are
+`unknown_provider_state -> unknown_provider_state`. Provider-side mappings are
 `credential_invalid -> credential_invalid`, `timeout -> provider_timeout`,
 `rate_limited -> provider_rate_limited`, and `unavailable -> provider_unavailable`;
 the aggregate remains `provider_failed`. Raw reasons and errors MUST NOT appear.
 
 `execution_error.code: cleanup_failed` MUST remain independently visible while
 each provider's recorded presentation remains truthful; a valid snapshot is
-not relabeled as unavailable or error. R6 changes no existing current fields,
-schema, model, object-key order, or historical output. It adds no new
-synthetic windows, percentages, resets, plans, periods, severity, CSS/classes,
-refresh, defaults, execution guards, deadlines, YASB assets, unsupported
-providers/metrics, or R7+ behavior.
+not relabeled as unavailable or error. These presentation rules change no
+existing current fields, schema, model, object-key order, or historical output.
+They add no new synthetic windows, percentages, resets, plans, periods,
+severity, CSS/classes, refresh, defaults, execution guards, deadlines, YASB
+assets, unsupported providers/metrics, or unrelated behavior.
 
 ## 11. Current contract boundary
 
-The current JSON document is the sole supported output. It is semantically
-current rather than one selectable version among several, and its root contains
-exactly `execution_state`, `execution_error`, and `providers` in that order.
-There is no public root `version` field. Historical v1 material is retained only
-in `docs/roadmap.md`; it is not an active output, serializer, schema, or fixture
-contract.
+The current JSON document is the sole supported output. It is the only current
+contract, and its root contains exactly `execution_state`, `execution_error`, and
+`providers` in that order. There is no public root `version` field. Historical
+versioned material is retained only in `docs/roadmap.md`; it is not an active
+output, serializer, schema, or fixture contract.
 
 Current examples and contract tests compare the complete JSON values, canonical
 object order, UTF-8 bytes, and exactly one final LF. A failure is a contract
 failure, not permission to add a compatibility output path.
 
-## 12. Explicit v2 Selection and Configuration
+## 12. CLI and Configuration
 
-V2 is never selected implicitly. The exact output selector is:
+The command has exactly one invocation grammar. A conforming invocation MUST
+contain either no arguments or exactly one configuration form:
 
 ```text
---output-version 2
---output-version=2
+(no arguments)
+--config PATH
+-c PATH
+--config=PATH
 ```
 
-`--output-version 1` and `--output-version=1` explicitly select frozen v1. No
-selector means v1. The v1 path MUST NOT consult a default config path or
-`YASB_LIMITORA_CONFIG`.
+No other arguments are supported. Duplicate configuration flags, a missing or
+empty path, unknown flags, secret-like argument text, and positional arguments
+are ordinary invalid invocation input. The three configuration forms are
+semantically identical; their spelling does not select a different output
+contract.
 
-### 12.1 Parsing order
+### 12.1 Invocation and configuration resolution
 
-The v2 implementation MUST start the absolute deadline at CLI entry, before
-version scanning, environment lookup, path canonicalization, file open, file
-read, or JSON parse. The sequence is:
+After the early Windows platform gate and `freeze_support()` boundary, the CLI
+captures the arguments and starts one absolute deadline before configuration
+resolution, environment lookup, path canonicalization, file open, file read, or
+JSON parsing. Invalid invocation is rejected before configuration is loaded or
+provider work starts. Former `--output-version` spellings are ordinary invalid
+invocation input. In particular, `--output-version 1`, `--output-version=1`,
+`--output-version 2`, and `--output-version=2` MUST produce the current
+`invocation_invalid` envelope, stderr `yasb-limitora: invocation_invalid\n`,
+and exit code `2`; they cannot load configuration or run providers. The same
+rule applies to any former
+`--output-version` spelling, including missing, duplicate, or non-numeric
+values.
 
-1. Capture argv and streams, record `T0` immediately, and establish the
-   provisional minimum deadline described in section 13.
-2. Determine the output version from the exact selector forms.
-3. Reject a duplicate selector, missing selector value, non-integer selector,
-   or selector other than `1` or `2`.
-4. Parse the remaining flags left-to-right. Accept only `--config PATH`,
-   `-c PATH`, and `--config=PATH`; reject duplicate config flags, empty paths,
-   unknown flags, missing values, secret-like argv text, and positional args.
-5. For v2 only, resolve and canonically normalize the effective config path
-   using section 12.2.
-6. Read and validate UTF-8 JSON configuration using the same absolute deadline,
-   rejecting duplicate keys, unknown fields, credential-like keys, malformed
-   values, and trailing data.
-7. Establish the guard scope and continue all execution phases against the
-   same absolute deadline. No provider call may begin before these steps
-   succeed.
+For a valid invocation, the effective configuration path is selected by this
+precedence, from highest to lowest:
 
-If the selector itself is invalid, version selection is not trusted and the
-result is the frozen v1 `invocation_invalid` envelope, stderr
-`yasb-limitora: invocation_invalid\n`, and exit code `2`. A valid v2 selector
-causes all later invocation/configuration errors to use the v2 safe envelope.
+1. the explicit `--config PATH`, `-c PATH`, or `--config=PATH` value;
+2. a non-empty `YASB_LIMITORA_CONFIG` environment value; and
+3. the per-user default `%LOCALAPPDATA%\yasb-limitora\config.json`.
 
-### 12.2 Exact v2 configuration grammar
+An explicit configuration path always wins over environment and default paths.
+An unset environment variable permits the per-user default. If
+`YASB_LIMITORA_CONFIG` is present but empty or whitespace-only, configuration is
+invalid and MUST NOT silently fall back to the default. If `LOCALAPPDATA` is
+missing or blank when the default is needed, configuration is invalid. A
+selected missing or inaccessible file is `configuration_invalid`, not an
+all-disabled success.
 
-The v2 configuration is one UTF-8 JSON object. Its only top-level keys are
-`deadline_seconds`, `codex`, and `opencode_go`. `codex` and `opencode_go` are
-optional; an omitted provider object is equivalent to its default empty object.
-Every object key is case-sensitive. Unknown keys and duplicate JSON member
-names at any level are configuration errors. A JSON `null` provider object is
-not equivalent to omission and is invalid.
+The effective path MUST be canonicalized before guard scoping using Windows
+full-path resolution with normalized separators, removal of non-root trailing
+separators, and case-insensitive comparison. It MUST be at most 32,767 UTF-16
+code units after normalization. Device paths and UNC/network paths MUST be
+rejected before file open. Configuration files MUST be regular local files no
+larger than 16,384 UTF-8 bytes. The producer MUST obtain size without reading an
+unbounded stream and MUST read at most 16,385 bytes, rejecting the extra byte.
+File open, read, and close operations MUST receive only the remaining deadline
+budget. Blocking unbounded reads, network path resolution, and retries without
+a deadline are non-conforming. If cancellation or close cannot complete within
+the deadline, the document fails closed and cleanup remains bounded by the same
+deadline.
+
+### 12.2 Strict current configuration grammar
+
+The configuration is one UTF-8 JSON object using the strict current grammar. Its
+only top-level keys are `deadline_seconds`, `codex`, and `opencode_go`.
+`codex` and `opencode_go` are optional; an omitted provider object is equivalent
+to its default empty object. Every object key is case-sensitive. Unknown keys
+and duplicate JSON member names at any level are configuration errors. A JSON
+`null` provider object is not equivalent to omission and is invalid.
 
 | Location/key | JSON type | Default | Constraint |
 |--------------|-----------|---------|------------|
@@ -704,8 +720,8 @@ not equivalent to omission and is invalid.
 | top-level `opencode_go` | object | `{}` | Only the provider keys in the next table |
 | provider `enabled` | boolean | `false` | Required only when supplied; no numeric/string coercion |
 | Codex `runner` | string or `null` | `null` | Absolute Windows drive or UNC path; required when Codex is enabled; empty/relative is invalid |
-| Codex `timeout_seconds` | finite JSON number; no string, boolean, `null`, NaN, or infinity | `7` | `(0,120]`; it is only an upper hint and cannot extend the document deadline |
-| OpenCode `timeout_seconds` | finite JSON number; no string, boolean, `null`, NaN, or infinity | `7` | `(0,10]`; it is only an upper hint and cannot extend the document deadline |
+| Codex `timeout_seconds` | finite JSON number; no string, boolean, `null`, NaN, or infinity | `7` | `(0,120]`; only an upper hint and cannot extend the document deadline |
+| OpenCode `timeout_seconds` | finite JSON number; no string, boolean, `null`, NaN, or infinity | `7` | `(0,10]`; only an upper hint and cannot extend the document deadline |
 
 The exact provider key sets are:
 
@@ -714,101 +730,58 @@ The exact provider key sets are:
 | `codex` | `enabled`, `runner`, `timeout_seconds` |
 | `opencode_go` | `enabled`, `timeout_seconds` |
 
-The v2 environment-only OpenCode Go credential is `LIMITORA_OPENCODE_API_KEY`; it is not a
-configuration key. It MUST NOT be supplied in JSON or CLI arguments and MUST NOT appear in
-v2 JSON, diagnostics, or other output. Credential-like keys are rejected recursively.
-Provider defaults are applied before validation of dependent rules: an enabled
-Codex with omitted `runner` is invalid, while an omitted/disabled provider is a
-legal `not_run` provider. A malformed provider object is provider-scoped: that
-provider is not launched and is projected as `provider_failed/provider`; any
-valid peer remains eligible to run. Top-level grammar, path, JSON decoding, and
-deadline errors remain document/global configuration failures. Provider-scoped
-configuration errors bypass the v2 cache so stale data cannot replace the error
-or change provider order/markers.
+The environment-only OpenCode Go credential is
+`LIMITORA_OPENCODE_API_KEY`; it is not a configuration key. It MUST NOT be
+supplied in JSON or CLI arguments and MUST NOT appear in JSON, diagnostics, or
+other output. Credential-like keys are rejected recursively. Provider defaults
+are applied before dependent validation: an enabled Codex with omitted `runner`
+is invalid, while an omitted or disabled provider is a legal `not_run` provider.
+A malformed provider object is provider-scoped: that provider is not launched
+and is projected as `provider_failed/provider`; a valid peer remains eligible to
+run. Top-level grammar, path, JSON decoding, and deadline errors remain
+document/global configuration failures. Provider-scoped configuration errors
+bypass the cache so stale data cannot replace the error or change provider order
+or markers.
 
-### 12.3 v1 explicit-config compatibility
+The configured `deadline_seconds` is measured from the same deadline start; it
+never starts after configuration parsing. Before the configured deadline is
+known, the producer uses the minimum legal one-second provisional bound. The
+cleanup reserve is `min(0.25 seconds, deadline / 4)`, so configuration I/O and
+parsing may consume at most `0.75` seconds before a configured deadline is known.
+If this provisional bound expires, the producer emits a bounded document
+`deadline_exhausted` error rather than blocking CustomWidget. Guard, provider,
+cleanup, and output preparation continue to receive only the remaining portion
+of the same absolute deadline.
 
-When v1 is selected, the existing explicit-config grammar remains unchanged:
-the top-level keys are only `codex` and `opencode_go`, the provider keys are the
-same current keys, omitted providers use current defaults, and
-`deadline_seconds` is not a v1 key. V1 continues to accept exactly one
-`--config PATH`, `-c PATH`, or `--config=PATH`; it does not consult
-`YASB_LIMITORA_CONFIG` or `%LOCALAPPDATA%`. Existing v1 JSON duplicate-member
-last-wins behavior is retained for compatibility; v2 rejects duplicate members.
-No v1 output bytes or no-argument behavior change is authorized.
+### 12.3 Exact streams and exits
 
-### 12.4 v2 config precedence
-
-Only v2 applies this precedence, from highest to lowest:
-
-1. explicit `--config PATH` or `-c PATH`;
-2. named environment path `YASB_LIMITORA_CONFIG`; and
-3. `%LOCALAPPDATA%\\yasb-limitora\\config.json`.
-
-The environment value is a path, not JSON and not a credential. An empty
-`YASB_LIMITORA_CONFIG` is a configuration error, not permission to fall back.
-If `%LOCALAPPDATA%` is missing, the v2 default is a configuration error.
-
-The effective path MUST be canonicalized before guard scoping using Windows
-full-path resolution with normalized separators, removal of non-root trailing
-separators, and case-insensitive comparison. The canonical path MAY refer to a
-missing file. A missing selected file is `configuration_invalid`, not an
-all-disabled success.
-
-The configured `deadline_seconds` is measured from the same `T0`; it never
-starts after configuration parsing. Before the file is parsed, the producer
-uses the minimum legal one-second deadline as a provisional bound. The cleanup
-reserve is `min(0.25 seconds, deadline / 4)`, so configuration I/O and parsing
-may consume at most `1.0 - 0.25 = 0.75` seconds before a configured deadline is
-known. If this provisional bound expires, the producer emits a bounded
-configuration/document deadline error rather than blocking CustomWidget.
-
-The effective configuration path MUST be at most 32,767 UTF-16 code units after
-normalization. V2 MUST reject device paths and UNC/network paths before file
-open; v1 explicit paths retain their current behavior. V2 configuration files
-MUST be regular local files no larger than 16,384 UTF-8 bytes. The producer
-MUST obtain size without reading an unbounded stream and MUST read at most
-16,385 bytes, rejecting the extra byte. It MUST use bounded/cancellable file
-operations: lexical path normalization MUST perform no network or existence
-lookup, and file open/read/close operations MUST receive only the remaining
-deadline budget. An overlapped/cancellable read (or an equivalent bounded
-primitive) MUST be cancelled at expiry. Blocking `read_text`, unbounded file
-reads, network path resolution, and retries without a deadline are non-
-conforming. If cancellation/close cannot complete within the deadline, the
-document fails closed and the process cleanup path remains bounded by the same
-deadline.
-
-The legal flag combinations are:
-
-| Selector | Config flags | Resolution |
-|----------|--------------|------------|
-| none | none | Frozen v1 all-disabled behavior |
-| none | exactly one supported config flag | Frozen v1 explicit config |
-| `--output-version 1` or `=1` | none or exactly one supported config flag | Frozen v1 |
-| `--output-version 2` or `=2` | none | v2 env path, then per-user default |
-| `--output-version 2` or `=2` | exactly one supported config flag | v2 explicit config |
-
-The selector and config flag may appear in either argv order. A duplicate
-selector, duplicate config flag, selector plus a second config spelling,
-unknown flag, missing value, positional argument, or empty path is invalid. No
-other combination is legal.
-
-### 12.5 Exact streams and exits
+The following is the one stream/exit matrix for the command. Stdout MUST
+contain only one current JSON document and its final LF. Stderr MUST never
+contain paths, configuration contents, provider payloads,
+credentials, workspace IDs, runner paths, raw exceptions, or unknown state
+strings.
 
 | Condition | stdout | stderr | Exit |
 |-----------|--------|--------|------:|
-| v1 success or unavailable-only result | Exact v1 JSON plus LF | Empty | 0 |
-| v1 safe runtime error | Exact v1 JSON plus LF | `yasb-limitora: runtime_error\n` | 1 |
-| v1 invocation/config error | Exact v1 safe-error JSON plus LF | `yasb-limitora: invocation_invalid\n` or `yasb-limitora: configuration_invalid\n` | 2 |
-| v2 successful snapshot/undetected/disabled result | Canonical v2 JSON plus LF | Empty | 0 |
-| v2 mixed usable result plus provider-scoped failure | Canonical v2 JSON plus LF | Empty | 0 |
-| v2 provider-owned failure with no usable provider | Canonical v2 safe envelope plus LF | `yasb-limitora: runtime_error\n` | 1 |
-| v2 global/document execution failure, including guard or deadline expiry | Canonical v2 safe envelope or `not_run` document plus LF | Safe diagnostic for the global failure | 2 |
-| v2 invocation/configuration error | Canonical v2 safe envelope plus LF | `yasb-limitora: invocation_invalid\n` or `yasb-limitora: configuration_invalid\n` | 2 |
+| Unsupported platform | Empty | `yasb-limitora: unsupported_platform\n` | 2 |
+| Current successful or unavailable-only result | Canonical current JSON plus LF | Empty | 0 |
+| Current mixed usable result plus provider-scoped failure | Canonical current JSON plus LF | Empty | 0 |
+| Current provider-owned failure with no usable provider | Current safe envelope plus LF | `yasb-limitora: runtime_error\n` | 1 |
+| Current global/document execution failure, including guard or deadline expiry | Current safe envelope or `not_run` document plus LF | Sanitized failure diagnostic | 2 |
+| Current invocation/configuration error | Current safe envelope plus LF | `yasb-limitora: invocation_invalid\n` or `yasb-limitora: configuration_invalid\n` | 2 |
 
-Stdout MUST contain only one JSON document and its final LF. Stderr MUST never
-contain paths, config contents, provider payloads, credentials, workspace IDs,
-runner paths, raw exceptions, or unknown state strings.
+A current provider-owned failure keeps its provider-specific sanitized error in
+the JSON document. A mixed usable result remains successful even when another
+provider has a provider-scoped failure. A global/document failure, including a
+runtime exception or deadline exhaustion, never exposes private failure detail
+and cannot emit a partial JSON document.
+
+### 12.4 Bounded configuration I/O
+
+The path, file-size, UTF-8, and deadline-bounded open/read/close rules in this
+section are the bounded configuration I/O rules used by the execution guard in
+section 13. They apply equally to the explicit path, the non-empty environment
+path, and the per-user default path selected by the precedence above.
 
 ## 13. Absolute Deadline and Cross-Process Execution Guard
 
@@ -878,19 +851,19 @@ corrupt, expired, or incompatible. Provider errors, timeouts, cleanup-failed,
 and all-disabled results do not publish; an older valid entry is not deleted by
 a failed publication.
 
-## 14. YASB Validation
+## 14. Native YASB Validation
 
-R10 is complete at two separate boundaries, with no automated YASB rendering
-claim. Automated native Windows proof
-covers the installed `yasb-limitora` executable, current JSON presentation leaves,
-exit behavior, sanitization, static YAML/CSS compatibility, and clean process
-termination. Real YASB CustomWidget behavior was accepted manually by the
-maintainer on YASB v2.0.6. Passing the repository proof does not substitute for
+Validation is complete at two separate boundaries, with no automated YASB
+rendering claim. Automated native Windows proof covers the installed
+`yasb-limitora` executable, current JSON presentation leaves, exit behavior,
+sanitization, static YAML/CSS compatibility, and clean process termination. Real
+YASB CustomWidget behavior was accepted manually by the maintainer on YASB
+v2.0.6. Passing the repository proof does not substitute for
 manual acceptance, and manual acceptance does not claim automated YASB E2E.
 
 ### 14.1 Historical abandoned automation
 
-The following subsection records an abandoned R10 automation proposal. Its MUST
+The following subsection records an abandoned automation proposal. Its MUST
 language described an unsupported external YASB harness and is not a current
 delivery requirement. It remains here only to preserve the malformed-JSON and
 stock-CustomWidget behavior that informed the final manual boundary.
@@ -913,7 +886,7 @@ copy-ready configuration. The fixture executable path contains no spaces so it
 is compatible with the pinned `run_cmd.split(" ")` behavior.
 
 ```yaml
-class_name: limitora-r2-invalid-json
+class_name: limitora-invalid-json
 label: "Quota: {data}"
 label_alt: "Quota: {data}"
 label_placeholder: "Loading..."
@@ -963,12 +936,12 @@ A separate opt-in smoke may use current Codex credentials, but it is not an
 automated YASB proof and must not be confused with OpenCode acceptance.
 Completed OpenCode Bearer API migration #130 is the implementation base
 (integrated via PR #159); OpenCode real-provider acceptance remains deferred to
-the R11 release gate. Credentials, cookies, workspace IDs, raw payloads, and
-private diagnostics must never be stored or printed.
+the remaining external release gate. Credentials, cookies, workspace IDs, raw
+payloads, and private diagnostics must never be stored or printed.
 
-## 15. Explicit Exclusions
+## 15. Current Exclusions
 
-R2 excludes:
+The current contract excludes:
 
 - native or upstream YASB work, plugin/extension maintainer approval, and native
   popovers or tabs;
@@ -985,12 +958,12 @@ R2 excludes:
 - Claude and Gemini;
 - costs, tokens, history, predictions, `usage`, and
   `rate_limit_reset_credits`; and
-    - the historical R2 review boundary; current runtime behavior is specified
-      by the active contract and its reviewed implementation.
+    - historical review-boundary claims; current runtime behavior is specified by
+      the active contract and its reviewed implementation.
 
 ## 16. Acceptance Criteria
 
-Each user rule is mapped to a reviewable acceptance criterion.
+Each contract rule is mapped to a reviewable acceptance criterion.
 
 | Rule | Acceptance criterion |
 |------|----------------------|
@@ -1006,16 +979,16 @@ Each user rule is mapped to a reviewable acceptance criterion.
 | 10 | All four required timestamp fields use six-digit UTC precision and `Z`. |
 | 11 | Cardinalities, string lengths, separate decimal bounds, byte/frame limits, duplicate-key/trailing-data/UTF-8 rules, and deterministic ordering are explicit. |
 | 12 | The current contract keeps canonical UTF-8 bytes, one final LF, and current-contract examples/tests without a legacy output path. |
-| 13 | Exact top-level/provider config grammar, v1 compatibility, explicit selectors, v2-only config precedence, environment variable, canonical path, legal flag combinations, parsing order, missing-file behavior, and stream/exit table are present. |
+| 13 | Exact top-level/provider config grammar, selector-free precedence, environment variable, canonical path, legal flag combinations, parsing order, missing-file behavior, and stream/exit table are present. |
 | 14 | One absolute deadline starts at CLI entry, bounds path/config I/O, reserves cleanup, and defines guard timeout, provider timeout, all-deadline, mixed deadline/provider failure, document, and cleanup failures. |
 | 15 | The guard is named correctly and its user/path scope, bounded wait, abandonment, failures, release, and no-coalescing rules are explicit. |
 | 16 | Presentation fields, control-character rules, fallback strings, cleanup preservation, depleted-window formula/eligibility/ties, empty-window behavior, and excluded UI features are explicit. |
 | 17 | Deterministic pinned-YASB and separate live-provider proofs, malformed-JSON `None` behavior/assertions, fixture scenarios, evidence, and bounded termination are explicit. |
-| 18 | The exclusion section names every requested native, provider, metric, and historical R3 exclusion. |
+| 18 | The exclusion section names every requested native, provider, metric, and historical exclusion. |
 
-## 17. R2 Review Gate (Historical)
+## 17. Contract Review Evidence
 
-The R2 review gate required:
+The contract review required:
 
 - this specification and its schema are internally consistent;
 - the schema and fixture files parse as UTF-8 JSON;
@@ -1025,15 +998,15 @@ The R2 review gate required:
 - the reviewer can trace every rule in section 16 to a document, schema, test,
   or explicit manual proof.
 
-That gate was subsequently passed. The old R3-blocked state is historical and
-does not override the current R1-R10 implementation status. R10's completion
-is recorded at the separate automated-native/manual-YASB boundaries above.
+That gate was subsequently passed. Earlier blocked states are historical and
+do not override the current implementation status. Completion is recorded at
+the separate automated-native/manual-YASB boundaries above.
 
 ## 18. Complete Examples
 
 The following examples are complete current-contract documents. They are normative examples
 of shape and legal combinations, not provider fixtures or runtime output from
-this R2 unit.
+this specification.
 
 ### 18.1 Completed snapshot
 

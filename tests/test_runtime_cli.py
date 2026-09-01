@@ -8,8 +8,11 @@ from typing import cast
 import pytest
 
 from yasb_limitora import cli
+from yasb_limitora.cache import RefreshCoordinator, SingleFlightResult
 from yasb_limitora.cli import main
 from yasb_limitora.config import LocalConfig
+from yasb_limitora.deadline import DeadlineContext
+from yasb_limitora.guard import Guard, GuardError
 from yasb_limitora.limitora_api import (
     OpenCodeFailureEvidence,
     OpenCodeReadResult,
@@ -24,16 +27,13 @@ from yasb_limitora.model import (
     SafeError,
     SafeErrorCode,
 )
-from yasb_limitora.projection_v2 import (
-    V2ProjectionInput,
-    project_v2_bytes,
-    project_v2_failure_bytes,
-    project_v2_not_run_bytes,
+from yasb_limitora.projection import (
+    ProjectionInput,
+    project_bytes,
+    project_failure_bytes,
+    project_not_run_bytes,
 )
-from yasb_limitora.v2_cache import SingleFlightResult, V2QuotaCache
-from yasb_limitora.v2_deadline import DeadlineContext
-from yasb_limitora.v2_guard import GuardError, V2Guard
-from yasb_limitora.v2_worker import OpenCodeWorkerProcess, V2ExecutionOrchestrator
+from yasb_limitora.worker import ExecutionOrchestrator, OpenCodeWorkerProcess
 
 
 def view(provider, state=ProviderState.SUCCESS, code=None, display_label=None):
@@ -69,7 +69,7 @@ def test_invalid_arguments_are_safe_and_exit_two(bad):
 
 
 def test_missing_cookie_is_unavailable_and_streams_are_isolated(monkeypatch):
-    monkeypatch.setattr(cli, "read_v2_config", lambda path, context: json.dumps({"codex": {}, "opencode_go": {}}))
+    monkeypatch.setattr(cli, "read_config", lambda path, context: json.dumps({"codex": {}, "opencode_go": {}}))
     orchestrator = _FakeOrchestrator(
         DocumentView.ordered(
             ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED),
@@ -81,7 +81,7 @@ def test_missing_cookie_is_unavailable_and_streams_are_isolated(monkeypatch):
             ),
         )
     )
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", lambda: orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
     code = main(
         (),
@@ -96,7 +96,7 @@ def test_missing_cookie_is_unavailable_and_streams_are_isolated(monkeypatch):
 
 
 def test_runtime_safe_error_has_exit_one_and_sanitized_diagnostic(monkeypatch):
-    monkeypatch.setattr(cli, "read_v2_config", lambda path, context: json.dumps({"codex": {}, "opencode_go": {}}))
+    monkeypatch.setattr(cli, "read_config", lambda path, context: json.dumps({"codex": {}, "opencode_go": {}}))
     stdout, stderr = io.BytesIO(), io.StringIO()
     class FailingOrchestrator:
         last_record = None
@@ -107,7 +107,7 @@ def test_runtime_safe_error_has_exit_one_and_sanitized_diagnostic(monkeypatch):
                 view(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE),
             )
 
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", FailingOrchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", FailingOrchestrator)
     assert main(
         (),
         environment={
@@ -132,7 +132,7 @@ def test_config_file_and_runtime_error_are_redacted(tmp_path):
     assert stderr.getvalue() == "yasb-limitora: runtime_error\n"
 
 
-def test_v2_default_resolution_reads_injected_localappdata(monkeypatch):
+def test_default_resolution_reads_injected_localappdata(monkeypatch):
     paths = []
     localappdata = r"C:\Users\runtime-test\AppData\Local"
 
@@ -140,7 +140,7 @@ def test_v2_default_resolution_reads_injected_localappdata(monkeypatch):
         paths.append(path)
         return json.dumps({"codex": {}, "opencode_go": {}})
 
-    monkeypatch.setattr(cli, "read_v2_config", read_config)
+    monkeypatch.setattr(cli, "read_config", read_config)
     orchestrator = _FakeOrchestrator(
         DocumentView.ordered(
             view(ProviderKey.CODEX, ProviderState.UNAVAILABLE),
@@ -152,7 +152,7 @@ def test_v2_default_resolution_reads_injected_localappdata(monkeypatch):
             ),
         )
     )
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", lambda: orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     assert main(
@@ -167,7 +167,7 @@ def test_v2_default_resolution_reads_injected_localappdata(monkeypatch):
     assert stderr.getvalue() == ""
 
 
-def test_v2_cli_missing_opencode_credentials_is_clean_not_run(monkeypatch, tmp_path):
+def test_cli_missing_opencode_credentials_is_clean_not_run(monkeypatch, tmp_path):
     path = tmp_path / "config.json"
     path.write_text(
         json.dumps({"codex": {}, "opencode_go": {"enabled": True}}),
@@ -191,12 +191,12 @@ def test_v2_cli_missing_opencode_credentials_is_clean_not_run(monkeypatch, tmp_p
         def run_with_deadline(self, request, context):
             return read_opencode_go(request).view
 
-    orchestrator = V2ExecutionOrchestrator(
-        guard_factory=cast(type[V2Guard], Guard),
+    orchestrator = ExecutionOrchestrator(
+        guard_factory=cast(type[Guard], Guard),
         opencode_factory=cast(type[OpenCodeWorkerProcess], Worker),
     )
 
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", lambda: orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     code = main(
@@ -225,7 +225,7 @@ def test_v2_cli_missing_opencode_credentials_is_clean_not_run(monkeypatch, tmp_p
         (OpenCodeFailureEvidence.RATE_LIMITED, "provider_rate_limited"),
     ),
 )
-def test_v2_cli_consumes_private_opencode_evidence_sidecar(evidence, expected, monkeypatch, tmp_path):
+def test_cli_consumes_private_opencode_evidence_sidecar(evidence, expected, monkeypatch, tmp_path):
     path = tmp_path / "config.json"
     path.write_text(json.dumps({"codex": {}, "opencode_go": {"enabled": True}}), encoding="utf-8")
 
@@ -256,11 +256,11 @@ def test_v2_cli_consumes_private_opencode_evidence_sidecar(evidence, expected, m
             self.last_result = OpenCodeReadResult(view, evidence)
             return view
 
-    orchestrator = V2ExecutionOrchestrator(
-        guard_factory=cast(type[V2Guard], Guard),
+    orchestrator = ExecutionOrchestrator(
+        guard_factory=cast(type[Guard], Guard),
         opencode_factory=cast(type[OpenCodeWorkerProcess], Worker),
     )
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", lambda: orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     code = main(
@@ -278,7 +278,7 @@ def test_v2_cli_consumes_private_opencode_evidence_sidecar(evidence, expected, m
     assert document["execution_error"] == {"code": "provider_failed", "phase": "provider"}
 
 
-def test_v2_provider_config_error_bypasses_cache_and_preserves_usable_peer(monkeypatch, tmp_path):
+def test_provider_config_error_bypasses_cache_and_preserves_usable_peer(monkeypatch, tmp_path):
     path = tmp_path / "config.json"
     path.write_text(
         json.dumps({"codex": {"enabled": True}, "opencode_go": {"enabled": True}}),
@@ -307,8 +307,8 @@ def test_v2_provider_config_error_bypasses_cache_and_preserves_usable_peer(monke
                 ),
             )
 
-    monkeypatch.setattr(cli, "V2QuotaCache", Cache)
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", Orchestrator)
+    monkeypatch.setattr(cli, "RefreshCoordinator", Cache)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", Orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     code = main(
@@ -329,7 +329,7 @@ def test_v2_provider_config_error_bypasses_cache_and_preserves_usable_peer(monke
     assert [provider["provider"] for provider in document["providers"]] == ["codex", "opencode_go"]
 
 
-def test_v2_configuration_failure_starts_no_provider(monkeypatch):
+def test_configuration_failure_starts_no_provider(monkeypatch):
     starts = []
 
     def read_config(path, context):
@@ -342,8 +342,8 @@ def test_v2_configuration_failure_starts_no_provider(monkeypatch):
         def run(self, config, environment, context, config_path, *, provider_errors=frozenset()):
             raise AssertionError("provider execution started after configuration failure")
 
-    monkeypatch.setattr(cli, "read_v2_config", read_config)
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", UnexpectedOrchestrator)
+    monkeypatch.setattr(cli, "read_config", read_config)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", UnexpectedOrchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
     assert main(
         (),
@@ -360,9 +360,16 @@ def test_v2_configuration_failure_starts_no_provider(monkeypatch):
     assert starts == []
 
 
-def test_success_bytes_have_one_newline_and_provider_order():
+def test_success_bytes_have_one_newline_and_provider_order(monkeypatch):
+    monkeypatch.setattr(cli, "read_config", lambda _path, _context: b"{}")
     stdout, stderr = io.BytesIO(), io.StringIO()
-    code = main((), stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
+    code = main(
+        (),
+        environment={"LOCALAPPDATA": r"C:\Users\runtime-test\AppData\Local"},
+        stdout=stdout,
+        stderr=stderr,
+        platform_is_windows=lambda: True,
+    )
     data = stdout.getvalue()
     assert code == 0 and stderr.getvalue() == "" and data.endswith(b"\n") and not data.endswith(b"\n\n")
     assert [item["provider"] for item in json.loads(data)["providers"]] == ["codex", "opencode_go"]
@@ -400,22 +407,22 @@ class _MatrixCodex:
 
 
 @pytest.mark.parametrize("scenario", ("guard_wait_timeout", "guard_acquisition_failed", "deadline_exhausted", "cleanup_failed"))
-def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, tmp_path, scenario):
+def test_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, tmp_path, scenario):
     path = tmp_path / "config.json"
     opencode_config = {"enabled": True} if scenario == "deadline_exhausted" else {}
     path.write_text(json.dumps({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": opencode_config}), encoding="utf-8")
 
     codex: _MatrixCodex | None = None
     if scenario == "guard_wait_timeout":
-        orchestrator = V2ExecutionOrchestrator(guard_factory=cast(type[V2Guard], lambda: _MatrixGuard(error=scenario)))
-        expected = project_v2_not_run_bytes(scenario)
+        orchestrator = ExecutionOrchestrator(guard_factory=cast(type[Guard], lambda: _MatrixGuard(error=scenario)))
+        expected = project_not_run_bytes(scenario)
         expected_stderr = "yasb-limitora: guard_wait_timeout\n"
     elif scenario == "guard_acquisition_failed":
-        orchestrator = V2ExecutionOrchestrator(guard_factory=cast(type[V2Guard], lambda: _MatrixGuard(error=scenario)))
-        expected = project_v2_failure_bytes(scenario)
+        orchestrator = ExecutionOrchestrator(guard_factory=cast(type[Guard], lambda: _MatrixGuard(error=scenario)))
+        expected = project_failure_bytes(scenario)
         expected_stderr = "yasb-limitora: runtime_error\n"
     elif scenario == "deadline_exhausted":
-        orchestrator = V2ExecutionOrchestrator(guard_factory=cast(type[V2Guard], _MatrixGuard))
+        orchestrator = ExecutionOrchestrator(guard_factory=cast(type[Guard], _MatrixGuard))
         real_from_seconds = DeadlineContext.from_seconds
         calls = []
 
@@ -426,12 +433,12 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
             return real_from_seconds(seconds, t0_ns=t0_ns, clock_ns=clock_ns)
 
         monkeypatch.setattr(DeadlineContext, "from_seconds", classmethod(expired_after_config))
-        expected = project_v2_not_run_bytes(scenario)
+        expected = project_not_run_bytes(scenario)
         expected_stderr = "yasb-limitora: runtime_error\n"
     else:
         codex = _MatrixCodex()
-        orchestrator = V2ExecutionOrchestrator(
-            guard_factory=cast(type[V2Guard], lambda: _MatrixGuard(lease=_MatrixLease(close=False))),
+        orchestrator = ExecutionOrchestrator(
+            guard_factory=cast(type[Guard], lambda: _MatrixGuard(lease=_MatrixLease(close=False))),
             codex_executor=codex,
         )
         expected_document = DocumentView.ordered(
@@ -439,10 +446,10 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
             ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason="disabled"),
             SafeError(SafeErrorCode.CLEANUP_FAILED),
         )
-        expected = project_v2_bytes(V2ProjectionInput(expected_document, frozenset({ProviderKey.CODEX})))
+        expected = project_bytes(ProjectionInput(expected_document, frozenset({ProviderKey.CODEX})))
         expected_stderr = "yasb-limitora: runtime_error\n"
 
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", lambda: orchestrator)
     stdout, stderr = io.BytesIO(), io.StringIO()
     code = main(("--config", str(path)), environment={"LOCALAPPDATA": str(tmp_path), "LIMITORA_OPENCODE_API_KEY": "key"}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
 
@@ -455,12 +462,12 @@ def test_v2_cli_runtime_matrix_has_exact_document_streams_and_exit(monkeypatch, 
         assert codex.runners == [(r"C:\\codex.exe", "app-server")]
 
 
-def test_v2_cli_second_invocation_uses_published_cache_without_rerunning_producer(monkeypatch, tmp_path):
+def test_cli_second_invocation_uses_published_cache_without_rerunning_producer(monkeypatch, tmp_path):
     path = tmp_path / "config.json"
     path.write_text(json.dumps({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}}), encoding="utf-8")
-    from yasb_limitora import v2_cache
+    from yasb_limitora import cache
 
-    monkeypatch.setattr(v2_cache, "_bounded_call", lambda function, args, context: function(*args))
+    monkeypatch.setattr(cache, "_bounded_call", lambda function, args, context: function(*args))
     lock = threading.Lock()
     cache_results = []
 
@@ -478,7 +485,7 @@ def test_v2_cli_second_invocation_uses_published_cache_without_rerunning_produce
             return Lease()
 
     def cache_factory(config, environment, config_path):
-        cache = V2QuotaCache(config, environment, config_path)
+        cache = RefreshCoordinator(config, environment, config_path)
         object.__setattr__(cache, "_guard_factory", Guard)
         original = cache.get_or_refresh
 
@@ -490,7 +497,7 @@ def test_v2_cli_second_invocation_uses_published_cache_without_rerunning_produce
         monkeypatch.setattr(cache, "get_or_refresh", get_or_refresh)
         return cache
 
-    monkeypatch.setattr(cli, "V2QuotaCache", cache_factory)
+    monkeypatch.setattr(cli, "RefreshCoordinator", cache_factory)
 
     class RunLease:
         def release(self):
@@ -504,11 +511,11 @@ def test_v2_cli_second_invocation_uses_published_cache_without_rerunning_produce
             return RunLease()
 
     codex = _MatrixCodex()
-    orchestrator = V2ExecutionOrchestrator(
-        guard_factory=cast(type[V2Guard], RunGuard),
+    orchestrator = ExecutionOrchestrator(
+        guard_factory=cast(type[Guard], RunGuard),
         codex_executor=codex,
     )
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: orchestrator)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", lambda: orchestrator)
     environment = {"LOCALAPPDATA": str(tmp_path)}
     outputs = []
     for _ in range(2):
@@ -529,7 +536,7 @@ def test_v2_cli_second_invocation_uses_published_cache_without_rerunning_produce
     assert not cache_results[1].produced and cache_results[1].cached_public_bytes == outputs[1]
 
 
-def test_v2_cli_cache_producer_failure_fails_closed_without_direct_run(monkeypatch, tmp_path):
+def test_cli_cache_producer_failure_fails_closed_without_direct_run(monkeypatch, tmp_path):
     path = tmp_path / "config.json"
     path.write_text(json.dumps({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}}), encoding="utf-8")
     attempts, direct_runs = [], []
@@ -549,8 +556,8 @@ def test_v2_cli_cache_producer_failure_fails_closed_without_direct_run(monkeypat
         def get_or_refresh(self, context, producer):
             return producer(context)
 
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", FailingOrchestrator)
-    monkeypatch.setattr(cli, "V2QuotaCache", lambda config, environment, config_path: Cache())
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", FailingOrchestrator)
+    monkeypatch.setattr(cli, "RefreshCoordinator", lambda config, environment, config_path: Cache())
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     code = main(
@@ -562,13 +569,13 @@ def test_v2_cli_cache_producer_failure_fails_closed_without_direct_run(monkeypat
     )
 
     assert code == 2
-    assert stdout.getvalue() == project_v2_failure_bytes("internal_error")
+    assert stdout.getvalue() == project_failure_bytes("internal_error")
     assert stderr.getvalue() == "yasb-limitora: runtime_error\n"
     assert len(attempts) == 1
     assert direct_runs == []
 
 
-def test_v2_cli_cache_constructor_failure_runs_orchestrator(monkeypatch, tmp_path):
+def test_cli_cache_constructor_failure_runs_orchestrator(monkeypatch, tmp_path):
     path = tmp_path / "config.json"
     config = {"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}}
     path.write_text(json.dumps(config), encoding="utf-8")
@@ -588,9 +595,9 @@ def test_v2_cli_cache_constructor_failure_runs_orchestrator(monkeypatch, tmp_pat
     def fail_cache(config, environment, config_path):
         raise OSError("private cache setup failure")
 
-    monkeypatch.setattr(cli, "read_v2_config", lambda path, context: json.dumps(config).encode())
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", Orchestrator)
-    monkeypatch.setattr(cli, "V2QuotaCache", fail_cache)
+    monkeypatch.setattr(cli, "read_config", lambda path, context: json.dumps(config).encode())
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", Orchestrator)
+    monkeypatch.setattr(cli, "RefreshCoordinator", fail_cache)
     stdout, stderr = io.BytesIO(), io.StringIO()
 
     code = main(
@@ -602,12 +609,12 @@ def test_v2_cli_cache_constructor_failure_runs_orchestrator(monkeypatch, tmp_pat
     )
 
     assert code == 0, stderr.getvalue()
-    assert stdout.getvalue() == project_v2_bytes(V2ProjectionInput(expected_document, frozenset({ProviderKey.CODEX})))
+    assert stdout.getvalue() == project_bytes(ProjectionInput(expected_document, frozenset({ProviderKey.CODEX})))
     assert stderr.getvalue() == ""
     assert direct_runs == [True]
 
 
-def test_v2_cli_cache_guard_timeout_preserves_diagnostic_without_running_producer(monkeypatch, tmp_path):
+def test_cli_cache_guard_timeout_preserves_diagnostic_without_running_producer(monkeypatch, tmp_path):
     path = tmp_path / "config.json"
     config = {"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}}
     path.write_text(json.dumps(config), encoding="utf-8")
@@ -624,13 +631,13 @@ def test_v2_cli_cache_guard_timeout_preserves_diagnostic_without_running_produce
         def get_or_refresh(self, context, producer):
             return SingleFlightResult(coordination_failed=True, coordination_error="guard_wait_timeout")
 
-    monkeypatch.setattr(cli, "read_v2_config", lambda path, context: json.dumps(config).encode())
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", Orchestrator)
-    monkeypatch.setattr(cli, "V2QuotaCache", lambda *args: Cache())
+    monkeypatch.setattr(cli, "read_config", lambda path, context: json.dumps(config).encode())
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", Orchestrator)
+    monkeypatch.setattr(cli, "RefreshCoordinator", lambda *args: Cache())
     stdout, stderr = io.BytesIO(), io.StringIO()
     code = main(("--config", str(path)), environment={"LOCALAPPDATA": str(tmp_path)}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True)
 
     assert code == 2
-    assert stdout.getvalue() == project_v2_not_run_bytes("guard_wait_timeout")
+    assert stdout.getvalue() == project_not_run_bytes("guard_wait_timeout")
     assert stderr.getvalue() == "yasb-limitora: guard_wait_timeout\n"
     assert producer_calls == []
