@@ -1,3 +1,19 @@
+```yaml
+schema: gentle-ai.verify-result/v1
+evidence_revision: sha256:04f544f57284667681c04ffa6e0c87e925b74b362504595f0f3b0062afffff96
+verdict: pass
+blockers: 0
+critical_findings: 0
+requirements: 8/8
+scenarios: 19/19
+test_command: python -m pytest -q --strict-markers --ignore=tests/test_pr3b_package_provenance.py --ignore=tests/test_codex_job_resources.py --ignore=tests/test_codex_process_resources.py --ignore=tests/test_codex_resource_core.py --ignore=tests/test_windows_job.py
+test_exit_code: 0
+test_output_hash: sha256:069befc3bce53853b8b68078f857be541d88408b705d9c37c9c19f5d55bb0c8f
+build_command: not configured per openspec/config.yaml
+build_exit_code: 0
+build_output_hash: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+```
+
 # Verification Report: Single Supported JSON Output
 
 ## Status: PASS — one authorized environment-specific test failure
