@@ -1,0 +1,73 @@
+schema: spec-driven
+
+project_context: |
+  yasb-limitora is a Windows-only Python 3.10+ command and JSON boundary for the
+  YASB CustomWidget. It integrates the released Limitora 0.3.1 public API and
+  exposes the supported versioned JSON contract; provider selection,
+  authentication, transport, and provider-specific interpretation remain in
+  Limitora. The repository uses a src-layout package, pytest tests, and a
+  frozen JSON v1 document alongside the current JSON v2 contract. The current
+  change is issue #137: refactor JSON so the current contract is the single
+  supported output.
+
+strict_tdd: true
+
+testing:
+  runner: pytest
+  command: python -m pytest -q
+  focused_command: python -m pytest -q <test-path-or-node>
+  marker_policy: >-
+    use --strict-markers when running the full suite or marker-selected tests
+  native_windows_command: >-
+    python -m pytest -q --strict-markers tests/test_windows_native_proof.py
+  expectations:
+    - Write or update tests first and demonstrate RED before implementation.
+    - Make the smallest implementation change needed to reach GREEN.
+    - >-
+      Run the relevant focused tests, then the full suite, and record evidence
+      in the phase artifacts.
+    - >-
+      Preserve the Windows-only runtime boundary and sanitized JSON output
+      invariants.
+
+rules:
+  proposal:
+    - >-
+      State the problem, scope, non-goals, compatibility impact, and acceptance
+      evidence.
+    - Do not expand the change beyond issue #137 without explicit authorization.
+  specs:
+    - Use normative MUST language for the supported JSON contract.
+    - >-
+      Treat the current contract as the single supported output; identify and
+      remove obsolete output paths in scope.
+    - >-
+      Include scenarios for success, unavailable/not-run, safe error, platform
+      boundary, and malformed or invalid data where applicable.
+  design:
+    - >-
+      Preserve the one-way YASB CustomWidget -> yasb-limitora CLI/JSON ->
+      Limitora boundary.
+    - >-
+      Prefer existing project conventions and keep provider logic out of this
+      repository.
+    - >-
+      Explain migration, compatibility, security, and test implications before
+      implementation.
+  tasks:
+    - >-
+      Order tasks strict-TDD style: failing tests, implementation, focused
+      verification, full verification, and cleanup.
+    - >-
+      Keep tasks independently verifiable and name the affected files or
+      symbols.
+  apply:
+    - Do not claim completion without test evidence.
+    - >-
+      Keep changes within the approved issue scope and preserve sanitized,
+      fail-closed output behavior.
+  verify:
+    - Run focused pytest tests before the full pytest suite.
+    - >-
+      Run native Windows proof when the environment supports it; otherwise
+      report it as an unrun external verification.
