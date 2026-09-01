@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/dnieblesdev/yasb-limitora/docs/specifications/json-v2.schema.json",
+  "$id": "https://github.com/dnieblesdev/yasb-limitora/docs/specifications/json-output.schema.json",
   "title": "yasb-limitora current JSON contract",
   "description": "Structural support for the normative current JSON contract. Semantic and deadline rules remain normative in json-output.md.",
   "type": "object",
