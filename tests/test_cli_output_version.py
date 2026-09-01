@@ -4,7 +4,7 @@ import ntpath
 from contextlib import nullcontext
 from unittest.mock import patch
 
-import pytest
+import pytest  # pyright: ignore[reportMissingImports] - optional test dependency is present at runtime
 
 from yasb_limitora import cli
 from yasb_limitora.cli import main
@@ -17,11 +17,12 @@ from yasb_limitora.model import (
     SafeError,
     SafeErrorCode,
 )
+from yasb_limitora.path import DeadlineError
 
 
 def _run(argv, *, orchestrator=None, environment=None):
     stdout, stderr = io.BytesIO(), io.StringIO()
-    seam = patch.object(cli, "V2ExecutionOrchestrator", lambda: orchestrator) if orchestrator is not None else nullcontext()
+    seam = patch.object(cli, "ExecutionOrchestrator", lambda: orchestrator) if orchestrator is not None else nullcontext()
     with seam:
         code = main(
             argv,
@@ -56,7 +57,7 @@ def test_windows_freeze_support_claims_terminal_child_before_cli_dispatch(monkey
 
     monkeypatch.setattr(cli.multiprocessing, "freeze_support", terminal_freeze_support)
     monkeypatch.setattr(cli, "_resolve_config_path", lambda argv, environment: unexpected("config_resolution"))
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", lambda: unexpected("orchestrator"))
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", lambda: unexpected("orchestrator"))
 
     with pytest.raises(FreezeSupportClaimed):
         main(
@@ -131,8 +132,8 @@ def test_removed_output_selector_is_invalid_before_config_or_runtime(monkeypatch
     def unexpected_bounded_read(path, context):
         raise AssertionError(f"removed selector read bounded configuration: {path}")
 
-    monkeypatch.setattr(cli, "read_v2_config", unexpected_read, raising=False)
-    monkeypatch.setattr(cli, "read_v2_config", unexpected_bounded_read)
+    monkeypatch.setattr(cli, "read_config", unexpected_read, raising=False)
+    monkeypatch.setattr(cli, "read_config", unexpected_bounded_read)
     orchestrator = _Orchestrator(_disabled_document())
     code, document, stderr, raw = _run(argv, orchestrator=orchestrator)
 
@@ -195,7 +196,7 @@ def test_selector_free_projection_failure_is_sanitized(monkeypatch, tmp_path):
     def fail_projection(input):
         raise ValueError("private projection detail")
 
-    monkeypatch.setattr(cli, "project_v2_bytes", fail_projection)
+    monkeypatch.setattr(cli, "project_bytes", fail_projection)
     path = _disabled_config_path(tmp_path)
     code, document, stderr, raw = _run(("--config", str(path)), orchestrator=_Orchestrator(_disabled_document()))
     assert code == 2
@@ -242,7 +243,7 @@ def test_current_explicit_config_wins_over_environment_and_default(monkeypatch):
         paths.append(path)
         return json.dumps({"codex": {}, "opencode_go": {}})
 
-    monkeypatch.setattr(cli, "read_v2_config", read_config, raising=False)
+    monkeypatch.setattr(cli, "read_config", read_config, raising=False)
     explicit = r"C:\explicit.json"
     environment = {
         "YASB_LIMITORA_CONFIG": r"C:\environment.json",
@@ -261,7 +262,7 @@ def test_current_environment_config_wins_over_default(monkeypatch):
         paths.append(path)
         return json.dumps({"codex": {}, "opencode_go": {}})
 
-    monkeypatch.setattr(cli, "read_v2_config", read_config, raising=False)
+    monkeypatch.setattr(cli, "read_config", read_config, raising=False)
     environment_path = r"C:\environment.json"
     code, document, stderr, _ = _run(
         (),
@@ -279,7 +280,7 @@ def test_current_default_uses_injected_localappdata(monkeypatch):
         paths.append(path)
         return json.dumps({"codex": {}, "opencode_go": {}})
 
-    monkeypatch.setattr(cli, "read_v2_config", read_config, raising=False)
+    monkeypatch.setattr(cli, "read_config", read_config, raising=False)
     localappdata = r"C:\Users\user\AppData\Local"
     code, document, stderr, _ = _run((), environment={"LOCALAPPDATA": localappdata})
 
@@ -291,7 +292,7 @@ def test_current_empty_environment_config_is_configuration_invalid(monkeypatch):
     def unexpected_read(path, context):
         raise AssertionError("empty environment config fell back")
 
-    monkeypatch.setattr(cli, "read_v2_config", unexpected_read, raising=False)
+    monkeypatch.setattr(cli, "read_config", unexpected_read, raising=False)
     value = "  C:\\private\\env.json  "
     code, document, stderr, raw = _run(
         (),
@@ -322,7 +323,7 @@ def test_current_selected_inaccessible_file_does_not_fall_back(monkeypatch):
     def read_config(path, context):
         raise PermissionError(selected)
 
-    monkeypatch.setattr(cli, "read_v2_config", read_config, raising=False)
+    monkeypatch.setattr(cli, "read_config", read_config, raising=False)
     code, document, stderr, raw = _run(
         ("--config", selected),
         environment={"YASB_LIMITORA_CONFIG": r"C:\fallback.json", "LOCALAPPDATA": fallback},
@@ -335,9 +336,9 @@ def test_current_selected_inaccessible_file_does_not_fall_back(monkeypatch):
 
 def test_current_config_deadline_expiry_emits_bounded_deadline_document(monkeypatch, tmp_path):
     def expired_config(path, context):
-        raise cli.V2DeadlineError("configuration deadline exhausted")
+        raise DeadlineError("configuration deadline exhausted")
 
-    monkeypatch.setattr(cli, "read_v2_config", expired_config)
+    monkeypatch.setattr(cli, "read_config", expired_config)
     path = tmp_path / "config.json"
 
     code, document, stderr, raw = _run(("--config", str(path)))
