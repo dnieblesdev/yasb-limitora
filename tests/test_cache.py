@@ -1,15 +1,23 @@
 import json
 import os
-from pathlib import Path
 import threading
 import zlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
-from tests.test_json_v2_projection import _near_boundary_document
+from tests.test_json_projection import _near_boundary_document
+from yasb_limitora.cache import (
+    CACHE_TTL_SECONDS,
+    OwnerState,
+    RefreshCoordinator,
+    RefreshState,
+    SingleFlightResult,
+)
 from yasb_limitora.config import LocalConfig
 from yasb_limitora.model import (
     DocumentView,
@@ -27,13 +35,15 @@ from yasb_limitora.model import (
     SafeError,
     SafeErrorCode,
     SnapshotFreshness,
-    V2SafeErrorCode,
 )
-from yasb_limitora.projection_v2 import V2ProjectionInput, project_v2_bytes
-from yasb_limitora.v2_cache import CACHE_TTL_SECONDS, OwnerState, RefreshCoordinator, RefreshState, SingleFlightResult, V2QuotaCache
-from yasb_limitora.v2_deadline import DeadlineContext
-from yasb_limitora.v2_guard import GuardError
-from yasb_limitora.v2_worker import V2ExecutionOrchestrator
+from yasb_limitora.projection import ProjectionInput, project_bytes
+from yasb_limitora.deadline import DeadlineContext
+from yasb_limitora.guard import GuardError
+
+
+def _loaded(value: bytes | None) -> bytes:
+    assert value is not None
+    return value
 
 
 def context(seconds=5):
@@ -41,7 +51,7 @@ def context(seconds=5):
 
 
 def config(path, *, opencode=False, runner=r"C:\\codex.exe"):
-    return LocalConfig.from_v2_mapping(
+    return LocalConfig.from_mapping(
         {
             "codex": {"enabled": True, "runner": runner},
             "opencode_go": {"enabled": opencode},
@@ -61,18 +71,18 @@ def public_bytes(*, cleanup=False, provider_error=False, disabled=False):
     opencode = ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason="disabled")
     if not disabled:
         opencode = ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED)
-    error = SafeError(V2SafeErrorCode.CLEANUP_FAILED) if cleanup else None
-    return project_v2_bytes(V2ProjectionInput(DocumentView.ordered(codex, opencode, error), {ProviderKey.CODEX, ProviderKey.OPENCODE_GO}))
+    error = SafeError(SafeErrorCode.CLEANUP_FAILED) if cleanup else None
+    return project_bytes(ProjectionInput(DocumentView.ordered(codex, opencode, error), frozenset({ProviderKey.CODEX, ProviderKey.OPENCODE_GO})))
 
 
 def mixed_not_run_public_bytes(reason):
-    return project_v2_bytes(
-        V2ProjectionInput(
+    return project_bytes(
+        ProjectionInput(
             DocumentView.ordered(
                 ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED),
                 ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason=reason),
             ),
-            {ProviderKey.CODEX, ProviderKey.OPENCODE_GO},
+            frozenset({ProviderKey.CODEX, ProviderKey.OPENCODE_GO}),
         )
     )
 
@@ -85,9 +95,9 @@ def snapshot_public_bytes(scope="account"):
         None,
         QuotaAvailability.KNOWN,
         "codex-app-server-v2",
-        QuotaQuantity(Decimal("100"), QuotaMetricKind.COMMERCIAL_QUOTA, "requests"),
-        QuotaQuantity(Decimal("25"), QuotaMetricKind.COMMERCIAL_QUOTA, "requests"),
-        QuotaQuantity(Decimal("75"), QuotaMetricKind.COMMERCIAL_QUOTA, "requests"),
+        QuotaQuantity(Decimal(100), QuotaMetricKind.COMMERCIAL_QUOTA, "requests"),
+        QuotaQuantity(Decimal(25), QuotaMetricKind.COMMERCIAL_QUOTA, "requests"),
+        QuotaQuantity(Decimal(75), QuotaMetricKind.COMMERCIAL_QUOTA, "requests"),
     )
     snapshot = ProviderSnapshotView(
         PublicProviderState.PARTIAL,
@@ -98,13 +108,13 @@ def snapshot_public_bytes(scope="account"):
         "codex-app-server-v2",
         (window,),
     )
-    return project_v2_bytes(
-        V2ProjectionInput(
+    return project_bytes(
+        ProjectionInput(
             DocumentView.ordered(
                 ProviderView(ProviderKey.CODEX, ProviderState.SUCCESS, outcome=ProviderOutcome.SNAPSHOT, snapshot=snapshot),
                 ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED),
             ),
-            {ProviderKey.CODEX},
+            frozenset({ProviderKey.CODEX}),
         )
     )
 
@@ -112,13 +122,13 @@ def snapshot_public_bytes(scope="account"):
 def make_cache(tmp_path, *, now=None, runner=r"C:\\codex.exe", key="private-key"):
     target = tmp_path / "config.json"
     target.write_text("{}", encoding="utf-8")
-    value = LocalConfig.from_v2_mapping({"codex": {"enabled": True, "runner": runner}, "opencode_go": {}})
+    value = LocalConfig.from_mapping({"codex": {"enabled": True, "runner": runner}, "opencode_go": {}})
     environment = {"LOCALAPPDATA": str(tmp_path), "LIMITORA_OPENCODE_API_KEY": key}
-    return V2QuotaCache(value, environment, target, now=now), target
+    return RefreshCoordinator(value, environment, target, now=now), target
 
 
 def test_refresh_coordinator_construction_is_lookup_free(monkeypatch, tmp_path):
-    from yasb_limitora import v2_cache
+    from yasb_limitora import cache as cache_module
 
     target = tmp_path / "config.json"
     environment = {"LOCALAPPDATA": str(tmp_path), "LIMITORA_OPENCODE_API_KEY": "private-key"}
@@ -126,9 +136,9 @@ def test_refresh_coordinator_construction_is_lookup_free(monkeypatch, tmp_path):
     def fail_lookup(*args, **kwargs):
         raise AssertionError("constructor performed filesystem lookup")
 
-    monkeypatch.setattr(v2_cache.os, "lstat", fail_lookup)
-    monkeypatch.setattr(v2_cache.os.path, "isdir", fail_lookup)
-    monkeypatch.setattr(v2_cache.os.path, "exists", fail_lookup)
+    monkeypatch.setattr(cache_module.os, "lstat", fail_lookup)
+    monkeypatch.setattr(cache_module.os.path, "isdir", fail_lookup)
+    monkeypatch.setattr(cache_module.os.path, "exists", fail_lookup)
 
     cache = RefreshCoordinator(config(target), environment, target)
 
@@ -144,7 +154,7 @@ def test_cache_round_trip_is_public_only_and_refreshes_identical_provider_text(t
     loaded = cache.load(context())
     assert loaded == document
     raw = cache.path
-    contents = open(raw, encoding="utf-8").read()
+    contents = Path(raw).read_text(encoding="utf-8")
     assert "private-key" not in contents
     assert "codex.exe" not in contents
     assert "config.json" not in contents
@@ -203,7 +213,8 @@ def test_cache_rejects_reordered_public_nested_mappings(tmp_path, mutate):
     assert cache.publish(document_bytes, context())
     envelope = json.loads(Path(cache.path).read_text(encoding="utf-8"))
     document = envelope["document"]
-    reorder = lambda value: {key: value[key] for key in reversed(tuple(value))}
+    def reorder(value):
+        return {key: value[key] for key in reversed(tuple(value))}
     mutators = {
         "root": lambda: envelope.update(document=reorder(document)),
         "provider": lambda: document["providers"].__setitem__(0, reorder(document["providers"][0])),
@@ -242,11 +253,11 @@ def test_cache_ttl_and_fingerprint_and_path_mismatch_fail_closed(tmp_path):
     now[0] -= timedelta(seconds=CACHE_TTL_SECONDS + 1)
 
     environment = {"LOCALAPPDATA": str(tmp_path), "LIMITORA_OPENCODE_API_KEY": "private-key"}
-    other = V2QuotaCache(config(target, runner=r"C:\\other.exe"), environment, target, now=lambda: now[0])
+    other = RefreshCoordinator(config(target, runner=r"C:\\other.exe"), environment, target, now=lambda: now[0])
     assert other.load(context()) is None
     other_path = tmp_path / "other.json"
     other_path.write_text("{}", encoding="utf-8")
-    different_path = V2QuotaCache(config(target), environment, other_path, now=lambda: now[0])
+    different_path = RefreshCoordinator(config(target), environment, other_path, now=lambda: now[0])
     assert different_path.load(context()) is None
 
 
@@ -254,16 +265,16 @@ def test_effective_fingerprint_is_part_of_physical_cache_identity(tmp_path):
     target = tmp_path / "config.json"
     target.write_text("{}", encoding="utf-8")
     environment = {"LOCALAPPDATA": str(tmp_path), "LIMITORA_OPENCODE_API_KEY": "private-key"}
-    first = V2QuotaCache(config(target, runner=r"C:\\first.exe"), environment, target)
-    second = V2QuotaCache(config(target, runner=r"C:\\second.exe"), environment, target)
+    first = RefreshCoordinator(config(target, runner=r"C:\\first.exe"), environment, target)
+    second = RefreshCoordinator(config(target, runner=r"C:\\second.exe"), environment, target)
 
     assert first.path != second.path
     assert first.fingerprint in first.path
     assert second.fingerprint in second.path
     assert first.publish(public_bytes(), context())
     assert second.publish(snapshot_public_bytes(), context())
-    assert json.loads(first.load(context())) == json.loads(public_bytes())
-    assert json.loads(second.load(context())) == json.loads(snapshot_public_bytes())
+    assert json.loads(_loaded(first.load(context()))) == json.loads(public_bytes())
+    assert json.loads(_loaded(second.load(context()))) == json.loads(snapshot_public_bytes())
 
 
 def test_distinct_config_paths_use_distinct_cache_files_and_create_directory(tmp_path):
@@ -272,14 +283,14 @@ def test_distinct_config_paths_use_distinct_cache_files_and_create_directory(tmp
     first_path.write_text("{}", encoding="utf-8")
     second_path.write_text("{}", encoding="utf-8")
     environment = {"LOCALAPPDATA": str(tmp_path / "missing-localappdata"), "LIMITORA_OPENCODE_API_KEY": "private-key"}
-    first = V2QuotaCache(config(first_path), environment, first_path)
-    second = V2QuotaCache(config(second_path), environment, second_path)
+    first = RefreshCoordinator(config(first_path), environment, first_path)
+    second = RefreshCoordinator(config(second_path), environment, second_path)
 
     assert first.path != second.path
     assert first.publish(public_bytes(), context())
     assert second.publish(snapshot_public_bytes(), context())
-    assert json.loads(first.load(context())) == json.loads(public_bytes())
-    assert json.loads(second.load(context())) == json.loads(snapshot_public_bytes())
+    assert json.loads(_loaded(first.load(context()))) == json.loads(public_bytes())
+    assert json.loads(_loaded(second.load(context()))) == json.loads(snapshot_public_bytes())
 
 
 @pytest.mark.parametrize(
@@ -296,7 +307,7 @@ def test_corrupt_oversize_duplicate_noncanonical_and_unsafe_cache_is_ignored(tmp
     now = datetime(2026, 8, 15, tzinfo=timezone.utc)
     cache, _ = make_cache(tmp_path, now=lambda: now)
     assert cache.publish(public_bytes(), context())
-    original = open(cache.path, "rb").read()
+    original = Path(cache.path).read_bytes()
     with open(cache.path, "wb") as output:
         output.write(mutate(original))
     assert cache.load(context()) is None
@@ -338,7 +349,7 @@ def test_cache_rejects_semantic_corruption_before_returning_bytes(tmp_path, muta
     now = datetime(2026, 8, 15, tzinfo=timezone.utc)
     cache, _ = make_cache(tmp_path, now=lambda: now)
     assert cache.publish(snapshot_public_bytes(), context())
-    envelope = json.loads(open(cache.path, encoding="utf-8").read())
+    envelope = json.loads(Path(cache.path).read_text(encoding="utf-8"))
     mutate(envelope["document"])
     with open(cache.path, "w", encoding="utf-8") as output:
         json.dump(envelope, output, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
@@ -350,7 +361,7 @@ def test_cache_rejects_unordered_timestamps_and_inconsistent_presentation(tmp_pa
     now = datetime(2026, 8, 15, tzinfo=timezone.utc)
     cache, _ = make_cache(tmp_path, now=lambda: now)
     assert cache.publish(snapshot_public_bytes(), context())
-    envelope = json.loads(open(cache.path, encoding="utf-8").read())
+    envelope = json.loads(Path(cache.path).read_text(encoding="utf-8"))
     provider = envelope["document"]["providers"][0]
     provider["status_observed_at"] = "2026-08-15T00:00:00.000001Z"
     provider["fetched_at"] = "2026-08-15T00:00:00.000000Z"
@@ -372,7 +383,7 @@ def test_cache_rejects_provider_tooltip_from_independent_budget(tmp_path):
 
 def test_cache_accepts_projection_selected_shared_budget_near_cap(tmp_path):
     cache, _ = make_cache(tmp_path)
-    document = project_v2_bytes(V2ProjectionInput(_near_boundary_document(40)))
+    document = project_bytes(ProjectionInput(_near_boundary_document(40)))
     value = json.loads(document)
     assert len(document) <= 65_536
     assert value["execution_error"] is None
@@ -382,13 +393,14 @@ def test_cache_accepts_projection_selected_shared_budget_near_cap(tmp_path):
 
 
 def test_cache_transport_decompression_rejects_oversized_child_payload(monkeypatch):
-    from yasb_limitora import v2_cache, v2_path
+    from yasb_limitora import cache as cache_module
+    from yasb_limitora import path as path_module
 
-    payload = zlib.compress(b"x" * (v2_cache.MAX_CACHE_BYTES + 1))
-    monkeypatch.setattr(v2_path, "_bounded_file_call", lambda *args: payload)
+    payload = zlib.compress(b"x" * (cache_module.MAX_CACHE_BYTES + 1))
+    monkeypatch.setattr(path_module, "_bounded_file_call", lambda *args: payload)
 
-    with pytest.raises(v2_cache.V2FileError):
-        v2_cache._bounded_call(v2_cache._cache_read_child, ("unused",), context())
+    with pytest.raises(cache_module.FileError):
+        cache_module._bounded_call(cache_module._cache_read_child, ("unused",), context())
 
 
 def test_cache_rejects_secret_like_quantity_unit_after_presentation_recompute(tmp_path):
@@ -408,7 +420,7 @@ def test_cache_rejects_rooted_private_identity_forms(tmp_path, scope):
     now = datetime(2026, 8, 15, tzinfo=timezone.utc)
     cache, _ = make_cache(tmp_path, now=lambda: now)
     assert cache.publish(snapshot_public_bytes(), context())
-    envelope = json.loads(open(cache.path, encoding="utf-8").read())
+    envelope = json.loads(Path(cache.path).read_text(encoding="utf-8"))
     envelope["document"]["providers"][0]["windows"][0]["scope"] = scope
     with open(cache.path, "w", encoding="utf-8") as output:
         json.dump(envelope, output, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
@@ -425,12 +437,13 @@ def test_cache_accepts_nonrooted_json_escaped_identity_text(tmp_path):
 
 
 def test_cache_account_identity_lookup_failure_fails_closed(monkeypatch):
-    from yasb_limitora import v2_cache, v2_guard
+    from yasb_limitora import cache as cache_module
+    from yasb_limitora import guard as guard_module
 
-    monkeypatch.setattr(v2_cache.os, "name", "nt")
-    monkeypatch.setattr(v2_guard, "_default_sid_bytes", lambda: b"")
-    with pytest.raises(v2_cache.V2FileError):
-        v2_cache._account_digest({})
+    monkeypatch.setattr(cache_module.os, "name", "nt")
+    monkeypatch.setattr(guard_module, "_default_sid_bytes", lambda: b"")
+    with pytest.raises(cache_module.FileError):
+        cache_module._account_digest({})
 
 
 @pytest.mark.parametrize("reason", ("deadline_exhausted", "guard_wait_timeout"))
@@ -456,24 +469,24 @@ def test_cache_rejects_provider_errors_cleanup_and_all_disabled_results(tmp_path
     assert cache.publish(public_bytes(disabled=True), context())
     assert not cache.publish(public_bytes(provider_error=True), context())
     assert not cache.publish(public_bytes(cleanup=True), context())
-    all_disabled = project_v2_bytes(
-        V2ProjectionInput(
+    all_disabled = project_bytes(
+        ProjectionInput(
             DocumentView.ordered(
                 ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason="disabled"),
                 ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason="disabled"),
             ),
-            set(),
+            frozenset(),
         )
     )
     assert not cache.publish(all_disabled, context())
-    assert json.loads(cache.load(context())) == json.loads(public_bytes(disabled=True))
+    assert json.loads(_loaded(cache.load(context()))) == json.loads(public_bytes(disabled=True))
 
 
 def test_cache_io_deadline_is_fail_closed(monkeypatch, tmp_path):
     cache, _ = make_cache(tmp_path)
-    from yasb_limitora import v2_cache
+    from yasb_limitora import cache as cache_module
 
-    monkeypatch.setattr(v2_cache, "_bounded_call", lambda *args: (_ for _ in ()).throw(RuntimeError("blocked")))
+    monkeypatch.setattr(cache_module, "_bounded_call", lambda *args: (_ for _ in ()).throw(RuntimeError("blocked")))
     assert not cache.publish(public_bytes(), context())
     assert cache.load(context()) is None
 
@@ -483,9 +496,9 @@ def test_failed_writer_does_not_remove_another_context_temp(monkeypatch, tmp_pat
     orphan = Path(cache.path).parent / ".quota-v2-orphan.tmp"
     orphan.parent.mkdir()
     orphan.write_bytes(b"partial")
-    from yasb_limitora import v2_cache
+    from yasb_limitora import cache as cache_module
 
-    monkeypatch.setattr(v2_cache, "_bounded_call", lambda *args: (_ for _ in ()).throw(RuntimeError("writer stopped")))
+    monkeypatch.setattr(cache_module, "_bounded_call", lambda *args: (_ for _ in ()).throw(RuntimeError("writer stopped")))
 
     assert not cache.publish(public_bytes(), context())
     assert orphan.exists()
@@ -496,13 +509,13 @@ class _KeyLease:
         self.lock = lock
         self.released = False
 
-    def release(self):
+    def release(self) -> bool:
         if not self.released:
             self.released = True
             self.lock.release()
         return True
 
-    def close(self):
+    def close(self) -> bool:
         return True
 
 
@@ -510,16 +523,16 @@ class _KeyGuard:
     def __init__(self, lock):
         self.lock = lock
 
-    def acquire_key(self, key, deadline):
+    def acquire_key(self, key: bytes, deadline: DeadlineContext) -> _KeyLease:
         self.lock.acquire()
         return _KeyLease(self.lock)
 
 
 def _single_flight_cache(tmp_path, monkeypatch):
     cache, _ = make_cache(tmp_path)
-    monkeypatch.setattr("yasb_limitora.v2_cache._bounded_call", lambda function, args, context: function(*args))
+    monkeypatch.setattr("yasb_limitora.cache._bounded_call", lambda function, args, context: function(*args))
     lock = threading.Lock()
-    cache._guard_factory = lambda: _KeyGuard(lock)
+    monkeypatch.setattr(cache, "_guard_factory", lambda: _KeyGuard(lock))
     return cache
 
 
@@ -532,14 +545,14 @@ class _RetryLease:
         self.release_calls = 0
         self.close_calls = 0
 
-    def release(self):
+    def release(self) -> bool:
         self.release_calls += 1
         result = next(self.release_results)
         if result:
             self.owned = False
         return result
 
-    def close(self):
+    def close(self) -> bool:
         self.close_calls += 1
         assert not self.owned
         result = next(self.close_results)
@@ -551,7 +564,7 @@ class _RetryLease:
 def test_pending_lease_retries_release_before_closing(tmp_path, monkeypatch):
     cache = _single_flight_cache(tmp_path, monkeypatch)
     lease = _RetryLease((False, True), (True,))
-    cache._pending_lease = lease
+    cast(Any, cache)._pending_lease = lease
     calls = []
     first = cache.get_or_refresh(context(), lambda _: calls.append("unexpected"))
     assert first.coordination_error == "internal_error"
@@ -573,7 +586,7 @@ def test_pending_lease_retries_release_before_closing(tmp_path, monkeypatch):
 def test_pending_lease_retries_only_close_after_release_succeeds(tmp_path, monkeypatch):
     cache = _single_flight_cache(tmp_path, monkeypatch)
     lease = _RetryLease((True,), (False, True))
-    cache._pending_lease = lease
+    cast(Any, cache)._pending_lease = lease
     calls = []
     first = cache.get_or_refresh(context(), lambda _: calls.append("unexpected"))
     assert first.coordination_error == "internal_error"
@@ -621,7 +634,7 @@ def test_live_owner_waits_past_legacy_retry_ceiling_until_publication(tmp_path, 
     cache = _single_flight_cache(tmp_path, monkeypatch)
     waiter_cache, _ = make_cache(tmp_path)
     lock = threading.Lock()
-    waiter_cache._guard_factory = lambda: _KeyGuard(lock)
+    monkeypatch.setattr(waiter_cache, "_guard_factory", lambda: _KeyGuard(lock))
     fake_now = [0]
     wait_count = [0]
     entered = threading.Event()
@@ -634,7 +647,7 @@ def test_live_owner_waits_past_legacy_retry_ceiling_until_publication(tmp_path, 
         if wait_count[0] == 257:
             release.set()
 
-    waiter_cache._sleep = sleep
+    monkeypatch.setattr(waiter_cache, "_sleep", sleep)
     original_inspect = waiter_cache.inspect_state
 
     def inspect_state(context):
@@ -642,7 +655,7 @@ def test_live_owner_waits_past_legacy_retry_ceiling_until_publication(tmp_path, 
             return RefreshState(owner_state=OwnerState.ALIVE)
         return original_inspect(context)
 
-    waiter_cache.inspect_state = inspect_state
+    monkeypatch.setattr(waiter_cache, "inspect_state", inspect_state)
     deadline = DeadlineContext.from_seconds(7, t0_ns=0, clock_ns=lambda: fake_now[0])
 
     def producer(context):
@@ -662,7 +675,7 @@ def test_live_owner_waits_past_legacy_retry_ceiling_until_publication(tmp_path, 
     assert sorted(result.produced for result in results) == [False, True]
     waiter = next(result for result in results if not result.produced)
     assert waiter.cached_public_bytes is not None
-    assert json.loads(waiter.cached_public_bytes) == json.loads(public_bytes())
+    assert json.loads(_loaded(waiter.cached_public_bytes)) == json.loads(public_bytes())
 
 
 def test_live_owner_waiter_exhausts_deadline_without_starting_duplicate(tmp_path, monkeypatch):
@@ -681,7 +694,7 @@ def test_live_owner_waiter_exhausts_deadline_without_starting_duplicate(tmp_path
     )
     fake_now = [0]
     sleeps = []
-    cache._sleep = lambda seconds: (sleeps.append(seconds), fake_now.__setitem__(0, fake_now[0] + int(seconds * 1_000_000_000)))
+    monkeypatch.setattr(cache, "_sleep", lambda seconds: (sleeps.append(seconds), fake_now.__setitem__(0, fake_now[0] + int(seconds * 1_000_000_000))))
     deadline = DeadlineContext.from_seconds(0.05, t0_ns=0, clock_ns=lambda: fake_now[0])
     calls = []
 
@@ -717,13 +730,14 @@ def test_dead_or_mismatched_owner_is_reclaimed_with_next_generation(tmp_path, mo
 def test_stale_generation_cannot_publish_after_authority_is_lost(tmp_path, monkeypatch):
     cache = _single_flight_cache(tmp_path, monkeypatch)
     current_token = cache._process_token(os.getpid())
+    expected_identity = "new-authority"
 
     def producer(_):
         assert cache._write_marker(
             {
                 "generation": 2,
                 "owner_pid": os.getpid(),
-                "owner_token": "new-authority",
+                "owner_token": expected_identity,
                 "started_at": "2026-08-15T00:00:00.000000Z",
             },
             context(),
@@ -737,7 +751,7 @@ def test_stale_generation_cannot_publish_after_authority_is_lost(tmp_path, monke
     assert result.cached_public_bytes is None
     assert cache.load(context()) is None
     marker = cache._read_marker(context())
-    assert marker is not None and marker["generation"] == 2 and marker["owner_token"] == "new-authority"
+    assert marker is not None and marker["generation"] == 2 and marker["owner_token"] == expected_identity
 
 
 def test_failed_publication_cleans_active_marker_without_cache_data(tmp_path, monkeypatch):
@@ -754,7 +768,7 @@ def test_failed_publication_cleans_active_marker_without_cache_data(tmp_path, mo
 def test_retry_claims_use_fresh_process_tokens(tmp_path, monkeypatch):
     cache = _single_flight_cache(tmp_path, monkeypatch)
     tokens = iter(("first-token", "second-token"))
-    cache._process_token = lambda pid: next(tokens)
+    monkeypatch.setattr(cache, "_process_token", lambda _pid: next(tokens))
     calls = []
 
     def producer(_):
@@ -767,7 +781,7 @@ def test_retry_claims_use_fresh_process_tokens(tmp_path, monkeypatch):
 
 
 def test_owner_state_distinguishes_alive_dead_and_unknown_without_reclaiming_unknown(tmp_path, monkeypatch):
-    from yasb_limitora import v2_cache
+    from yasb_limitora import cache as cache_module
 
     cache = _single_flight_cache(tmp_path, monkeypatch)
     marker = {
@@ -776,15 +790,15 @@ def test_owner_state_distinguishes_alive_dead_and_unknown_without_reclaiming_unk
         "owner_token": "current",
         "started_at": "2026-08-15T00:00:00.000000Z",
     }
-    cache._process_token = lambda pid: "current"
+    monkeypatch.setattr(cache, "_process_token", lambda _pid: "current")
     assert cache._owner_state(marker) is OwnerState.ALIVE
-    cache._process_token = lambda pid: v2_cache._PROCESS_MISSING
+    monkeypatch.setattr(cache, "_process_token", lambda _pid: cache_module._PROCESS_MISSING)
     assert cache._owner_state(marker) is OwnerState.DEAD
-    cache._process_token = lambda pid: (_ for _ in ()).throw(OSError("identity unreadable"))
+    monkeypatch.setattr(cache, "_process_token", lambda _pid: (_ for _ in ()).throw(OSError("identity unreadable")))
     assert cache._owner_state(marker) is OwnerState.UNKNOWN
 
     assert cache._write_marker(marker, context())
-    cache._owner_state = lambda value: OwnerState.UNKNOWN
+    monkeypatch.setattr(cache, "_owner_state", lambda _marker: OwnerState.UNKNOWN)
     calls = []
     result = cache.get_or_refresh(context(), lambda _: calls.append(True))
     current = cache._read_marker(context())
@@ -793,32 +807,33 @@ def test_owner_state_distinguishes_alive_dead_and_unknown_without_reclaiming_unk
 
 
 def test_process_identity_distinguishes_definite_missing_from_unknown(monkeypatch):
-    from yasb_limitora import v2_cache
+    from yasb_limitora import cache as cache_module
 
-    monkeypatch.setattr(v2_cache.os, "name", "posix")
+    monkeypatch.setattr(cache_module.os, "name", "posix")
 
     def raise_missing(*args, **kwargs):
         raise FileNotFoundError
 
     monkeypatch.setattr("builtins.open", raise_missing)
-    assert v2_cache._process_creation_token(999999) is v2_cache._PROCESS_MISSING
+    assert cache_module._process_creation_token(999999) is cache_module._PROCESS_MISSING
 
     def raise_unknown(*args, **kwargs):
         raise PermissionError
 
     monkeypatch.setattr("builtins.open", raise_unknown)
-    assert v2_cache._process_creation_token(999999) is None
+    assert cache_module._process_creation_token(999999) is None
 
 
 def test_process_identity_query_failure_is_unknown_and_never_reclaimed(tmp_path, monkeypatch):
     cache = _single_flight_cache(tmp_path, monkeypatch)
+    expected_identity = "owner-token"
     marker = {
         "generation": 3,
         "owner_pid": os.getpid(),
-        "owner_token": "owner-token",
+        "owner_token": expected_identity,
         "started_at": "2026-08-15T00:00:00.000000Z",
     }
-    cache._process_token = lambda pid: None
+    monkeypatch.setattr(cache, "_process_token", lambda _pid: None)
 
     assert cache._owner_state(marker) is OwnerState.UNKNOWN
     assert cache._write_marker(marker, context())
@@ -828,7 +843,7 @@ def test_process_identity_query_failure_is_unknown_and_never_reclaimed(tmp_path,
     assert calls == []
     assert result.coordination_failed
     current = cache._read_marker(context())
-    assert current is not None and current["generation"] == 3 and current["owner_token"] == "owner-token"
+    assert current is not None and current["generation"] == 3 and current["owner_token"] == expected_identity
 
 
 def test_unreadable_marker_fails_closed_without_starting_a_second_producer(tmp_path, monkeypatch):
@@ -844,9 +859,9 @@ def test_unreadable_marker_fails_closed_without_starting_a_second_producer(tmp_p
 
 
 @pytest.mark.parametrize("error_code", ("guard_acquisition_failed", "guard_wait_timeout"))
-def test_coordination_failure_never_runs_an_uncoordinated_producer(tmp_path, error_code):
+def test_coordination_failure_never_runs_an_uncoordinated_producer(tmp_path, error_code, monkeypatch):
     cache, _ = make_cache(tmp_path)
-    cache._guard_factory = lambda: (_ for _ in ()).throw(GuardError(error_code))
+    monkeypatch.setattr(cache, "_guard_factory", lambda: (_ for _ in ()).throw(GuardError(error_code)))
     calls = []
 
     result = cache.get_or_refresh(context(), lambda _: calls.append(True))
@@ -856,22 +871,22 @@ def test_coordination_failure_never_runs_an_uncoordinated_producer(tmp_path, err
     assert result.coordination_error == error_code
 
 
-def test_fresh_cache_hit_precedes_guard_failure_and_skips_producer(tmp_path):
+def test_fresh_cache_hit_precedes_guard_failure_and_skips_producer(tmp_path, monkeypatch):
     cache, _ = make_cache(tmp_path)
     cached = public_bytes()
     assert cache.publish(cached, context())
-    cache._guard_factory = lambda: (_ for _ in ()).throw(GuardError("guard_acquisition_failed"))
+    monkeypatch.setattr(cache, "_guard_factory", lambda: (_ for _ in ()).throw(GuardError("guard_acquisition_failed")))
     calls = []
 
     result = cache.get_or_refresh(context(), lambda _: calls.append(True))
 
-    assert result.cached_public_bytes is not None and json.loads(result.cached_public_bytes) == json.loads(cached)
+    assert result.cached_public_bytes is not None and json.loads(_loaded(result.cached_public_bytes)) == json.loads(cached)
     assert not result.coordination_failed
     assert calls == []
 
 
 @pytest.mark.parametrize("state", ("fresh", "absent", "corrupt", "expired"))
-def test_guard_wait_timeout_does_one_final_uncoordinated_cache_read(tmp_path, state):
+def test_guard_wait_timeout_does_one_final_uncoordinated_cache_read(tmp_path, state, monkeypatch):
     now = [datetime(2026, 8, 15, tzinfo=timezone.utc)]
     cache, _ = make_cache(tmp_path, now=lambda: now[0])
     cached = public_bytes()
@@ -887,18 +902,18 @@ def test_guard_wait_timeout_does_one_final_uncoordinated_cache_read(tmp_path, st
             now[0] += timedelta(seconds=CACHE_TTL_SECONDS + 1)
 
     class _TimeoutGuard:
-        def acquire_key(self, key, deadline):
+        def acquire_key(self, key: bytes, deadline: DeadlineContext) -> _KeyLease:
             publish_before_timeout()
             raise GuardError("guard_wait_timeout")
 
-    cache._guard_factory = _TimeoutGuard
+    monkeypatch.setattr(cache, "_guard_factory", _TimeoutGuard)
     calls = []
     result = cache.get_or_refresh(context(), lambda _: calls.append(True))
 
     assert calls == []
     if state == "fresh":
         assert result.cached_public_bytes is not None
-        assert json.loads(result.cached_public_bytes) == json.loads(cached)
+        assert json.loads(_loaded(result.cached_public_bytes)) == json.loads(cached)
         assert not result.coordination_failed
     else:
         assert result.coordination_failed
@@ -907,7 +922,7 @@ def test_guard_wait_timeout_does_one_final_uncoordinated_cache_read(tmp_path, st
 
 def test_single_flight_deadline_exhaustion_does_not_start_provider(tmp_path, monkeypatch):
     cache = _single_flight_cache(tmp_path, monkeypatch)
-    cache._guard_factory = lambda: (_ for _ in ()).throw(GuardError("guard_wait_timeout"))
+    monkeypatch.setattr(cache, "_guard_factory", lambda: (_ for _ in ()).throw(GuardError("guard_wait_timeout")))
     expired = DeadlineContext(t0_ns=0, deadline_ns=0, reserve_ns=0, clock_ns=lambda: 0)
     calls = []
 

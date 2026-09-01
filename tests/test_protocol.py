@@ -1,9 +1,16 @@
 import io
 import struct
 
-import pytest
+import pytest  # pyright: ignore[reportMissingImports] - optional test dependency is present at runtime
 
-from yasb_limitora import ProviderKey, ProviderState, ProviderView, SafeError, SafeErrorCode
+from yasb_limitora import (
+    ProviderKey,
+    ProviderState,
+    ProviderView,
+    SafeError,
+    SafeErrorCode,
+)
+from yasb_limitora.deadline import DeadlineContext
 from yasb_limitora.isolation import (
     CONTROL_MAX_BYTES,
     RESPONSE_MAX_BYTES,
@@ -24,12 +31,12 @@ from yasb_limitora.isolation import (
     write_frame,
 )
 from yasb_limitora.isolation.protocol import read_frame_with_deadline
-from yasb_limitora.v2_deadline import DeadlineContext
 
-class Transport(io.BytesIO):
+
+class Transport:
     def __init__(self, data: bytes = b"", chunk: int = 2, error: Exception | None = None, deadline: bool = False) -> None:
-        super().__init__()
         self.data, self.chunk, self.error, self.deadline, self.budgets = data, chunk, error, deadline, []
+        self.stream = io.BytesIO()
     def read(self, size: int, timeout_seconds: float) -> bytes:
         self.budgets.append(timeout_seconds)
         if self.error or (self.deadline and len(self.budgets) > 1):
@@ -39,12 +46,14 @@ class Transport(io.BytesIO):
     def write(self, data: bytes, timeout_seconds: float) -> int:
         if self.error:
             raise self.error
-        return super().write(data[:2])
+        return self.stream.write(data[:2])
+    def getvalue(self) -> bytes:
+        return self.stream.getvalue()
 def raw(payload: bytes) -> bytes:
     return struct.pack(">I", len(payload)) + payload
 def test_frame_is_canonical_big_endian_and_partial_reads_round_trip() -> None:
     message = contained_message("nonce-✓")
-    payload = '{"nonce":"nonce-✓","type":"contained"}'.encode("utf-8")
+    payload = '{"nonce":"nonce-✓","type":"contained"}'.encode()
     frame = encode_frame(message)
     assert frame == raw(payload)
     assert decode_frame(frame) == message
@@ -72,7 +81,7 @@ def test_partial_read_exhausts_deadline_with_decreasing_budgets() -> None:
     assert reader.budgets[0] >= reader.budgets[1] > 0
 
 
-def test_v2_frame_adapter_keeps_the_original_absolute_endpoint():
+def test_frame_adapter_keeps_the_original_absolute_endpoint():
     frame = encode_frame(contained_message("n"))
     reader = Transport(frame, chunk=1)
     clock = [0]
@@ -119,7 +128,7 @@ def test_nonce_bound_state_machine_rejects_wrong_nonce_and_transitions() -> None
         session.accept(error_message("nonce", SafeErrorCode.INTERNAL_ERROR))
     assert error.value.code is ProtocolErrorCode.INVALID_TRANSITION
 def test_result_and_error_schemas_round_trip_only_safe_view_fields() -> None:
-    view = ProviderView(ProviderKey.OPENCODE_GO, ProviderState.SAFE_ERROR, SafeError("provider_error"), "成功")
+    view = ProviderView(ProviderKey.OPENCODE_GO, ProviderState.SAFE_ERROR, SafeError(SafeErrorCode.PROVIDER_ERROR), "成功")
     message = result_message("n", view)
     assert message_view(message) == view
     assert set(message) == {"type", "nonce", "provider", "state", "display_label", "error"}
