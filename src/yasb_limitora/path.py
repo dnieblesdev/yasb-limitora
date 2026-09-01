@@ -1,4 +1,6 @@
-"""Lexical, lookup-free path contracts used by JSON v2."""
+"""Lexical, lookup-free path contracts used by the JSON contract."""
+
+# ruff: noqa: BLE001
 
 from __future__ import annotations
 
@@ -9,22 +11,23 @@ import os
 import queue
 import stat
 import sys
+from contextlib import ExitStack, suppress
 from typing import Any, cast
 
-from .v2_deadline import DeadlineContext
+from .deadline import DeadlineContext
 
 MAX_PATH_UTF16_UNITS = 32_767
 
 
-class V2PathError(ValueError):
-    """Raised when a v2 path is outside the safe local-path contract."""
+class PathError(ValueError):
+    """Raised when a local path is outside the safe local-path contract."""
 
 
-class V2FileError(V2PathError):
-    """Raised when bounded v2 configuration I/O cannot complete safely."""
+class FileError(PathError):
+    """Raised when bounded configuration I/O cannot complete safely."""
 
 
-class V2DeadlineError(V2FileError):
+class DeadlineError(FileError):
     """Raised when configuration I/O reaches the reserve-excluding endpoint."""
 
 
@@ -54,7 +57,7 @@ def _retain_job_owner(job: object) -> None:
 
 def _close_job_owner(job: object, context) -> bool:
     try:
-        close = getattr(job, "close_with_deadline")
+        close = cast(Any, job).close_with_deadline
         close(context)
     except Exception:
         _retain_job_owner(job)
@@ -115,11 +118,11 @@ def _windows_full_path(value: str) -> str | None:
         buffer = ctypes.create_unicode_buffer(size)
         result = get_full_path(value, size, buffer, None)
         if result == 0:
-            raise V2PathError("invalid path")
+            raise PathError("invalid path")
         if result < size - 1:
             return buffer.value
         size = result + 1
-    raise V2PathError("path is too long")
+    raise PathError("path is too long")
 
 
 def _lexical_full_path(value: str) -> str:
@@ -133,35 +136,35 @@ def _lexical_full_path(value: str) -> str:
     return os.path.normpath(os.path.abspath(value))
 
 
-def canonicalize_v2_path(path: object) -> str:
+def canonicalize_path(path: object) -> str:
     """Return a normalized effective path without checking the filesystem."""
 
     if not isinstance(path, str) or not path:
-        raise V2PathError("invalid path")
+        raise PathError("invalid path")
     lexical = path if os.name != "nt" and path.startswith("/") else path.replace("/", "\\")
     rejection_form = path.replace("/", "\\")
     if rejection_form.startswith(("\\\\?\\", "\\\\.\\", "\\\\")):
-        raise V2PathError("non-local path")
+        raise PathError("non-local path")
     canonical = _lexical_full_path(lexical)
     if len(canonical.encode("utf-16-le")) // 2 > MAX_PATH_UTF16_UNITS:
-        raise V2PathError("path is too long")
+        raise PathError("path is too long")
     return canonical
 
 
 def path_identity(path: object) -> str:
     """Return the opaque-independent case-insensitive lexical identity."""
 
-    return canonicalize_v2_path(path).casefold()
+    return canonicalize_path(path).casefold()
 
 
 def _remaining_or_fail(context: DeadlineContext) -> None:
     if context.remaining_ns() <= 0:
-        raise V2FileError("configuration read failed")
+        raise FileError("configuration read failed")
 
 
 def _usable_or_fail(context: DeadlineContext) -> None:
     if context.usable_ns() <= 0:
-        raise V2DeadlineError("configuration deadline exhausted")
+        raise DeadlineError("configuration deadline exhausted")
 
 
 def _close_output(output: Any, context: DeadlineContext, *, retain: bool = True) -> bool:
@@ -229,9 +232,9 @@ def _close_ipc_endpoint(endpoint: object, context: DeadlineContext | None = None
 
 def _silence_child_stderr() -> None:
     try:
-        sys.stderr = open(os.devnull, "w", encoding="ascii")
+        sys.stderr = open(os.devnull, "w", encoding="ascii")  # noqa: SIM115 - retained for child lifetime
     except Exception:
-        pass
+        return
 
 
 def _public_child_environment(source) -> dict[str, str]:
@@ -273,7 +276,7 @@ def _windows_spawn_popen(process_obj: object) -> Any:
             rhandle, whandle = stdlib._winapi.CreatePipe(None, 0)
             wfd = stdlib.msvcrt.open_osfhandle(whandle, 0)
             cmd = stdlib.spawn.get_command_line(parent_pid=os.getpid(), pipe_handle=rhandle)
-            cmd = " ".join('"%s"' % item for item in cmd)
+            cmd = " ".join(f'"{item}"' for item in cmd)
             python_exe = stdlib.spawn.get_executable()
             environment = dict(private_process._child_environment)
             replace_with_base = stdlib.WINENV and stdlib._path_eq(python_exe, sys.executable)
@@ -282,7 +285,14 @@ def _windows_spawn_popen(process_obj: object) -> Any:
             )
             if replace_with_base and not getattr(_PRIVATE_SYS, "frozen", False):
                 environment["__PYVENV_LAUNCHER__"] = sys.executable
-            with open(wfd, "wb", closefd=True) as to_child:
+            with ExitStack() as stack:
+                try:
+                    to_child = stack.enter_context(open(wfd, "wb", closefd=True))
+                except BaseException:
+                    stdlib._winapi.CloseHandle(rhandle)
+                    with suppress(OSError):
+                        os.close(wfd)
+                    raise
                 try:
                     hp, ht, pid, _tid = stdlib._winapi.CreateProcess(
                         python_exe, cmd, None, None, False, 0, environment, None, None
@@ -291,12 +301,19 @@ def _windows_spawn_popen(process_obj: object) -> Any:
                 except BaseException:
                     stdlib._winapi.CloseHandle(rhandle)
                     raise
+                try:
+                    sentinel = int(hp)
+                    rhandle_value = int(rhandle)
+                except (TypeError, ValueError, OverflowError):
+                    stdlib._winapi.CloseHandle(hp)
+                    stdlib._winapi.CloseHandle(rhandle)
+                    raise
                 self.pid = pid
                 self.returncode = None
                 self._handle = hp
-                self.sentinel = int(hp)
+                self.sentinel = sentinel
                 self.finalizer = stdlib.util.Finalize(
-                    self, stdlib._close_handles, (self.sentinel, int(rhandle))
+                    self, stdlib._close_handles, (sentinel, rhandle_value)
                 )
                 stdlib.set_spawning_popen(self)
                 try:
@@ -327,27 +344,19 @@ def _start_quiet_child(process: Any) -> None:
     """Prevent multiprocessing bootstrap diagnostics from crossing the boundary."""
     original_stderr = sys.stderr
     original_system_stderr = getattr(sys, "__stderr__", None)
-    stream = None
     try:
-        stream = open(os.devnull, "w", encoding="ascii")
-        sys.stderr = stream
-        sys.__stderr__ = stream
-        process.start()
+        with open(os.devnull, "w", encoding="ascii") as stream:
+            sys.stderr = stream
+            sys.__stderr__ = stream
+            process.start()
     finally:
         sys.stderr = original_stderr
         sys.__stderr__ = original_system_stderr
-        if stream is not None:
-            try:
-                stream.close()
-            except Exception:
-                pass
 
 
 def _queue_put(output: Any, value: object) -> None:
-    try:
+    with suppress(Exception):
         output.put(value)
-    except Exception:
-        pass
 
 
 def _terminate_child(process: Any, context: DeadlineContext) -> bool:
@@ -355,10 +364,8 @@ def _terminate_child(process: Any, context: DeadlineContext) -> bool:
     try:
         if not process.is_alive():
             return True
-        try:
+        with suppress(Exception):
             process.terminate()
-        except Exception:
-            pass
         process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
         if process.is_alive():
             kill = getattr(process, "kill", None)
@@ -376,10 +383,8 @@ def _file_call_child(function, args, authorized, output) -> None:
         authorized.wait()
         output.send((True, function(*args)))
     except Exception:
-        try:
+        with suppress(Exception):
             output.send((False, None))
-        except Exception:
-            pass
     finally:
         _close_ipc_endpoint(output)
 
@@ -400,17 +405,15 @@ def _file_read_child(path: str, authorized, output) -> None:
         _queue_put(output, (False, None))
     finally:
         if descriptor is not None:
-            try:
+            with suppress(Exception):
                 os.close(descriptor)
-            except Exception:
-                pass
         _close_ipc_endpoint(output)
 
 
 def _bounded_file_read(path: str, context) -> bytes:
     _usable_or_fail(context)
     if not _retry_pending_process_owners(context) or not _retry_pending_job_owners(context) or not _retry_pending_ipc_owners(context):
-        raise V2FileError("configuration read failed")
+        raise FileError("configuration read failed")
     output = None
     authorized = None
     process = None
@@ -419,7 +422,7 @@ def _bounded_file_read(path: str, context) -> bytes:
     process_close_attempted = False
     job_close_attempted = False
     cleanup_failed = False
-    failure: V2FileError | V2DeadlineError | None = None
+    failure: FileError | DeadlineError | None = None
     success = False
     data: object = None
     try:
@@ -443,22 +446,22 @@ def _bounded_file_read(path: str, context) -> bytes:
                 if job is not None:
                     job_close_attempted = True
                     cleanup_failed = not _close_job_owner(job, context)
-                raise V2DeadlineError("configuration deadline exhausted")
+                raise DeadlineError("configuration deadline exhausted") from None
             process.join(max(0.0, context.usable_ns() / 1_000_000_000))
         else:
             success, data = output.get_nowait()
         if process.is_alive():
-            raise V2FileError("configuration read failed")
+            raise FileError("configuration read failed")
         if job is not None:
             job_close_attempted = True
             cleanup_failed = not _close_job_owner(job, context)
         _usable_or_fail(context)
         if not success:
-            raise V2FileError("configuration read failed")
-    except V2FileError as error:
+            raise FileError("configuration read failed")
+    except FileError as error:
         failure = error
     except Exception:
-        failure = V2FileError("configuration read failed")
+        failure = FileError("configuration read failed")
     finally:
         if job is not None and not job_close_attempted:
             job_close_attempted = True
@@ -469,11 +472,11 @@ def _bounded_file_read(path: str, context) -> bytes:
         if output is not None:
             cleanup_failed = not _close_output(output, context) or cleanup_failed
     if cleanup_failed:
-        raise V2FileError("configuration read failed")
+        raise FileError("configuration read failed")
     if failure is not None:
         raise failure
     if not isinstance(data, bytes):
-        raise V2FileError("configuration read failed")
+        raise FileError("configuration read failed")
     return data
 
 
@@ -481,7 +484,7 @@ def _bounded_file_call(function, args, context):
     """Run an injectable potentially-blocking file primitive behind a deadline."""
     _usable_or_fail(context)
     if not _retry_pending_process_owners(context) or not _retry_pending_job_owners(context) or not _retry_pending_ipc_owners(context):
-        raise V2FileError("configuration read failed")
+        raise FileError("configuration read failed")
     receiver = None
     sender = None
     authorized = None
@@ -491,7 +494,7 @@ def _bounded_file_call(function, args, context):
     process_close_attempted = False
     job_close_attempted = False
     cleanup_failed = False
-    failure: V2FileError | V2DeadlineError | None = None
+    failure: FileError | DeadlineError | None = None
     value: Any = None
     try:
         method = "fork" if "fork" in multiprocessing.get_all_start_methods() else "spawn"
@@ -510,19 +513,19 @@ def _bounded_file_call(function, args, context):
         authorized.set()
         process.join(context.usable_ns() / 1_000_000_000)
         if process.is_alive():
-            raise V2DeadlineError("configuration deadline exhausted")
+            raise DeadlineError("configuration deadline exhausted")
         if context.usable_ns() <= 0 or not receiver.poll():
-            raise V2DeadlineError("configuration deadline exhausted")
+            raise DeadlineError("configuration deadline exhausted")
         success, value = receiver.recv()
         if not success:
-            raise V2FileError("configuration read failed")
+            raise FileError("configuration read failed")
         if job is not None:
             job_close_attempted = True
             cleanup_failed = not _close_job_owner(job, context)
-    except V2FileError as error:
+    except FileError as error:
         failure = error
     except Exception:
-        failure = V2FileError("configuration read failed")
+        failure = FileError("configuration read failed")
     finally:
         if job is not None and not job_close_attempted:
             job_close_attempted = True
@@ -537,13 +540,13 @@ def _bounded_file_call(function, args, context):
         if authorized is not None:
             cleanup_failed = not _close_ipc_endpoint(authorized, context) or cleanup_failed
     if cleanup_failed:
-        raise V2FileError("configuration read failed")
+        raise FileError("configuration read failed")
     if failure is not None:
         raise failure
     return value
 
 
-def read_v2_config(
+def read_config(
     path: object,
     context: DeadlineContext,
     *,
@@ -557,24 +560,24 @@ def read_v2_config(
     try:
         _usable_or_fail(context)
         if not _retry_pending_process_owners(context) or not _retry_pending_job_owners(context) or not _retry_pending_ipc_owners(context):
-            raise V2FileError("configuration read failed")
+            raise FileError("configuration read failed")
         source_path = os.fspath(path) if isinstance(path, os.PathLike) else path
-        canonical = canonicalize_v2_path(source_path)
+        canonical = canonicalize_path(source_path)
         if stat_fn is os.stat and open_fn is os.open and read_fn is os.read and close_fn is os.close:
             return _bounded_file_read(canonical, context)
         _usable_or_fail(context)
         metadata = stat_fn(canonical)
         if not stat.S_ISREG(metadata.st_mode):
-            raise V2FileError("configuration read failed")
+            raise FileError("configuration read failed")
         if metadata.st_size > MAX_CONFIG_BYTES:
-            raise V2FileError("configuration read failed")
+            raise FileError("configuration read failed")
         _usable_or_fail(context)
         flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
         descriptor = open_fn(canonical, flags)
-    except V2FileError:
+    except FileError:
         raise
-    except Exception as error:  # noqa: BLE001 - no path or OS detail crosses the boundary
-        raise V2FileError("configuration read failed") from error
+    except Exception as error:  # No path or OS detail crosses the boundary.
+        raise FileError("configuration read failed") from error
 
     data: bytes | None = None
     failure: BaseException | None = None
@@ -585,8 +588,8 @@ def read_v2_config(
         else:
             data = _bounded_file_call(read_fn, (descriptor, CONFIG_READ_PROBE_BYTES), context)
         if not isinstance(data, bytes) or len(data) > MAX_CONFIG_BYTES:
-            raise V2FileError("configuration read failed")
-    except BaseException as error:  # noqa: BLE001 - cleanup must run for every failure
+            raise FileError("configuration read failed")
+    except BaseException as error:  # Cleanup must run for every failure.
         failure = error
     finally:
         try:
@@ -600,18 +603,16 @@ def read_v2_config(
                     _usable_or_fail(context)
                     _bounded_file_call(close_fn, (descriptor,), context)
                 finally:
-                    try:
+                    with suppress(OSError):
                         os.close(descriptor)
-                    except OSError:
-                        pass
             _usable_or_fail(context)
-        except BaseException as error:  # noqa: BLE001 - cleanup failures are sanitized
+        except BaseException as error:  # Cleanup failures are sanitized.
             if failure is None:
                 failure = error
     if failure is not None:
-        if isinstance(failure, V2FileError):
+        if isinstance(failure, FileError):
             raise failure
-        raise V2FileError("configuration read failed") from failure
+        raise FileError("configuration read failed") from failure
     return data if data is not None else b""
 
 
@@ -619,10 +620,10 @@ __all__ = (
     "CONFIG_READ_PROBE_BYTES",
     "MAX_CONFIG_BYTES",
     "MAX_PATH_UTF16_UNITS",
-    "V2DeadlineError",
-    "V2FileError",
-    "V2PathError",
-    "canonicalize_v2_path",
+    "DeadlineError",
+    "FileError",
+    "PathError",
+    "canonicalize_path",
     "path_identity",
-    "read_v2_config",
+    "read_config",
 )
