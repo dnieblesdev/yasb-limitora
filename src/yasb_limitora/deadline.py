@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
 import time
 from collections.abc import Callable
-
+from dataclasses import dataclass
+from typing import Any, cast
 
 NANOSECONDS_PER_SECOND = 1_000_000_000
 MAX_RESERVE_NS = 250_000_000
@@ -35,16 +35,16 @@ class DeadlineContext:
         *,
         t0_ns: int | None = None,
         clock_ns: Callable[[], int] = time.monotonic_ns,
-    ) -> "DeadlineContext":
+    ) -> DeadlineContext:
         if isinstance(seconds, bool):
-            raise ValueError("deadline must be a finite positive number")
+            raise ValueError("deadline must be a finite positive number")  # noqa: TRY004
         try:
-            duration_seconds = float(seconds)
+            duration_seconds = float(cast(Any, seconds))
+            if not math.isfinite(duration_seconds) or duration_seconds <= 0:
+                raise ValueError("deadline must be a finite positive number")
+            duration_ns = int(duration_seconds * NANOSECONDS_PER_SECOND)
         except (TypeError, ValueError, OverflowError):
             raise ValueError("deadline must be a finite positive number") from None
-        if not math.isfinite(duration_seconds) or duration_seconds <= 0:
-            raise ValueError("deadline must be a finite positive number")
-        duration_ns = int(duration_seconds * NANOSECONDS_PER_SECOND)
         start_ns = clock_ns() if t0_ns is None else t0_ns
         return cls(
             t0_ns=start_ns,
@@ -63,4 +63,4 @@ class DeadlineContext:
         return min(self.reserve_ns, self.remaining_ns())
 
 
-__all__ = ("DeadlineContext", "MAX_RESERVE_NS", "NANOSECONDS_PER_SECOND")
+__all__ = ("DeadlineContext", "MAX_RESERVE_NS", "NANOSECONDS_PER_SECOND")  # noqa: RUF022

@@ -1,5 +1,7 @@
 """Lexical, lookup-free path contracts used by the JSON contract."""
 
+# ruff: noqa: BLE001
+
 from __future__ import annotations
 
 import ctypes
@@ -9,6 +11,7 @@ import os
 import queue
 import stat
 import sys
+from contextlib import ExitStack, suppress
 from typing import Any, cast
 
 from .deadline import DeadlineContext
@@ -54,7 +57,7 @@ def _retain_job_owner(job: object) -> None:
 
 def _close_job_owner(job: object, context) -> bool:
     try:
-        close = getattr(job, "close_with_deadline")
+        close = cast(Any, job).close_with_deadline
         close(context)
     except Exception:
         _retain_job_owner(job)
@@ -229,9 +232,9 @@ def _close_ipc_endpoint(endpoint: object, context: DeadlineContext | None = None
 
 def _silence_child_stderr() -> None:
     try:
-        sys.stderr = open(os.devnull, "w", encoding="ascii")
+        sys.stderr = open(os.devnull, "w", encoding="ascii")  # noqa: SIM115 - retained for child lifetime
     except Exception:
-        pass
+        return
 
 
 def _public_child_environment(source) -> dict[str, str]:
@@ -273,7 +276,7 @@ def _windows_spawn_popen(process_obj: object) -> Any:
             rhandle, whandle = stdlib._winapi.CreatePipe(None, 0)
             wfd = stdlib.msvcrt.open_osfhandle(whandle, 0)
             cmd = stdlib.spawn.get_command_line(parent_pid=os.getpid(), pipe_handle=rhandle)
-            cmd = " ".join('"%s"' % item for item in cmd)
+            cmd = " ".join(f'"{item}"' for item in cmd)
             python_exe = stdlib.spawn.get_executable()
             environment = dict(private_process._child_environment)
             replace_with_base = stdlib.WINENV and stdlib._path_eq(python_exe, sys.executable)
@@ -282,7 +285,14 @@ def _windows_spawn_popen(process_obj: object) -> Any:
             )
             if replace_with_base and not getattr(_PRIVATE_SYS, "frozen", False):
                 environment["__PYVENV_LAUNCHER__"] = sys.executable
-            with open(wfd, "wb", closefd=True) as to_child:
+            with ExitStack() as stack:
+                try:
+                    to_child = stack.enter_context(open(wfd, "wb", closefd=True))
+                except BaseException:
+                    stdlib._winapi.CloseHandle(rhandle)
+                    with suppress(OSError):
+                        os.close(wfd)
+                    raise
                 try:
                     hp, ht, pid, _tid = stdlib._winapi.CreateProcess(
                         python_exe, cmd, None, None, False, 0, environment, None, None
@@ -291,12 +301,19 @@ def _windows_spawn_popen(process_obj: object) -> Any:
                 except BaseException:
                     stdlib._winapi.CloseHandle(rhandle)
                     raise
+                try:
+                    sentinel = int(hp)
+                    rhandle_value = int(rhandle)
+                except (TypeError, ValueError, OverflowError):
+                    stdlib._winapi.CloseHandle(hp)
+                    stdlib._winapi.CloseHandle(rhandle)
+                    raise
                 self.pid = pid
                 self.returncode = None
                 self._handle = hp
-                self.sentinel = int(hp)
+                self.sentinel = sentinel
                 self.finalizer = stdlib.util.Finalize(
-                    self, stdlib._close_handles, (self.sentinel, int(rhandle))
+                    self, stdlib._close_handles, (sentinel, rhandle_value)
                 )
                 stdlib.set_spawning_popen(self)
                 try:
@@ -327,27 +344,19 @@ def _start_quiet_child(process: Any) -> None:
     """Prevent multiprocessing bootstrap diagnostics from crossing the boundary."""
     original_stderr = sys.stderr
     original_system_stderr = getattr(sys, "__stderr__", None)
-    stream = None
     try:
-        stream = open(os.devnull, "w", encoding="ascii")
-        sys.stderr = stream
-        sys.__stderr__ = stream
-        process.start()
+        with open(os.devnull, "w", encoding="ascii") as stream:
+            sys.stderr = stream
+            sys.__stderr__ = stream
+            process.start()
     finally:
         sys.stderr = original_stderr
         sys.__stderr__ = original_system_stderr
-        if stream is not None:
-            try:
-                stream.close()
-            except Exception:
-                pass
 
 
 def _queue_put(output: Any, value: object) -> None:
-    try:
+    with suppress(Exception):
         output.put(value)
-    except Exception:
-        pass
 
 
 def _terminate_child(process: Any, context: DeadlineContext) -> bool:
@@ -355,10 +364,8 @@ def _terminate_child(process: Any, context: DeadlineContext) -> bool:
     try:
         if not process.is_alive():
             return True
-        try:
+        with suppress(Exception):
             process.terminate()
-        except Exception:
-            pass
         process.join(max(0.0, context.cleanup_ns() / 1_000_000_000))
         if process.is_alive():
             kill = getattr(process, "kill", None)
@@ -376,10 +383,8 @@ def _file_call_child(function, args, authorized, output) -> None:
         authorized.wait()
         output.send((True, function(*args)))
     except Exception:
-        try:
+        with suppress(Exception):
             output.send((False, None))
-        except Exception:
-            pass
     finally:
         _close_ipc_endpoint(output)
 
@@ -400,10 +405,8 @@ def _file_read_child(path: str, authorized, output) -> None:
         _queue_put(output, (False, None))
     finally:
         if descriptor is not None:
-            try:
+            with suppress(Exception):
                 os.close(descriptor)
-            except Exception:
-                pass
         _close_ipc_endpoint(output)
 
 
@@ -443,7 +446,7 @@ def _bounded_file_read(path: str, context) -> bytes:
                 if job is not None:
                     job_close_attempted = True
                     cleanup_failed = not _close_job_owner(job, context)
-                raise DeadlineError("configuration deadline exhausted")
+                raise DeadlineError("configuration deadline exhausted") from None
             process.join(max(0.0, context.usable_ns() / 1_000_000_000))
         else:
             success, data = output.get_nowait()
@@ -573,7 +576,7 @@ def read_config(
         descriptor = open_fn(canonical, flags)
     except FileError:
         raise
-    except Exception as error:  # noqa: BLE001 - no path or OS detail crosses the boundary
+    except Exception as error:  # No path or OS detail crosses the boundary.
         raise FileError("configuration read failed") from error
 
     data: bytes | None = None
@@ -586,7 +589,7 @@ def read_config(
             data = _bounded_file_call(read_fn, (descriptor, CONFIG_READ_PROBE_BYTES), context)
         if not isinstance(data, bytes) or len(data) > MAX_CONFIG_BYTES:
             raise FileError("configuration read failed")
-    except BaseException as error:  # noqa: BLE001 - cleanup must run for every failure
+    except BaseException as error:  # Cleanup must run for every failure.
         failure = error
     finally:
         try:
@@ -600,12 +603,10 @@ def read_config(
                     _usable_or_fail(context)
                     _bounded_file_call(close_fn, (descriptor,), context)
                 finally:
-                    try:
+                    with suppress(OSError):
                         os.close(descriptor)
-                    except OSError:
-                        pass
             _usable_or_fail(context)
-        except BaseException as error:  # noqa: BLE001 - cleanup failures are sanitized
+        except BaseException as error:  # Cleanup failures are sanitized.
             if failure is None:
                 failure = error
     if failure is not None:

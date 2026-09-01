@@ -1529,3 +1529,42 @@ Final native/no-rename count versus `47b1f91` is **2,579 changed lines** (1,311 
 - Schema rename driver versus `bf5451e`: native/no-rename **1,410** lines (705 additions + 705 deletions); rename-aware schema pair **2** lines (1 addition + 1 deletion).
 - The maintainer approved the exact complete-work-unit ceiling of **1,458** no-rename lines. Including active reference, task, and progress records, complete-work-unit accounting is **1,458** no-rename lines (746 additions + 712 deletions) and **50** rename-aware lines (42 additions + 8 deletions). The prior **1,411** driver-only estimate was insufficient because this work unit necessarily includes its active references and OpenSpec evidence; those edits are within, not outside, the approved budget.
 - Rollback is limited to the schema filename, its `$id`, three active references, the exact schema task, and this progress entry.
+
+## Progress: final-verification corrective gate
+
+### Status
+
+- **Slice:** Bounded final-verification correction on `refactor/137-final-verification`
+- **Delivery boundary:** feature-branch-chain / auto-chain; leave changes uncommitted for parent inspection, with no lifecycle commands, authority tokens, push, PR, sync, archive, or delivery-state changes
+- **Allowed edit surfaces:** the 12 final-gate Python/test/OpenSpec files listed below
+- **No-rename budget:** 339 changed lines (203 additions + 136 deletions) versus `76758b1`, below the hard 400-line ceiling; seven rename slices total 20,254 native / 1,470 rename-aware lines, and cumulative accounting including this gate is 20,593 native / 1,809 rename-aware lines
+
+### Completed corrections
+
+- Refactored the protocol test transport double from `io.BytesIO` inheritance to composition, preserving `read`, deadline budgets, partial `write`, and `getvalue` behavior.
+- Replaced the redundant UTF-8 encoding argument and used `SafeErrorCode.PROVIDER_ERROR` in the protocol test.
+- Corrected the design map to the accepted active test path `tests/test_json_spec.py`.
+- Reconciled implementation, rename, and evidence checklist items proven by the completed apply/verification records; delivery-state items remain untouched.
+- Hardened Windows spawn stream/handle conversion cleanup and replaced intentional child-boundary `except/pass` blocks with explicit suppression contexts; targeted Ruff, Pyright, and lens checks pass.
+- Cast the intentionally arbitrary float-convertible deadline input to `Any` only at the `float()` boundary and kept the finite-positive check plus nanosecond conversion inside the translated exception boundary, preserving bool rejection and the public `ValueError` message while preventing huge finite values from leaking `OverflowError`.
+- Removed the final active `_v2` helper/test names, typed the injectable Codex supervisor seam, normalized helper cleanup/error mapping, and kept provider/runtime behavior unchanged.
+- Added precise optional-`pytest` analyzer directives on the touched tests; the dependency is installed and all focused executions pass.
+
+### Strict TDD Cycle Evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | `python -m ruff check tests/test_protocol.py`; `npx --yes pyright tests/test_protocol.py` | Ruff reported UP012; Pyright reported the two `BytesIO` override errors and the string `SafeError` error, plus the environment-only unresolved `pytest` import |
+| GREEN | Composition test double, `.encode()`, and `SafeErrorCode.PROVIDER_ERROR`; `python -m pytest -q --strict-markers tests/test_protocol.py tests/test_contracts.py tests/test_json_spec.py` | **98 passed** |
+| TRIANGULATE | `python -m pytest -q --strict-markers --collect-only`; `python -m pytest -q` | **594 collected**, 0 errors; **590 passed, 3 skipped, 1 known Python 3.10 isolated-safe-path environment failure** in `test_isolated_cli_ignores_forged_dist_info` |
+| REFACTOR | Targeted Ruff/Pyright/lens; full Ruff versus `origin/main`; `git diff --check` | Modified Python files pass; candidate has 148 full-repo findings versus 354 on `origin/main`, with no candidate-new rule category; diagnostics and diff checks pass |
+| RED (deadline) | `npx --no-install pyright src/yasb_limitora/deadline.py`; auxiliary `npx --no-install pyright --level error src/yasb_limitora/deadline.py` | Both reported the `float(seconds)` `object` argument error at line 42. |
+| RED (deadline overflow) | Added `test_deadline_context_rejects_huge_finite_duration`; `PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_deadline.py -k huge_finite_duration` before the conversion fix | **1 failed** because `int(1e308 * NANOSECONDS_PER_SECOND)` leaked `OverflowError` instead of the public `ValueError`. |
+| GREEN/REFACTOR (deadline) | Moved the finite-positive check and nanosecond conversion into the existing translated exception boundary; `PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_deadline.py tests/test_cache.py tests/test_file_read.py`; Ruff; Pyright; in-memory `compile()`; `git diff --check` | **85 passed**; Ruff and source Pyright passed with 0 errors, test Pyright has only the environment-only unresolved `pytest` import; compile and diff check passed. |
+
+### Files, deviations, and remaining work
+
+- **Files changed:** `src/yasb_limitora/{cli,codex_helper,deadline,path}.py`; `tests/test_{cli_output_version,codex_supervisor,deadline,path,protocol}.py`; and the OpenSpec `design.md`, `tasks.md`, and this artifact.
+- **Deviations:** No wire, contract, dependency/configuration, or delivery-state change. Internal corrections only sanitize deadline overflow, strengthen spawn/helper cleanup, and remove active versioned names.
+- **Remaining:** One independent final re-verification, then SDD verify/sync/archive and authorized delivery.
+- **Rollback:** Revert only this bounded final-gate correction and its evidence.
