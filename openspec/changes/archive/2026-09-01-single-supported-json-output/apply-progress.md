@@ -1032,3 +1032,539 @@ Apply-progress content hash (excluding this line): sha256:a5f45935c62aa69b83bc62
 
 - Parent gate: settle this third attempt passed using a distinct progress hash and the required remediation binding.
 - Continue the remaining documentation semantics, rename exceptions, and final delivery chain.
+
+## Progress: bounded active documentation contract child
+
+### Status
+
+- **Slice:** Semantic 4 — operator and architecture documentation
+- **Branch:** `docs/137-operator-current-output`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local commit, no push or PR
+- **Allowed edit surfaces:** four active documentation files, coupled documentation contract test, `tasks.md`, and this artifact
+- **No-rename budget:** 343 cumulative changed lines including task/progress artifacts (`git diff --no-renames --numstat`), below the 400-line limit
+
+### Completed tasks
+
+- Updated the coupled documentation contract test first to define one active current JSON contract and reject active dual-version, frozen-v1, selector, and root-version guidance.
+- Replaced active README, Windows operator, architecture, and research guidance with selector-free invocation, the removed root `version`, deliberate pre-stable break, schema-3 cold refresh, and unchanged outcome/stream/exit/lifecycle behavior.
+- Preserved the immutable normative specification and roadmap history/supersession assertions, CustomWidget current assertions, external YASB release evidence, and exact guard/cache/provider identity literals.
+- Marked the active documentation task complete without changing examples, source, specifications, JSON schema, roadmap, or module names.
+
+### Strict TDD cycle evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Updated `tests/test_windows_only_documentation_contract.py` before documentation edits; `python -m pytest -q --strict-markers tests/test_windows_only_documentation_contract.py tests/test_customwidget_examples.py` | **13 passed, 2 failed**; failures were the expected active-doc residue/platform assertions |
+| GREEN | Updated the four active documents and reran the required focused command | **15 passed** |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **588 tests collected**, 0 collection errors |
+| TRIANGULATE / full | `python -m pytest -q --strict-markers` | **584 passed, 3 skipped, 1 pre-existing environment failure** in `test_isolated_cli_ignores_forged_dist_info_from_cwd` because this Python 3.10 environment lacks isolated safe-path support |
+| REFACTOR / lint | `ruff check tests/test_windows_only_documentation_contract.py tests/test_customwidget_examples.py` | All checks passed |
+| REFACTOR / LSP | Pyright probe | Unavailable in this environment; no LSP diagnostics were available |
+| REFACTOR / residue | Active-doc grep excluding immutable normative/roadmap references, YASB release evidence, and required identity literals | No active dual-version, frozen-v1, selector, or positive root-version residue |
+| REFACTOR / links | Local Markdown link/path check | Passed |
+| REFACTOR / diff | `git diff --check` and no-rename accounting | Passed; **286 changed lines**, below 400 |
+
+### Files changed
+
+- `README.md`
+- `docs/windows-json.md`
+- `docs/architecture/README.md`
+- `docs/research/README.md`
+- `tests/test_windows_only_documentation_contract.py`
+- `openspec/changes/single-supported-json-output/tasks.md`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- Active documentation now points to the immutable `json-v2` normative filename only as a protected historical/normative reference; its content and the roadmap were not edited.
+- Pyright was unavailable locally. The required changed-test Ruff check and all runtime/documentation checks passed.
+
+### Remaining tasks
+
+- Parent chain: complete the remaining normalization rename exception slices and final verification.
+- Native Windows proof remains a final-chain verification item; this host is Windows but the assigned child did not rerun the native proof file.
+
+### Workload / PR boundary
+
+This is one bounded active documentation work unit on `docs/137-operator-current-output`. Its cumulative no-rename diff is 343 changed lines including task/progress artifacts, within the 400-line budget. One local conventional commit was created with message `docs(json): document sole current output contract`. Do not push, open a PR, merge, or close the issue/change from this child.
+
+## Progress: bounded normative current-contract child
+
+### Status
+
+- **Slice:** Normative contract/schema metadata and coupled spec expectations
+- **Branch:** `docs/137-normative-current-contract`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local commit, no push or PR
+- **Allowed edit surfaces:** `docs/specifications/json-v2.md`, `docs/specifications/json-v2.schema.json`, `tests/test_json_v2_spec.py`, `tasks.md`, and this artifact
+- **No-rename budget:** 254 changed lines including task/progress artifacts; below 400
+
+### Completed tasks
+
+- Updated the active specification title and introduction to define one current JSON contract while retaining the `json-v2` filename until the later mechanical rename.
+- Replaced active root-shape, ordering, projection, cache, runtime, and example terminology with the current contract: exactly three root fields, no public root `version`, schema 3 cold refresh, and one final LF.
+- Preserved `Global\\yasb-limitora-v2-guard-*`, `quota-v2-cache.json`, `codex-app-server-v2`, `opencode-go-api`, and external YASB release versions.
+- Updated schema title/description only; `$id`, structural definitions, field order, and schema path remain unchanged.
+- Added current-contract metadata, root-shape, ordering, and identity expectations before the documentation/schema implementation edits.
+
+### Strict TDD Cycle Evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Added current-contract metadata/root/identity tests first; `python -m pytest -q --strict-markers tests/test_json_v2_spec.py -k 'current_contract_metadata or current_contract_preserves_external'` | **2 failed** on the legacy title/metadata and missing normative identity wording |
+| GREEN | Updated the bounded normative document and schema metadata; the new current-contract tests passed after adding projection/cache wording | **2 passed, 23 deselected** |
+| TRIANGULATE | Updated coupled R6 terminology assertions, then `python -m pytest -q --strict-markers tests/test_json_v2_spec.py tests/test_customwidget_examples.py` | **33 passed** |
+| TRIANGULATE / schema-order | JSON parse and exact root/provider/window/quantity order assertions passed in `tests/test_json_v2_spec.py` |
+| TRIANGULATE / native | `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` | **11 passed** |
+| TRIANGULATE / full strict | `python -m pytest -q --strict-markers` | **586 passed, 3 skipped, 1 pre-existing environment failure** in isolated safe-path package provenance |
+| TRIANGULATE / configured | `python -m pytest -q` | **586 passed, 3 skipped, 1 pre-existing environment failure** in isolated safe-path package provenance |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **590 tests collected**, 0 collection errors |
+| REFACTOR / lint | `ruff check tests/test_json_v2_spec.py` | All checks passed |
+| REFACTOR / LSP | `pyright --version`; `python -m pyright --version` | Pyright executable and module unavailable in this environment |
+| REFACTOR / residue-links-diff | Scoped schema/order/residue/link checks, `git diff --check`, and `git diff --no-renames --numstat` | Passed; section 12 unchanged; identities preserved; **254 changed lines**, below 400 |
+
+### Files changed
+
+- `docs/specifications/json-v2.md`
+- `docs/specifications/json-v2.schema.json`
+- `tests/test_json_v2_spec.py`
+- `openspec/changes/single-supported-json-output/tasks.md`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- No physical filename/module rename was made, and the dedicated section 12 CLI/configuration block was left unchanged for the next child.
+- No source, runtime, README/operator/architecture/research/roadmap, example, or external identity changes were made.
+
+### Remaining tasks
+
+- Run the required strict collection, lint/LSP, scoped residue/link/diff checks, and full configured suite before committing.
+- Later children own the CLI/configuration block migration and mechanical filename/module normalization.
+
+### Workload / PR boundary
+
+This child is limited to the bounded normative contract/schema metadata work unit. Stop before commit if no-rename accounting exceeds 400 changed lines; otherwise create one local conventional commit only, with no push or PR.
+
+## Progress: bounded normative CLI/configuration replacement child
+
+### Status
+
+- **Slice:** Normative CLI/configuration block replacement
+- **Branch:** `docs/137-normative-cli-current`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local conventional commit, no push or PR
+- **Allowed edit surfaces:** `docs/specifications/json-v2.md`, `tests/test_json_v2_spec.py`, `tasks.md`, and this artifact
+- **No-rename budget:** 360 changed lines including this evidence entry; below 400
+
+### Completed tasks
+
+- Replaced the dedicated legacy selector/configuration block with exactly one current invocation grammar: no arguments or one supported `--config`/`-c` form.
+- Documented explicit, non-empty `YASB_LIMITORA_CONFIG`, then per-user default precedence; strict current configuration parsing; bounded path/file/deadline rules; and provider-scoped validation behavior.
+- Documented all former `--output-version` spellings as ordinary invalid invocation, rejected before configuration loading or provider execution.
+- Replaced the split legacy stream/exit descriptions with one current stream/exit matrix and preserved current sanitized stdout, stderr, and exit behavior.
+- Updated only the coupled CLI/configuration assertions in `tests/test_json_v2_spec.py`; `tests/test_cli_output_version.py` remained verification-only.
+
+### Strict TDD Cycle Evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Updated the block assertions first; `python -m pytest -q --strict-markers tests/test_json_v2_spec.py -k current_cli_configuration_grammar_and_stream_exit_matrix_are_normative` | **1 failed** because the legacy section heading was still present |
+| GREEN | Replaced only the dedicated specification block and corrected one coupled assertion | Focused block test: **1 passed** |
+| TRIANGULATE | `python -m pytest -q --strict-markers tests/test_json_v2_spec.py`; `python -m pytest -q --strict-markers tests/test_cli_output_version.py` | **24 passed**; **53 passed** |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **590 tests collected**, 0 collection errors |
+| TRIANGULATE / native | `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` | **11 passed** |
+| REFACTOR / lint | `ruff check tests/test_json_v2_spec.py`; `git diff --check` | Passed |
+| REFACTOR / LSP | `pyright --version`; `python -m pyright --version` | Unavailable in this environment; no LSP result available |
+| REFACTOR / residue | Scoped block scan for frozen-v1/default-v1/explicit-v2/version-scanning/separate-grammar residue; former selector spellings checked | No forbidden legacy promises; all four former selector spellings documented as invalid |
+| REFACTOR / links and budget | Local Markdown link check; `git diff --no-renames --numstat` | Passed; 1 local target; **356 changed lines**, below 400 |
+| FULL / strict and configured | `python -m pytest -q --strict-markers`; `python -m pytest -q` | **586 passed, 3 skipped, 1 pre-existing environment failure** in isolated safe-path package provenance |
+
+### Files changed
+
+- `docs/specifications/json-v2.md`
+- `tests/test_json_v2_spec.py`
+- `openspec/changes/single-supported-json-output/tasks.md`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- No runtime, schema, filename, `$id`, identity, example, roadmap, operator-document, or `tests/test_cli_output_version.py` changes were made.
+- The existing section 13 cross-reference to section 12.4 remains valid through a bounded-I/O subsection inside the replacement block.
+
+### Remaining tasks
+
+- Parent chain owns final full/native verification and later mechanical normalization rename exceptions.
+
+### Workload / PR boundary
+
+This is one bounded normative documentation/test work unit. Current `git diff --no-renames --numstat` accounting is **360 changed lines**, below 400; stop before commit if that gate changes. One local conventional commit is required; no push, PR, or issue/change closure from this child.
+
+## Progress: bounded normative residue cleanup
+
+### Status
+
+- **Slice:** Final bounded semantic cleanup of active normative documentation labels
+- **Branch:** `docs/137-normative-residue-cleanup`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local conventional commit, no push or PR
+- **Allowed edit surfaces:** `docs/specifications/json-v2.md`, `tests/test_json_v2_spec.py`, and this artifact
+- **No-rename budget:** 254 changed lines including this evidence entry; below 400
+
+### Completed tasks
+
+- Updated coupled spec tests first, renaming active helper/test labels from v2/R6/PR2 review terminology to current-contract terminology.
+- Removed stale R2/R6/R10/PR2A review labels, section labels, historical acceptance wording, and version-selection terminology from the normative document outside the already-replaced CLI block.
+- Reworded acceptance criteria and review evidence to describe the current contract, native YASB validation, current exclusions, and provider-side mappings.
+- Preserved `json-v2.md`, `json-v2.schema.json`, `test_json_v2_spec.py`, the exact guard/cache/provider identity strings, external YASB versions `v2.0.5`/`v2.0.6`, invalid selector test/documentation data, and roadmap history.
+
+### Strict TDD Cycle Evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Added `test_spec_uses_current_contract_labels_outside_cli_block` and ran `python -m pytest -q --strict-markers tests/test_json_v2_spec.py::test_spec_uses_current_contract_labels_outside_cli_block` | **1 failed** on the stale `Review unit: R2` label |
+| GREEN | Updated the bounded normative prose and coupled current-contract test labels/expectations | `python -m pytest -q --strict-markers tests/test_json_v2_spec.py` → **25 passed** |
+| TRIANGULATE | Required focused command: `python -m pytest -q --strict-markers tests/test_json_v2_spec.py tests/test_windows_only_documentation_contract.py tests/test_cli_output_version.py` | **84 passed** |
+| TRIANGULATE / collection | Strict targeted collection plus `python -m pytest -q --strict-markers --collect-only` | **84 targeted tests collected**; **591 total tests collected**, 0 collection errors |
+| TRIANGULATE / native | `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` | **11 passed** |
+| REFACTOR / lint | `ruff check tests/test_json_v2_spec.py tests/test_windows_only_documentation_contract.py`; `python -m py_compile` on changed tests | Ruff and compilation passed |
+| REFACTOR / LSP | `pyright tests/test_json_v2_spec.py tests/test_windows_only_documentation_contract.py` | Unavailable in this environment; command not found |
+| REFACTOR / links | Local normative link check | **1** local schema link exists; 0 missing |
+| REFACTOR / residue | Scoped active-residue search outside section 12; classified protected identity, filename, external-version, invalid-selector, and root-version matches | No unclassified active residue; allowed matches retained as required |
+
+Allowed-match classification: deferred filenames/links are `json-v2.md`,
+`json-v2.schema.json`, and `test_json_v2_spec.py`; immutable operational/source
+IDs are `Global\\yasb-limitora-v2-guard-*`, `quota-v2-cache.json`,
+`codex-app-server-v2`, and `opencode-go-api`; external YASB evidence retains
+`v2.0.5` and `v2.0.6`; former `--output-version` spellings remain only as
+intentional invalid-selector data in the unchanged CLI block/tests; root
+`version` wording remains only as the current contract's explicit prohibition.
+| REFACTOR / diff | `git diff --check`; `git diff --no-renames --numstat` | Passed; **182 changed lines**, below 400 |
+| FULL | `python -m pytest -q` | **587 passed, 3 skipped, 1 pre-existing environment failure** in isolated safe-path package provenance |
+
+### Files changed
+
+- `docs/specifications/json-v2.md`
+- `tests/test_json_v2_spec.py`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations from design
+
+- No runtime, schema, filename, link, roadmap, example, or `tests/test_windows_only_documentation_contract.py` changes were needed.
+- The required CLI block remained unchanged; its explicit former-selector invalid-input wording is intentional and excluded from the residue scan.
+- Local Pyright was unavailable. The full suite retained the known Python 3.10 isolated-safe-path environment failure; native Windows proof passed.
+
+### Remaining tasks
+
+- Parent chain owns final verification and the later mechanical normalization rename exceptions.
+
+### Workload / PR boundary
+
+This is the final bounded semantic cleanup for the normative document, limited to 254 no-rename changed lines and one local commit. No physical rename, runtime change, push, PR, or issue/change closure is included.
+
+## Progress: size:exception 1 — normative document rename
+### Status
+
+- **Slice:** Mechanical rename of the normative current-output document
+- **Branch:** `docs/137-rename-json-output-spec`
+- **Delivery boundary:** feature-branch-chain / auto-chain; one local commit, no push or PR
+- **Authorization:** maintainer-approved `size:exception 1`; no-rename ceiling 3,779 lines
+### Completed tasks
+
+- Renamed `docs/specifications/json-v2.md` to `docs/specifications/json-output.md` with `git mv`.
+- Updated only active path references in the authorized README, operator/architecture docs, schema description, and two coupled tests.
+- Preserved the schema filename/`$id`, test filename, roadmap historical references, OpenSpec history, and all renamed-document bytes.
+### Verification evidence
+
+| Check | Result |
+|---|---|
+| Rename content identity | Pre-rename and new Git blobs match byte-for-byte; 84,733 bytes, SHA-256 `39632f4b5950e35389cae32ca79c213448c41944e864598308ca27a419382239` |
+| Focused spec/docs/CustomWidget tests | `python -m pytest -q --strict-markers tests/test_json_v2_spec.py tests/test_windows_only_documentation_contract.py tests/test_customwidget_examples.py` → **40 passed** |
+| Strict collection | `python -m pytest -q --strict-markers --collect-only` → **591 tests collected**, 0 errors |
+| Link scan | Authorized Markdown links → **0 missing targets** |
+| Ruff | Changed tests → **All checks passed** |
+| LSP | `pyright` and `python -m pyright` unavailable in this environment |
+| Diff check | `git diff --check` passed |
+### TDD applicability
+This is a mechanical rename exception, not semantic TDD; verification proves path-reference GREEN and byte identity.
+
+### Files changed
+
+- `docs/specifications/json-output.md` (renamed from `json-v2.md`)
+- `README.md`, `docs/windows-json.md`, `docs/architecture/README.md`
+- `docs/specifications/json-v2.schema.json`
+- `tests/test_json_v2_spec.py`, `tests/test_windows_only_documentation_contract.py`
+- `openspec/changes/single-supported-json-output/tasks.md`
+
+### Deviations and remaining tasks
+
+- No deviations; no semantic wording, runtime, schema identity, test identity, roadmap, or historical OpenSpec edits.
+- Remaining: later rename exceptions and final verification; this child must commit locally only.
+
+### Workload / PR boundary
+
+Native/no-rename count is **3,778 changed lines** (1,911 additions + 1,867 deletions); Git rename-aware count is **68 changed lines** (56 additions + 12 deletions). Both include the authorized task/progress records, and native remains at or below 3,779. Rollback is limited to this document rename and its active path-reference updates.
+
+## Progress: size:exception 2 — projection source/tests rename
+### Status
+- **Slice:** Mechanical projection normalization; `refactor/137-rename-projection`
+- **Delivery:** feature-branch-chain / auto-chain; maintainer-approved `size:exception`; local commit only, no push/PR
+- **Completed:** `git mv` source/test files; renamed active projection symbols/imports/monkeypatches and direct labels; preserved wire assertions and immutable IDs.
+### TDD Cycle Evidence
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Renamed projection test/imports before source rename; focused collection | 2 expected missing-module errors |
+| GREEN | Renamed source and migrated CLI/cache/worker/contract/runtime consumers | Scoped projection/contract/CLI/cache/worker tests: **257 passed** |
+| TRIANGULATE | Native proof; strict collection | **11 passed**; **591 collected**, 0 errors |
+| REFACTOR | Normalized-body proof, residue/file checks, `git diff --check` | PASS; old files absent; no active old refs except intentional absence assertions |
+| Diagnostics | Ruff changed Python files; Pyright executable/module probe | **34 pre-existing Ruff findings**, no new findings; LSP unavailable |
+### Files and accounting
+- Files: `src/yasb_limitora/{projection.py,cli.py,v2_cache.py,v2_worker.py}`, `tests/test_json_projection.py`, `test_contracts.py`, `test_cli_output_version.py`, `test_runtime_cli.py`, `test_v2_cache.py`.
+- Source/projection-test normalized bodies match HEAD byte content after name/label reversal; behavior assertions unchanged.
+- Native/no-rename: **2,724** changed lines before progress/task records; Git rename-aware: **332**. Final count remains within the **2,800** ceiling.
+### Deviations, remaining work, and rollback
+- No deviations or compatibility aliases. Remaining: parent final verification and later rename exceptions. Rollback is limited to this source/test rename and its direct reference updates.
+
+## Progress: corrective snapshot presentation narrowing
+### Status
+- **Slice:** Rejected-evidence remediation after `fcaea78`; `refactor/137-rename-projection`
+- **Scope:** `projection.py`, `test_json_projection.py`, and this artifact; local commit only, no further renames/docs/push/PR.
+### Completed
+- Added a regression for snapshot presentation with missing `public_state` or `freshness`.
+- Added the smallest post-fallback invariant check; invalid direct snapshot inputs now raise static, safe `ValueError`, while valid output is unchanged.
+### Strict TDD / verification
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Authoritative fresh LSP at rejected evidence `sha256:01d5dee27cf11a19ae4c905f22afaf8e2f1f303e3440f73ed5f00cd3a83dd1ff` | Exactly 2 `reportArgumentType` findings at `_presentation` line 355; focused regression **2 failed** with `AttributeError` |
+| GREEN | Added invariant check after the non-snapshot return | Focused regression **2 passed** |
+| TRIANGULATE | Projection/contract/CLI/cache/worker focused suite | **238 passed** |
+| TRIANGULATE | Native proof; strict collection | **11 passed**; **593 collected**, 0 errors |
+| REFACTOR / LSP | `npx --yes pyright src/yasb_limitora/projection.py` | **0 errors, 0 warnings, 0 informations** |
+| REFACTOR / full | `python -m pytest -q` | **589 passed, 3 skipped, 1 pre-existing** isolated-safe-path provenance failure |
+| REFACTOR | `ruff`, `git diff --check` | 9 pre-existing Ruff findings in projection; no new findings; diff clean |
+### Files, boundary, and remaining work
+- Files: `src/yasb_limitora/projection.py`, `tests/test_json_projection.py`, this artifact.
+- No-rename accounting from `c1aa29c`: **2775 changed lines** after this record; within the **2,800** exception ceiling. Remaining: parent final verification and later rename exceptions.
+- No deviation from design; rollback is limited to this corrective invariant and regression.
+
+## Progress: projection strict-zip gate correction
+- **Slice / branch:** Rejected-evidence remediation; `refactor/137-rename-projection`.
+- **Recovery:** Remediates `sha256:8bb23972a8736bed7f4f99cdd99cb9296bc07527d81f8a259a513f1852713cdd`.
+- **Completed:** Added `strict=True` to `_project_document`'s sole `zip(...)`; output and formatting otherwise remain unchanged.
+- **Verification:** `tests/test_json_projection.py`, `tests/test_contracts.py`, and `tests/test_cli_output_version.py` → **152 passed**; strict collection → **593 collected**, 0 errors.
+- **Structural check:** AST scan found one `zip` call with literal `strict=True`; `git diff --check` passed.
+- **Diagnostics:** Ruff reports 9 pre-existing findings in unchanged projection imports/validation/Decimal expressions; the strict-zip edit introduces none.
+- **Accounting:** `git diff --no-renames --numstat c1aa29c` is **2,786** changed lines after this record, within the 2,800 ceiling.
+- **Boundary:** No rename, test, docs, push, or PR change; parent owns the required local commit.
+
+## Progress: size:exception 3 — cache source/tests rename
+
+### Status
+
+- **Slice:** Mechanical cache normalization on `refactor/137-rename-cache`.
+- **Authorization:** Maintainer-approved `size:exception 3`; native/no-rename ceiling 4,500 lines.
+- **Delivery:** Feature-branch-chain / auto-chain; one local commit only, no push or PR.
+
+### Completed tasks
+
+- Renamed `src/yasb_limitora/v2_cache.py` to `src/yasb_limitora/cache.py` and `tests/test_v2_cache.py` to `tests/test_cache.py` with `git mv`.
+- Removed the `V2QuotaCache` alias and export; active callers now use `RefreshCoordinator`.
+- Migrated static/lazy cache imports and monkeypatch targets in CLI, worker, cache, and runtime tests.
+- Normalized cache-specific CLI helpers and directly coupled cache test labels; preserved v2 modules, source IDs, schema 3, filename, and coordination literals.
+
+### Strict TDD Cycle Evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | `python -m pytest -q --strict-markers tests/test_cache.py` immediately after `git mv` | Expected collection failure: old `yasb_limitora.v2_cache` import was unresolved |
+| GREEN | `python -m pytest -q --strict-markers tests/test_cache.py` | **65 passed** |
+| TRIANGULATE | Cache/CLI/worker/runtime/native/contracts focused suite | **224 passed** |
+| TRIANGULATE / native | `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` | **11 passed** |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **593 tests collected**, 0 errors |
+| REFACTOR | `python -m py_compile` on changed Python files; `git diff --check` | Passed |
+| Diagnostics | Ruff and `npx pyright` on changed files | Existing cache/worker Ruff findings and environment/pre-existing Pyright findings only; no actionable rename finding |
+| Residue | Active search for old cache module, alias, helper, and cache-test labels | No active matches; immutable `quota-v2-cache.json` and `.quota-v2-` literals retained |
+
+### Files changed
+
+- `src/yasb_limitora/cache.py` (renamed from `v2_cache.py`)
+- `src/yasb_limitora/cli.py`
+- `src/yasb_limitora/v2_worker.py`
+- `tests/test_cache.py` (renamed from `test_v2_cache.py`)
+- `tests/test_runtime_cli.py`
+- `openspec/changes/single-supported-json-output/tasks.md`
+- `openspec/changes/single-supported-json-output/apply-progress.md`
+
+### Deviations and remaining tasks
+
+- No behavior, persisted identity, external source ID, coordination literal, or non-cache module/test rename was changed.
+- Remaining work is parent-owned: later rename exceptions and final full-suite verification.
+
+### Workload / PR boundary
+
+Native/no-rename accounting is **4,490 changed lines** including this progress/task evidence; Git rename-aware accounting is **200 changed lines** (123 additions + 77 deletions). This remains within the approved **4,500-line** exception ceiling. Rollback is limited to this cache source/test rename and direct cache reference updates. Commit locally only; do not push or open a PR.
+
+## Progress: size:exception 4 — worker source/tests rename
+
+### Status
+
+- **Slice:** Mechanical worker normalization; `feature/137-json-rename-worker`.
+- **Authorization:** Maintainer-approved `size:exception 4`; native/no-rename ceiling 2,700 lines.
+- **Delivery:** Feature-branch-chain / auto-chain; leave changes uncommitted for parent inspection; no push or PR.
+
+### Completed tasks
+
+- Renamed `src/yasb_limitora/v2_worker.py` to `src/yasb_limitora/worker.py` and `tests/test_v2_worker.py` to `tests/test_worker.py`.
+- Renamed the active `V2ExecutionOrchestrator` and `V2ExecutionRecord` symbols and migrated direct CLI, runtime, output, native, and platform-boundary consumers.
+- Preserved worker/process assertions, test identities, source IDs, and the later-slice `v2_guard`, `v2_deadline`, and `v2_path` spellings without compatibility aliases.
+
+### Strict TDD and verification evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Focused platform-boundary suite after the provider rename and before its consumer migration | **1 failed, 3 passed, 3 skipped**: the stale `cli.V2ExecutionOrchestrator` monkeypatch raised `AttributeError` |
+| GREEN | Migrated the approved platform-boundary consumer to `cli.ExecutionOrchestrator` | Worker/process/CLI/platform/cache/native suite: **175 passed, 3 skipped** |
+| TRIANGULATE / collection | `python -m pytest -q --strict-markers --collect-only` | **593 tests collected**, 0 collection errors |
+| REFACTOR / compile | `python -m py_compile` on changed Python source and test files | Passed |
+| REFACTOR / diagnostics | Ruff on changed Python files, compared with `47b1f91` worker test | Worker and non-worker changed files clean; four worker-test findings remain, all pre-existing debt: `PLR0402`, `PIE790`, `FURB157`, and `RUF023`. The base had those same four plus import-only `I001` and `PLR0402` for the former `v2_worker` alias; the rename removes those two rather than introducing findings. |
+
+### Files and boundary
+
+- `src/yasb_limitora/worker.py` (renamed from `v2_worker.py`)
+- `tests/test_worker.py` (renamed from `test_v2_worker.py`)
+- Direct consumers: `src/yasb_limitora/cli.py`, `tests/test_runtime_cli.py`, `tests/test_cli_output_version.py`, `tests/test_windows_native_proof.py`, and `tests/test_cli_platform_boundary.py`
+- Rename-only checklist/progress evidence: `tasks.md` and this artifact
+- No semantic process/runtime behavior, assertion, identity, source ID, or later-slice path spelling changed. Rollback is limited to this worker/test rename and its direct consumers.
+
+### Accounting
+
+Final native/no-rename count versus `47b1f91` is **2,579 changed lines** (1,311 additions + 1,268 deletions); Git rename-aware count is **165 changed lines** (104 additions + 61 deletions). Both include the direct consumer and task/progress evidence; native is within the approved 2,700-line ceiling.
+
+## Progress: size:exception 5 — guard/deadline/path sources/tests rename
+
+### Status
+
+- **Slice:** Mechanical guard/deadline/path normalization on `refactor/137-rename-guard-deadline-path`.
+- **Authorization:** `size:exception 5`; auto-chain / feature-branch-chain; one local commit only, no push or PR.
+- **Completed:** Renamed the three source modules and four unit-test files; normalized active imports, symbols, CLI loader/path names, and the embedded Windows-proof imports; removed `NamedMutexGuard`.
+
+### Strict TDD and verification evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | After test-file renames and new-import migration, before source renames: `python -m pytest -q --strict-markers tests/test_guard.py tests/test_deadline.py tests/test_path.py tests/test_file_read.py` | **4 collection errors** for the not-yet-renamed source modules |
+| GREEN | Renamed sources, migrated consumers, symbols, and native proof; renamed focused unit suite | **335 passed, 3 skipped** |
+| TRIANGULATE | JSON spec/docs identity checks; native proof; strict collection | **31 passed**; **11 passed**; **593 collected, 0 errors** |
+| REFACTOR | Changed-file `py_compile`; module/symbol/path assertions; `git diff --check` | Passed; old modules/aliases absent |
+| REFACTOR / diagnostics | Ruff on all changed Python files, compared with `cb11674` pre-images | Rename sources unchanged or improved; consumer files have no new findings after import ordering; remaining findings are pre-existing |
+| REFACTOR / import ordering | `python -m ruff check --select I001 --fix tests/test_protocol.py tests/test_runtime_cli.py tests/test_windows_native_proof.py` followed by the same exact-file Ruff check | All three introduced `I001` findings fixed; only pre-existing `UP012` in `test_protocol.py` remains |
+| GREEN / fallback correction | Canonical CLI-loader absence contract and guard/deadline/path/cache/worker/CLI/native focused suite | **53 passed**; **200 passed, 3 skipped** |
+
+### Files and accounting
+
+- Sources: `guard.py`, `deadline.py`, `path.py`; tests: `test_guard.py`, `test_deadline.py`, `test_path.py`, `test_file_read.py`.
+- Consumers normalized: `cache.py`, `cli.py`, `worker.py`, cache/helper/job/protocol/runtime/native/platform tests.
+- Preserved `Global\\yasb-limitora-v2-guard-*`, `quota-v2-cache.json`, `.quota-v2-`, `codex-app-server-v2`, and `opencode-go-api` exactly.
+- Final native/no-rename accounting versus `cb11674`: **3,717 changed lines** (1,879 additions + 1,838 deletions); Git rename-aware accounting: **603 changed lines** (322 additions + 281 deletions). The native count is within the approved **3,800-line** ceiling.
+
+### Remaining / blocker
+
+- The fallback correction now permits active `_load_explicit`/`_load_path` helpers and asserts the deleted `_load_v2_explicit`/`_load_v2_path` aliases absent.
+- `python -m pytest -q` reached **589 passed, 3 skipped, 1 failed**; the sole failure is the pre-existing Python 3.10 isolated-safe-path prerequisite in `tests/test_pr3b_package_provenance.py`.
+- The native competition proof reproduced an owner-sentinel write race twice; the direct fallback now waits for the complete `PROVIDER_STARTED` payload instead of file existence. RED: empty payload; GREEN: the competition test passed, and the paired Windows spawn seam also passed (**2 passed**).
+- Rollback boundary is limited to these three source renames, four unit-test renames, direct consumer import/reference updates, and the corrected CLI-helper absence expectation.
+
+## Progress: size:exception 6 — spec-test rename
+### Status
+
+- **Slice:** Mechanical spec-test filename normalization on `refactor/137-rename-spec-tests`.
+- **Authorization:** Maintainer-approved `size:exception 6`; native/no-rename ceiling 1,487 lines.
+- **Delivery:** Leave changes for parent inspection; no commit, push, PR, or schema rename.
+### Completed tasks
+
+- Renamed `tests/test_json_v2_spec.py` to `tests/test_json_spec.py` with `git mv`.
+- Preserved test bytes, test names, assertions, schema path, and contract semantics.
+- Preserved roadmap historical text and all runtime, documentation, and schema files.
+### Strict TDD and verification evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Not meaningful for a filename-only mechanical rename | Justified exception; no semantic behavior changed. |
+| GREEN | Renamed spec/docs/CustomWidget/contract suite | **93 passed** |
+| TRIANGULATE | Strict-marker collection | **593 collected**, 0 collection errors |
+| REFACTOR | Ruff and `py_compile` on `tests/test_json_spec.py` | Passed |
+| Identity | Pre-rename and renamed worktree blobs | Identical Git hash `5e948619271270186ba68b130699083e0a16fc0a` |
+### Boundary and rollback
+
+- Residue classification: old-path matches are historical roadmap/OpenSpec evidence; no runtime, test-discovery, or active documentation reference remains.
+- Rollback is limited to the spec-test filename rename and this checklist/progress evidence.
+- Final accounting versus `7acf881`: native/no-rename is **1,487** changed lines (757 additions + 730 deletions); Git rename-aware is **31 changed lines** (29 additions + 2 deletions). The prior 1,265-line estimate failed; the maintainer approved this exact measured 1,487-line rebudget.
+
+## Progress: size:exception 7 — schema rename
+### Status
+
+- **Slice:** Mechanical schema normalization on `refactor/137-rename-schema`.
+- **Authorization:** `size:exception 7`; maintainer-approved complete-work-unit no-rename ceiling **1,458** lines.
+- **Delivery:** Feature-branch-chain / auto-chain; leave changes uncommitted for parent inspection; no push or PR.
+
+### Completed tasks
+- Renamed `docs/specifications/json-v2.schema.json` to `docs/specifications/json-output.schema.json`.
+- Updated only active schema references in `README.md`, `docs/specifications/json-output.md`, and `tests/test_json_spec.py`.
+- Changed only the schema `$id` path; all other schema bytes, ordering, rules, metadata, and identities are preserved.
+
+### Strict TDD Cycle Evidence and verification
+| Check | Result |
+|---|---|
+| RED exception | Updated the schema test path/reference first; focused spec suite produced the expected **7 missing-target failures**, with 18 unrelated tests passing. |
+| GREEN / focused contract | `python -m pytest -q --strict-markers tests/test_json_spec.py tests/test_contracts.py tests/test_windows_only_documentation_contract.py tests/test_customwidget_examples.py` → **93 passed** |
+| Schema parse/validation | JSON parse and root-order checks passed; `jsonschema` was unavailable, so no external Draft 2020-12 validator ran. |
+| Native proof | `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` → **11 passed** |
+| Strict collection | `python -m pytest -q --strict-markers --collect-only` → **593 tests collected**, 0 errors |
+| Links and residue | Authorized links/paths passed; active old-schema residue absent. Historical `apply-progress.md`/`design.md` and the exact task wording retain old names by design. |
+| Ruff / compile / diff | Ruff, `py_compile`, and `git diff --check` passed. |
+| Content identity | New schema matches the base schema byte-for-byte after exactly one `$id` path substitution; 25,555 bytes. |
+| Full suite | `python -m pytest -q` → **589 passed, 3 skipped, 1 pre-existing environment failure** (`test_isolated_cli_ignores_forged_dist_info`, Python 3.10 isolated safe-path prerequisite). |
+
+### Deviations and remaining tasks
+- No deviations from design; no runtime code, historical roadmap/OpenSpec evidence, persisted identity, or contract rule changed.
+- Remaining: parent-owned final verification and delivery; no schema work remains in this slice.
+
+### Workload / PR boundary
+- Schema rename driver versus `bf5451e`: native/no-rename **1,410** lines (705 additions + 705 deletions); rename-aware schema pair **2** lines (1 addition + 1 deletion).
+- The maintainer approved the exact complete-work-unit ceiling of **1,458** no-rename lines. Including active reference, task, and progress records, complete-work-unit accounting is **1,458** no-rename lines (746 additions + 712 deletions) and **50** rename-aware lines (42 additions + 8 deletions). The prior **1,411** driver-only estimate was insufficient because this work unit necessarily includes its active references and OpenSpec evidence; those edits are within, not outside, the approved budget.
+- Rollback is limited to the schema filename, its `$id`, three active references, the exact schema task, and this progress entry.
+
+## Progress: final-verification corrective gate
+
+### Status
+
+- **Slice:** Bounded final-verification correction on `refactor/137-final-verification`
+- **Delivery boundary:** feature-branch-chain / auto-chain; leave changes uncommitted for parent inspection, with no lifecycle commands, authority tokens, push, PR, sync, archive, or delivery-state changes
+- **Allowed edit surfaces:** the 12 final-gate Python/test/OpenSpec files listed below
+- **No-rename budget:** 339 changed lines (203 additions + 136 deletions) versus `76758b1`, below the hard 400-line ceiling; seven rename slices total 20,254 native / 1,470 rename-aware lines, and cumulative accounting including this gate is 20,593 native / 1,809 rename-aware lines
+
+### Completed corrections
+
+- Refactored the protocol test transport double from `io.BytesIO` inheritance to composition, preserving `read`, deadline budgets, partial `write`, and `getvalue` behavior.
+- Replaced the redundant UTF-8 encoding argument and used `SafeErrorCode.PROVIDER_ERROR` in the protocol test.
+- Corrected the design map to the accepted active test path `tests/test_json_spec.py`.
+- Reconciled implementation, rename, and evidence checklist items proven by the completed apply/verification records; delivery-state items remain untouched.
+- Hardened Windows spawn stream/handle conversion cleanup and replaced intentional child-boundary `except/pass` blocks with explicit suppression contexts; targeted Ruff, Pyright, and lens checks pass.
+- Cast the intentionally arbitrary float-convertible deadline input to `Any` only at the `float()` boundary and kept the finite-positive check plus nanosecond conversion inside the translated exception boundary, preserving bool rejection and the public `ValueError` message while preventing huge finite values from leaking `OverflowError`.
+- Removed the final active `_v2` helper/test names, typed the injectable Codex supervisor seam, normalized helper cleanup/error mapping, and kept provider/runtime behavior unchanged.
+- Added precise optional-`pytest` analyzer directives on the touched tests; the dependency is installed and all focused executions pass.
+
+### Strict TDD Cycle Evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | `python -m ruff check tests/test_protocol.py`; `npx --yes pyright tests/test_protocol.py` | Ruff reported UP012; Pyright reported the two `BytesIO` override errors and the string `SafeError` error, plus the environment-only unresolved `pytest` import |
+| GREEN | Composition test double, `.encode()`, and `SafeErrorCode.PROVIDER_ERROR`; `python -m pytest -q --strict-markers tests/test_protocol.py tests/test_contracts.py tests/test_json_spec.py` | **98 passed** |
+| TRIANGULATE | `python -m pytest -q --strict-markers --collect-only`; `python -m pytest -q` | **594 collected**, 0 errors; **590 passed, 3 skipped, 1 known Python 3.10 isolated-safe-path environment failure** in `test_isolated_cli_ignores_forged_dist_info` |
+| REFACTOR | Targeted Ruff/Pyright/lens; full Ruff versus `origin/main`; `git diff --check` | Modified Python files pass; candidate has 148 full-repo findings versus 354 on `origin/main`, with no candidate-new rule category; diagnostics and diff checks pass |
+| RED (deadline) | `npx --no-install pyright src/yasb_limitora/deadline.py`; auxiliary `npx --no-install pyright --level error src/yasb_limitora/deadline.py` | Both reported the `float(seconds)` `object` argument error at line 42. |
+| RED (deadline overflow) | Added `test_deadline_context_rejects_huge_finite_duration`; `PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_deadline.py -k huge_finite_duration` before the conversion fix | **1 failed** because `int(1e308 * NANOSECONDS_PER_SECOND)` leaked `OverflowError` instead of the public `ValueError`. |
+| GREEN/REFACTOR (deadline) | Moved the finite-positive check and nanosecond conversion into the existing translated exception boundary; `PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider tests/test_deadline.py tests/test_cache.py tests/test_file_read.py`; Ruff; Pyright; in-memory `compile()`; `git diff --check` | **85 passed**; Ruff and source Pyright passed with 0 errors, test Pyright has only the environment-only unresolved `pytest` import; compile and diff check passed. |
+
+### Files, deviations, and remaining work
+
+- **Files changed:** `src/yasb_limitora/{cli,codex_helper,deadline,path}.py`; `tests/test_{cli_output_version,codex_supervisor,deadline,path,protocol}.py`; and the OpenSpec `design.md`, `tasks.md`, and this artifact.
+- **Deviations:** No wire, contract, dependency/configuration, or delivery-state change. Internal corrections only sanitize deadline overflow, strengthen spawn/helper cleanup, and remove active versioned names.
+- **Remaining:** One independent final re-verification, then SDD verify/sync/archive and authorized delivery.
+- **Rollback:** Revert only this bounded final-gate correction and its evidence.
