@@ -20,6 +20,8 @@ import pytest
 
 from yasb_limitora.cli import main
 from yasb_limitora.codex_helper import CodexHelperExecutor
+from yasb_limitora.deadline import DeadlineContext
+from yasb_limitora.guard import Guard
 from yasb_limitora.isolation.windows_job import (
     WAIT_OBJECT_0,
     JobError,
@@ -34,9 +36,7 @@ from yasb_limitora.model import (
     SafeErrorCode,
     SnapshotFreshness,
 )
-from yasb_limitora.v2_deadline import DeadlineContext
-from yasb_limitora.v2_guard import V2Guard
-from yasb_limitora.v2_path import V2FileError, canonicalize_v2_path, read_v2_config
+from yasb_limitora.path import FileError, canonicalize_path, read_config
 from yasb_limitora.worker import cleanup_complete
 
 TEST_SID = bytes((1, 1, 0, 0, 0, 0, 0, 5, 21, 0, 0, 0))
@@ -276,16 +276,16 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
     _assert_gone(timeout_pids)
     _write_checkpoint(_CHECKPOINT_TIMEOUT_TREE_GONE)
 
-    v2_executor = CodexHelperExecutor(timeout_seconds=5.0)
-    v2_result = v2_executor.run_with_deadline(
+    current_executor = CodexHelperExecutor(timeout_seconds=5.0)
+    current_result = current_executor.run_with_deadline(
         _runner("success", tmp_path / "v2-codex.json", "v2-proof", tmp_path / "v2-codex-descendant.attempted"),
         DeadlineContext.from_seconds(10.0),
     )
-    assert v2_result.state is ProviderState.SUCCESS, f"v2 provider error: {v2_result.error.code.value if v2_result.error else 'none'}"
-    assert v2_result.outcome is ProviderOutcome.SNAPSHOT
-    assert v2_result.snapshot is not None
-    assert v2_executor._pending_supervisor is None
-    assert cleanup_complete([], helpers=(v2_executor,))
+    assert current_result.state is ProviderState.SUCCESS, f"current provider error: {current_result.error.code.value if current_result.error else 'none'}"
+    assert current_result.outcome is ProviderOutcome.SNAPSHOT
+    assert current_result.snapshot is not None
+    assert current_executor._pending_supervisor is None
+    assert cleanup_complete([], helpers=(current_executor,))
 
     artifact_path = os.environ.get("YASB_NATIVE_EVIDENCE_PATH")
     if artifact_path:
@@ -307,7 +307,7 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
-def test_native_v2_default_configuration_reads_localappdata() -> None:
+def test_native_default_configuration_reads_localappdata() -> None:
     real_localappdata = os.environ.get("LOCALAPPDATA")
     if not real_localappdata:
         pytest.fail("Windows native proof requires LOCALAPPDATA")
@@ -401,14 +401,14 @@ def test_native_global_guard_privilege_competition_and_provider_barrier(tmp_path
     # The real Global\ mutex acquisition is the runner privilege proof.
     script = """import sys, time
 from pathlib import Path
-from yasb_limitora.v2_deadline import DeadlineContext
-from yasb_limitora.v2_guard import GuardError, V2Guard
+from yasb_limitora.deadline import DeadlineContext
+from yasb_limitora.guard import GuardError, Guard
 path = sys.argv[1]
 sentinel = Path(sys.argv[3])
 def provider():
     sentinel.write_text("PROVIDER_STARTED\\n", encoding="ascii")
 try:
-    lease = V2Guard().acquire(path, DeadlineContext.from_seconds(float(sys.argv[2])))
+    lease = Guard().acquire(path, DeadlineContext.from_seconds(float(sys.argv[2])))
     print("owned", flush=True)
     provider()
     if len(sys.argv) > 4: time.sleep(30)
@@ -422,9 +422,12 @@ except GuardError as error:
     try:
         assert first.stdout is not None and first.stdout.readline().strip() == "owned"
         provider_deadline = time.monotonic() + 5
-        while not Path(owner_sentinel).exists() and time.monotonic() < provider_deadline:
+        owner_path = Path(owner_sentinel)
+        owner_output = ""
+        while owner_output != "PROVIDER_STARTED\n" and time.monotonic() < provider_deadline:
+            owner_output = owner_path.read_text(encoding="ascii") if owner_path.exists() else ""
             time.sleep(0.01)
-        assert Path(owner_sentinel).read_text(encoding="ascii") == "PROVIDER_STARTED\n"
+        assert owner_output == "PROVIDER_STARTED\n"
         blocked = subprocess.run([sys.executable, "-c", script, path, "1", blocked_sentinel], capture_output=True, text=True, timeout=5, check=False)
         assert blocked.stdout.strip() == "guard_wait_timeout"
         assert not Path(blocked_sentinel).exists()
@@ -444,13 +447,13 @@ except GuardError as error:
 def test_native_path_and_file_limits_reject_before_provider_open(tmp_path: Path) -> None:
     context = DeadlineContext.from_seconds(5)
     with pytest.raises(ValueError):
-        canonicalize_v2_path(r"\\server\share\config.json")
+        canonicalize_path(r"\\server\share\config.json")
     with pytest.raises(ValueError):
-        canonicalize_v2_path(r"\\?\C:\config.json")
+        canonicalize_path(r"\\?\C:\config.json")
     oversized = tmp_path / "oversized.json"
     oversized.write_bytes(b"x" * 16_385)
-    with pytest.raises(V2FileError):
-        read_v2_config(oversized, context)
+    with pytest.raises(FileError):
+        read_config(oversized, context)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
@@ -461,7 +464,7 @@ def test_native_release_fault_is_deterministic_and_sanitized() -> None:
         def ReleaseMutex(self, _): return False
         def CloseHandle(self, _): return True
 
-    lease = V2Guard(api=Api(), sid_provider=lambda: TEST_SID).acquire(r"C:\native.json", DeadlineContext.from_seconds(1))
+    lease = Guard(api=Api(), sid_provider=lambda: TEST_SID).acquire(r"C:\native.json", DeadlineContext.from_seconds(1))
     assert lease.release() is False
 
 

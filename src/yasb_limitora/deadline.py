@@ -1,4 +1,4 @@
-"""Absolute deadline primitives for the JSON v2 execution path."""
+"""Absolute deadline primitives for the JSON contract execution path."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ MAX_RESERVE_NS = 250_000_000
 
 @dataclass(frozen=True, slots=True)
 class DeadlineContext:
-    """A single immutable endpoint shared by all v2 phases."""
+    """A single immutable endpoint shared by all execution phases."""
 
     t0_ns: int
     deadline_ns: int

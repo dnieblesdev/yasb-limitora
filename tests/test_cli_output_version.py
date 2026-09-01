@@ -131,8 +131,8 @@ def test_removed_output_selector_is_invalid_before_config_or_runtime(monkeypatch
     def unexpected_bounded_read(path, context):
         raise AssertionError(f"removed selector read bounded configuration: {path}")
 
-    monkeypatch.setattr(cli, "read_v2_config", unexpected_read, raising=False)
-    monkeypatch.setattr(cli, "read_v2_config", unexpected_bounded_read)
+    monkeypatch.setattr(cli, "read_config", unexpected_read, raising=False)
+    monkeypatch.setattr(cli, "read_config", unexpected_bounded_read)
     orchestrator = _Orchestrator(_disabled_document())
     code, document, stderr, raw = _run(argv, orchestrator=orchestrator)
 
@@ -242,7 +242,7 @@ def test_current_explicit_config_wins_over_environment_and_default(monkeypatch):
         paths.append(path)
         return json.dumps({"codex": {}, "opencode_go": {}})
 
-    monkeypatch.setattr(cli, "read_v2_config", read_config, raising=False)
+    monkeypatch.setattr(cli, "read_config", read_config, raising=False)
     explicit = r"C:\explicit.json"
     environment = {
         "YASB_LIMITORA_CONFIG": r"C:\environment.json",
@@ -261,7 +261,7 @@ def test_current_environment_config_wins_over_default(monkeypatch):
         paths.append(path)
         return json.dumps({"codex": {}, "opencode_go": {}})
 
-    monkeypatch.setattr(cli, "read_v2_config", read_config, raising=False)
+    monkeypatch.setattr(cli, "read_config", read_config, raising=False)
     environment_path = r"C:\environment.json"
     code, document, stderr, _ = _run(
         (),
@@ -279,7 +279,7 @@ def test_current_default_uses_injected_localappdata(monkeypatch):
         paths.append(path)
         return json.dumps({"codex": {}, "opencode_go": {}})
 
-    monkeypatch.setattr(cli, "read_v2_config", read_config, raising=False)
+    monkeypatch.setattr(cli, "read_config", read_config, raising=False)
     localappdata = r"C:\Users\user\AppData\Local"
     code, document, stderr, _ = _run((), environment={"LOCALAPPDATA": localappdata})
 
@@ -291,7 +291,7 @@ def test_current_empty_environment_config_is_configuration_invalid(monkeypatch):
     def unexpected_read(path, context):
         raise AssertionError("empty environment config fell back")
 
-    monkeypatch.setattr(cli, "read_v2_config", unexpected_read, raising=False)
+    monkeypatch.setattr(cli, "read_config", unexpected_read, raising=False)
     value = "  C:\\private\\env.json  "
     code, document, stderr, raw = _run(
         (),
@@ -322,7 +322,7 @@ def test_current_selected_inaccessible_file_does_not_fall_back(monkeypatch):
     def read_config(path, context):
         raise PermissionError(selected)
 
-    monkeypatch.setattr(cli, "read_v2_config", read_config, raising=False)
+    monkeypatch.setattr(cli, "read_config", read_config, raising=False)
     code, document, stderr, raw = _run(
         ("--config", selected),
         environment={"YASB_LIMITORA_CONFIG": r"C:\fallback.json", "LOCALAPPDATA": fallback},
@@ -335,9 +335,9 @@ def test_current_selected_inaccessible_file_does_not_fall_back(monkeypatch):
 
 def test_current_config_deadline_expiry_emits_bounded_deadline_document(monkeypatch, tmp_path):
     def expired_config(path, context):
-        raise cli.V2DeadlineError("configuration deadline exhausted")
+        raise cli.DeadlineError("configuration deadline exhausted")
 
-    monkeypatch.setattr(cli, "read_v2_config", expired_config)
+    monkeypatch.setattr(cli, "read_config", expired_config)
     path = tmp_path / "config.json"
 
     code, document, stderr, raw = _run(("--config", str(path)))

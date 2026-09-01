@@ -1,6 +1,6 @@
 import pytest
 
-from yasb_limitora.v2_deadline import DeadlineContext
+from yasb_limitora.deadline import DeadlineContext
 
 
 def test_deadline_context_uses_one_absolute_endpoint_and_reserve():

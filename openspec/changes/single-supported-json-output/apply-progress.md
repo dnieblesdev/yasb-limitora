@@ -1435,3 +1435,37 @@ Native/no-rename accounting is **4,490 changed lines** including this progress/t
 ### Accounting
 
 Final native/no-rename count versus `47b1f91` is **2,579 changed lines** (1,311 additions + 1,268 deletions); Git rename-aware count is **165 changed lines** (104 additions + 61 deletions). Both include the direct consumer and task/progress evidence; native is within the approved 2,700-line ceiling.
+
+## Progress: size:exception 5 — guard/deadline/path sources/tests rename
+
+### Status
+
+- **Slice:** Mechanical guard/deadline/path normalization on `refactor/137-rename-guard-deadline-path`.
+- **Authorization:** `size:exception 5`; auto-chain / feature-branch-chain; one local commit only, no push or PR.
+- **Completed:** Renamed the three source modules and four unit-test files; normalized active imports, symbols, CLI loader/path names, and the embedded Windows-proof imports; removed `NamedMutexGuard`.
+
+### Strict TDD and verification evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | After test-file renames and new-import migration, before source renames: `python -m pytest -q --strict-markers tests/test_guard.py tests/test_deadline.py tests/test_path.py tests/test_file_read.py` | **4 collection errors** for the not-yet-renamed source modules |
+| GREEN | Renamed sources, migrated consumers, symbols, and native proof; renamed focused unit suite | **335 passed, 3 skipped** |
+| TRIANGULATE | JSON spec/docs identity checks; native proof; strict collection | **31 passed**; **11 passed**; **593 collected, 0 errors** |
+| REFACTOR | Changed-file `py_compile`; module/symbol/path assertions; `git diff --check` | Passed; old modules/aliases absent |
+| REFACTOR / diagnostics | Ruff on all changed Python files, compared with `cb11674` pre-images | Rename sources unchanged or improved; consumer files have no new findings after import ordering; remaining findings are pre-existing |
+| REFACTOR / import ordering | `python -m ruff check --select I001 --fix tests/test_protocol.py tests/test_runtime_cli.py tests/test_windows_native_proof.py` followed by the same exact-file Ruff check | All three introduced `I001` findings fixed; only pre-existing `UP012` in `test_protocol.py` remains |
+| GREEN / fallback correction | Canonical CLI-loader absence contract and guard/deadline/path/cache/worker/CLI/native focused suite | **53 passed**; **200 passed, 3 skipped** |
+
+### Files and accounting
+
+- Sources: `guard.py`, `deadline.py`, `path.py`; tests: `test_guard.py`, `test_deadline.py`, `test_path.py`, `test_file_read.py`.
+- Consumers normalized: `cache.py`, `cli.py`, `worker.py`, cache/helper/job/protocol/runtime/native/platform tests.
+- Preserved `Global\\yasb-limitora-v2-guard-*`, `quota-v2-cache.json`, `.quota-v2-`, `codex-app-server-v2`, and `opencode-go-api` exactly.
+- Final native/no-rename accounting versus `cb11674`: **3,717 changed lines** (1,879 additions + 1,838 deletions); Git rename-aware accounting: **603 changed lines** (322 additions + 281 deletions). The native count is within the approved **3,800-line** ceiling.
+
+### Remaining / blocker
+
+- The fallback correction now permits active `_load_explicit`/`_load_path` helpers and asserts the deleted `_load_v2_explicit`/`_load_v2_path` aliases absent.
+- `python -m pytest -q` reached **589 passed, 3 skipped, 1 failed**; the sole failure is the pre-existing Python 3.10 isolated-safe-path prerequisite in `tests/test_pr3b_package_provenance.py`.
+- The native competition proof reproduced an owner-sentinel write race twice; the direct fallback now waits for the complete `PROVIDER_STARTED` payload instead of file existence. RED: empty payload; GREEN: the competition test passed, and the paired Windows spawn seam also passed (**2 passed**).
+- Rollback boundary is limited to these three source renames, four unit-test renames, direct consumer import/reference updates, and the corrected CLI-helper absence expectation.

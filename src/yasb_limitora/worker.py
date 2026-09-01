@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from .config import LocalConfig
+from .deadline import DeadlineContext
+from .guard import Guard, GuardError, GuardLease
 from .isolation.windows_job import WindowsJobBoundary
 from .limitora_api import (
     OPENCODE_API_KEY_ENV,
@@ -26,9 +28,7 @@ from .model import (
     SafeError,
     SafeErrorCode,
 )
-from .v2_deadline import DeadlineContext
-from .v2_guard import GuardError, GuardLease, V2Guard
-from .v2_path import _child_process, _start_quiet_child
+from .path import _child_process, _start_quiet_child
 
 
 def _safe_error(provider: ProviderKey, code: SafeErrorCode) -> ProviderView:
@@ -312,7 +312,7 @@ class OpenCodeWorkerProcess:
 class RefreshAttempt:
     """Own one provider refresh, its fresh resources, and bounded cleanup."""
 
-    def __init__(self, *, guard_factory=V2Guard, codex_executor=None, opencode_factory=OpenCodeWorkerProcess) -> None:
+    def __init__(self, *, guard_factory=Guard, codex_executor=None, opencode_factory=OpenCodeWorkerProcess) -> None:
         self.guard_factory = guard_factory
         self.codex_executor = codex_executor
         self.opencode_factory = opencode_factory
@@ -598,7 +598,7 @@ class RefreshAttempt:
 class ExecutionOrchestrator:
     """Create a fresh refresh owner for every orchestration call."""
 
-    def __init__(self, *, guard_factory=V2Guard, codex_executor=None, opencode_factory=OpenCodeWorkerProcess) -> None:
+    def __init__(self, *, guard_factory=Guard, codex_executor=None, opencode_factory=OpenCodeWorkerProcess) -> None:
         self.guard_factory = guard_factory
         self.codex_executor = codex_executor
         self.opencode_factory = opencode_factory

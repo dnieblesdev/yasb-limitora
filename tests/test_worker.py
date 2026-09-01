@@ -27,8 +27,8 @@ from yasb_limitora.model import (
     SafeErrorCode,
     SnapshotFreshness,
 )
-from yasb_limitora.v2_deadline import DeadlineContext
-from yasb_limitora.v2_guard import GuardError
+from yasb_limitora.deadline import DeadlineContext
+from yasb_limitora.guard import GuardError
 from yasb_limitora.worker import (
     ExecutionOrchestrator,
     OpenCodeWorkerProcess,
@@ -76,7 +76,7 @@ def test_opencode_child_start_uses_private_frozen_environment_without_mutating_p
     import multiprocessing
     import multiprocessing.popen_spawn_win32 as spawn_popen
 
-    from yasb_limitora import v2_path
+    from yasb_limitora import path as path_module
 
     environment = {
         "PATH": "public-path",
@@ -88,7 +88,7 @@ def test_opencode_child_start_uses_private_frozen_environment_without_mutating_p
         "AWS_SECRET_ACCESS_KEY": "aws-secret",
     }
     monkeypatch.setattr(worker_module.os, "environ", environment)
-    monkeypatch.setattr(v2_path._PRIVATE_SYS, "frozen", True, raising=False)
+    monkeypatch.setattr(path_module._PRIVATE_SYS, "frozen", True, raising=False)
     observed = {}
 
     def recording_popen(process_obj):
@@ -97,7 +97,7 @@ def test_opencode_child_start_uses_private_frozen_environment_without_mutating_p
         observed["child_environment"] = dict(getattr(process_obj, "_child_environment", None) or {})
         raise RuntimeError("spawn intercepted")
 
-    monkeypatch.setattr(v2_path, "_windows_spawn_popen", recording_popen)
+    monkeypatch.setattr(path_module, "_windows_spawn_popen", recording_popen)
     monkeypatch.setattr(spawn_popen, "Popen", recording_popen)
 
     class Job:
@@ -540,7 +540,7 @@ def test_unexpected_provider_exception_emits_schema_safe_internal_document(monke
     assert stderr.getvalue() == "yasb-limitora: runtime_error\n"
 
 
-def test_v2_default_path_fails_closed_without_a_process_local_lock(tmp_path):
+def test_default_path_fails_closed_without_a_process_local_lock(tmp_path):
     config = tmp_path / "config.json"
     config.write_text(json.dumps({"codex": {"enabled": True, "runner": r"C:\codex.exe"}, "opencode_go": {}}), encoding="utf-8")
     stdout, stderr = io.BytesIO(), io.StringIO()

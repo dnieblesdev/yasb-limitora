@@ -3,7 +3,14 @@ import struct
 
 import pytest
 
-from yasb_limitora import ProviderKey, ProviderState, ProviderView, SafeError, SafeErrorCode
+from yasb_limitora import (
+    ProviderKey,
+    ProviderState,
+    ProviderView,
+    SafeError,
+    SafeErrorCode,
+)
+from yasb_limitora.deadline import DeadlineContext
 from yasb_limitora.isolation import (
     CONTROL_MAX_BYTES,
     RESPONSE_MAX_BYTES,
@@ -24,7 +31,7 @@ from yasb_limitora.isolation import (
     write_frame,
 )
 from yasb_limitora.isolation.protocol import read_frame_with_deadline
-from yasb_limitora.v2_deadline import DeadlineContext
+
 
 class Transport(io.BytesIO):
     def __init__(self, data: bytes = b"", chunk: int = 2, error: Exception | None = None, deadline: bool = False) -> None:
@@ -72,7 +79,7 @@ def test_partial_read_exhausts_deadline_with_decreasing_budgets() -> None:
     assert reader.budgets[0] >= reader.budgets[1] > 0
 
 
-def test_v2_frame_adapter_keeps_the_original_absolute_endpoint():
+def test_frame_adapter_keeps_the_original_absolute_endpoint():
     frame = encode_frame(contained_message("n"))
     reader = Transport(frame, chunk=1)
     clock = [0]
