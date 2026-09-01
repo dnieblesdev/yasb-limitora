@@ -13,14 +13,14 @@ STATUS_DOCUMENTS = (
     ROOT / "docs/architecture/README.md",
     ROOT / "docs/research/README.md",
     ROOT / "docs/roadmap.md",
-    ROOT / "docs/specifications/json-v2.md",
+    ROOT / "docs/specifications/json-output.md",
 )
 ACTIVE_STATUS_DOCUMENTS = STATUS_DOCUMENTS[:3]
 SOURCE_OF_TRUTH_DOCUMENTS = (
     ROOT / "docs/architecture/README.md",
     ROOT / "docs/research/README.md",
     ROOT / "docs/roadmap.md",
-    ROOT / "docs/specifications/json-v2.md",
+    ROOT / "docs/specifications/json-output.md",
 )
 
 
@@ -43,13 +43,13 @@ def test_scoped_docs_declare_one_bounded_windows_only_contract():
     assert set(ACTIVE_STATUS_DOCUMENTS) == set(DOCUMENTS) - {ROOT / "docs/windows-json.md"}
     assert set(STATUS_DOCUMENTS) == set(ACTIVE_STATUS_DOCUMENTS) | {
         ROOT / "docs/roadmap.md",
-        ROOT / "docs/specifications/json-v2.md",
+        ROOT / "docs/specifications/json-output.md",
     }
     assert set(SOURCE_OF_TRUTH_DOCUMENTS) == {
         ROOT / "docs/architecture/README.md",
         ROOT / "docs/research/README.md",
         ROOT / "docs/roadmap.md",
-        ROOT / "docs/specifications/json-v2.md",
+        ROOT / "docs/specifications/json-output.md",
     }
 
     texts = {path: path.read_text(encoding="utf-8") for path in DOCUMENTS}
@@ -206,7 +206,7 @@ def test_source_of_truth_docs_use_the_consumed_limitora_bearer_contract():
     architecture = texts[ROOT / "docs/architecture/README.md"]
     research = texts[ROOT / "docs/research/README.md"]
     roadmap = texts[ROOT / "docs/roadmap.md"]
-    specification = texts[ROOT / "docs/specifications/json-v2.md"]
+    specification = texts[ROOT / "docs/specifications/json-output.md"]
 
     architecture_contract = architecture.split("## Execution boundary", 1)[0]
     research_contract = research.split("## Sanitized evidence rules", 1)[0]
@@ -245,7 +245,7 @@ def test_completed_migration_130_is_not_documented_as_a_pending_gate():
     readme = texts[ROOT / "README.md"]
     roadmap = texts[ROOT / "docs/roadmap.md"]
     research = texts[ROOT / "docs/research/README.md"]
-    specification = texts[ROOT / "docs/specifications/json-v2.md"]
+    specification = texts[ROOT / "docs/specifications/json-output.md"]
     example_readme = (ROOT / "examples/customwidget/README.md").read_text(encoding="utf-8")
     combined = "\n".join(texts[path] for path in STATUS_DOCUMENTS) + "\n" + windows + "\n" + example_readme
 
