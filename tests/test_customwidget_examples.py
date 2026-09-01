@@ -1,9 +1,7 @@
-import hashlib
 import json
 import re
 import unittest
 from pathlib import Path
-
 
 ROOT = Path(__file__).parents[1]
 EXAMPLE = ROOT / "examples/customwidget"
@@ -31,28 +29,38 @@ NOT_RUN_PRESENTATION = {
 }
 WINDOW_TOOLTIP_SUFFIXES = {
     "complete": (
-        "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
-        "unit=percentage_points; source_id=\"codex-app-server-v2\"; result=80% remaining\n"
-        "Reset: 2026-08-02T00:00:00.000000Z",
-        "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
-        "unit=percentage_points; source_id=\"opencode-go-api\"; result=60% remaining\n"
-        "Reset: 2026-08-02T00:00:00.000000Z",
+        (
+            "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
+            "unit=percentage_points; source_id=\"codex-app-server-v2\"; result=80% remaining\n"
+            "Reset: 2026-08-02T00:00:00.000000Z"
+        ),
+        (
+            "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
+            "unit=percentage_points; source_id=\"opencode-go-api\"; result=60% remaining\n"
+            "Reset: 2026-08-02T00:00:00.000000Z"
+        ),
     ),
     "partial": (None, None),
     "stale": (
-        "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
-        "unit=percentage_points; source_id=\"codex-app-server-v2\"; result=40% remaining\n"
-        "Reset: 2026-08-02T00:00:00.000000Z",
-        "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
-        "unit=percentage_points; source_id=\"opencode-go-api\"; result=40% remaining\n"
-        "Reset: 2026-08-02T00:00:00.000000Z",
+        (
+            "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
+            "unit=percentage_points; source_id=\"codex-app-server-v2\"; result=40% remaining\n"
+            "Reset: 2026-08-02T00:00:00.000000Z"
+        ),
+        (
+            "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
+            "unit=percentage_points; source_id=\"opencode-go-api\"; result=40% remaining\n"
+            "Reset: 2026-08-02T00:00:00.000000Z"
+        ),
     ),
     "undetected": (None, None),
     "provider-unavailable": (
         None,
-        "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
-        "unit=percentage_points; source_id=\"opencode-go-api\"; result=60% remaining\n"
-        "Reset: 2026-08-02T00:00:00.000000Z",
+        (
+            "Window: kind=commercial_quota; scope=account; period=day; plan_id=null; "
+            "unit=percentage_points; source_id=\"opencode-go-api\"; result=60% remaining\n"
+            "Reset: 2026-08-02T00:00:00.000000Z"
+        ),
     ),
     "providers-disabled": (None, None),
     "safe-error": (None, None),
@@ -77,14 +85,6 @@ RUNTIME_METADATA = {
         "tooltip": "Quota not run: deadline exhausted",
     },
 }
-V1_SHA256 = {
-    "json_v1_success.json": "974957799f3729bb4ee66ad405f1cbd4594a1024592103338fa4ffa1a57d1013",
-    "json_v1_unicode_label.json": "9ebca8f5675145771aedb0b821d16b021763df4842fabea8fa9576c7f3dbacec",
-    "json_v1_unavailable.json": "7c68e64a98981bf0255cd7e7f039a2209f49f9d153127370d97df1038e1e11a3",
-    "json_v1_safe_error.json": "f322351a2f4ce4d548adac6583592ab1d4483c2f20dc3c8284c4d8ede1cbb515",
-}
-
-
 def _json_document(path):
     def no_duplicates(pairs):
         result = {}
@@ -159,13 +159,13 @@ class CustomWidgetExamplesTests(unittest.TestCase):
         assert expected <= {path.name for path in EXAMPLE.iterdir() if path.is_file()}
         assert {f"{name}.json" for name in ALL_FIXTURES} == {path.name for path in FIXTURES.iterdir()}
 
-    def test_fixture_matrix_is_exact_and_strict_v2(self):
+    def test_fixture_matrix_is_exact_and_current_contract(self):
         for name, (execution_state, expected, percentages) in ALL_FIXTURES.items():
             raw = (FIXTURES / f"{name}.json").read_bytes()
             assert raw.endswith(bytes([0x0A])) and b"\r" not in raw
             value = _json_document(FIXTURES / f"{name}.json")
             assert list(value) == ["execution_state", "execution_error", "providers"]
-            assert "version" not in value and value["execution_state"] == execution_state and len(value["providers"]) == 2
+            assert value["execution_state"] == execution_state and len(value["providers"]) == 2
             assert [provider["provider"] for provider in value["providers"]] == ["codex", "opencode_go"]
             serialized = json.dumps(value).lower()
             assert all(key not in serialized for key in ("opencode-go-dashboard", "exit_code", "stderr", "stdout", "traceback", "password", "api_key", "cookie", "/home/", "c:\\"))
@@ -179,7 +179,7 @@ class CustomWidgetExamplesTests(unittest.TestCase):
                     {"code": "invalid_provider_data", "phase": "provider"},
                 ],
             }.get(name, [None, None])
-            for index, (provider, percent) in enumerate(zip(value["providers"], percentages if name not in ("providers-disabled", "safe-error") else (None, None))):
+            for index, (provider, percent) in enumerate(zip(value["providers"], percentages if name not in ("providers-disabled", "safe-error") else (None, None), strict=True)):
                 assert provider["execution_error"] == expected_errors[index]
                 if provider["provider"] == "opencode_go" and provider["outcome"] == "snapshot" and provider["public_state"] in {"available", "partial"}:
                     commercial = [window for window in provider["windows"] if window["kind"] == "commercial_quota"]
@@ -237,12 +237,24 @@ class CustomWidgetExamplesTests(unittest.TestCase):
         assert 'label: "{data[providers][1][compact_text]}"' in manual
         assert 'label_alt: "{data[providers][1][alternate_text]}"' in manual
         assert 'tooltip_label: "{data[providers][1][tooltip_text]}"' in manual
-        assert 'run_cmd: "yasb-limitora --output-version 2"' in text
+        assert text.count('run_cmd: "yasb-limitora"') == 2
+        assert "--output-version" not in text
         assert "use_shell: false" in text and "LIMITORA_OPENCODE_API_KEY" not in text
+
         assert not re.search(r"run_cmd:.*(?:;|&&|\|\||\||`|\$\(|>|<)", text)
         assert re.findall(r"^      ([a-z_]+):", default, re.MULTILINE) == ["class_name", "label", "label_alt", "tooltip", "tooltip_label", "exec_options"]
         assert re.findall(r"^        ([a-z_]+):", default, re.MULTILINE) == ["run_cmd", "run_once", "run_interval", "return_format", "hide_empty", "use_shell"]
         assert "execution_state" not in text and "windows" not in text and "most_depleted_window" not in text
+
+    def test_readme_describes_the_sole_current_output(self):
+        text = (EXAMPLE / "README.md").read_text(encoding="utf-8")
+        normalized = " ".join(text.split())
+        assert "sole current JSON contract" in normalized
+        assert "--output-version" not in normalized
+
+        assert "providers[0]" in normalized and "providers[1]" in normalized
+        assert "codex-app-server-v2" not in normalized
+        assert "opencode-go-api" not in normalized
 
     def test_css_is_static_and_matches_supported_descendants(self):
         css = (EXAMPLE / "styles.css").read_text(encoding="utf-8")
@@ -253,13 +265,11 @@ class CustomWidgetExamplesTests(unittest.TestCase):
             ".custom-widget.limitora-r9 .widget-container .label.alt", ".custom-widget.limitora-r9 .widget-container .icon",
         }
 
-    def test_missing_consumed_leaf_is_rejected_and_v1_bytes_remain_frozen(self):
+    def test_missing_consumed_leaf_is_rejected(self):
         value = _json_document(FIXTURES / "complete.json")
         del value["providers"][0]["tooltip_text"]
         with self.assertRaises(AssertionError):
             _assert_provider(value["providers"][0], ("snapshot", "available", "fresh"), 80)
-        for name, digest in V1_SHA256.items():
-            assert hashlib.sha256((ROOT / "tests/fixtures" / name).read_bytes()).hexdigest() == digest
 
     def test_multiline_unicode_uses_utf8_and_lf_only(self):
         value = _json_document(FIXTURES / "multiline-unicode.json")
