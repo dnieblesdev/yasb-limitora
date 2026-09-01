@@ -10,7 +10,14 @@ from typing import Any, cast
 
 import pytest
 
-from tests.test_json_v2_projection import _near_boundary_document
+from tests.test_json_projection import _near_boundary_document
+from yasb_limitora.cache import (
+    CACHE_TTL_SECONDS,
+    OwnerState,
+    RefreshCoordinator,
+    RefreshState,
+    SingleFlightResult,
+)
 from yasb_limitora.config import LocalConfig
 from yasb_limitora.model import (
     DocumentView,
@@ -29,17 +36,9 @@ from yasb_limitora.model import (
     SafeErrorCode,
     SnapshotFreshness,
 )
-from yasb_limitora.projection_v2 import V2ProjectionInput, project_v2_bytes
-from yasb_limitora.v2_cache import (
-    CACHE_TTL_SECONDS,
-    OwnerState,
-    RefreshCoordinator,
-    RefreshState,
-    SingleFlightResult,
-    V2QuotaCache,
-)
-from yasb_limitora.v2_deadline import DeadlineContext
-from yasb_limitora.v2_guard import GuardError
+from yasb_limitora.projection import ProjectionInput, project_bytes
+from yasb_limitora.deadline import DeadlineContext
+from yasb_limitora.guard import GuardError
 
 
 def _loaded(value: bytes | None) -> bytes:
@@ -73,12 +72,12 @@ def public_bytes(*, cleanup=False, provider_error=False, disabled=False):
     if not disabled:
         opencode = ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED)
     error = SafeError(SafeErrorCode.CLEANUP_FAILED) if cleanup else None
-    return project_v2_bytes(V2ProjectionInput(DocumentView.ordered(codex, opencode, error), frozenset({ProviderKey.CODEX, ProviderKey.OPENCODE_GO})))
+    return project_bytes(ProjectionInput(DocumentView.ordered(codex, opencode, error), frozenset({ProviderKey.CODEX, ProviderKey.OPENCODE_GO})))
 
 
 def mixed_not_run_public_bytes(reason):
-    return project_v2_bytes(
-        V2ProjectionInput(
+    return project_bytes(
+        ProjectionInput(
             DocumentView.ordered(
                 ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED),
                 ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason=reason),
@@ -109,8 +108,8 @@ def snapshot_public_bytes(scope="account"):
         "codex-app-server-v2",
         (window,),
     )
-    return project_v2_bytes(
-        V2ProjectionInput(
+    return project_bytes(
+        ProjectionInput(
             DocumentView.ordered(
                 ProviderView(ProviderKey.CODEX, ProviderState.SUCCESS, outcome=ProviderOutcome.SNAPSHOT, snapshot=snapshot),
                 ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED),
@@ -125,11 +124,11 @@ def make_cache(tmp_path, *, now=None, runner=r"C:\\codex.exe", key="private-key"
     target.write_text("{}", encoding="utf-8")
     value = LocalConfig.from_mapping({"codex": {"enabled": True, "runner": runner}, "opencode_go": {}})
     environment = {"LOCALAPPDATA": str(tmp_path), "LIMITORA_OPENCODE_API_KEY": key}
-    return V2QuotaCache(value, environment, target, now=now), target
+    return RefreshCoordinator(value, environment, target, now=now), target
 
 
 def test_refresh_coordinator_construction_is_lookup_free(monkeypatch, tmp_path):
-    from yasb_limitora import v2_cache
+    from yasb_limitora import cache as cache_module
 
     target = tmp_path / "config.json"
     environment = {"LOCALAPPDATA": str(tmp_path), "LIMITORA_OPENCODE_API_KEY": "private-key"}
@@ -137,9 +136,9 @@ def test_refresh_coordinator_construction_is_lookup_free(monkeypatch, tmp_path):
     def fail_lookup(*args, **kwargs):
         raise AssertionError("constructor performed filesystem lookup")
 
-    monkeypatch.setattr(v2_cache.os, "lstat", fail_lookup)
-    monkeypatch.setattr(v2_cache.os.path, "isdir", fail_lookup)
-    monkeypatch.setattr(v2_cache.os.path, "exists", fail_lookup)
+    monkeypatch.setattr(cache_module.os, "lstat", fail_lookup)
+    monkeypatch.setattr(cache_module.os.path, "isdir", fail_lookup)
+    monkeypatch.setattr(cache_module.os.path, "exists", fail_lookup)
 
     cache = RefreshCoordinator(config(target), environment, target)
 
@@ -254,11 +253,11 @@ def test_cache_ttl_and_fingerprint_and_path_mismatch_fail_closed(tmp_path):
     now[0] -= timedelta(seconds=CACHE_TTL_SECONDS + 1)
 
     environment = {"LOCALAPPDATA": str(tmp_path), "LIMITORA_OPENCODE_API_KEY": "private-key"}
-    other = V2QuotaCache(config(target, runner=r"C:\\other.exe"), environment, target, now=lambda: now[0])
+    other = RefreshCoordinator(config(target, runner=r"C:\\other.exe"), environment, target, now=lambda: now[0])
     assert other.load(context()) is None
     other_path = tmp_path / "other.json"
     other_path.write_text("{}", encoding="utf-8")
-    different_path = V2QuotaCache(config(target), environment, other_path, now=lambda: now[0])
+    different_path = RefreshCoordinator(config(target), environment, other_path, now=lambda: now[0])
     assert different_path.load(context()) is None
 
 
@@ -266,8 +265,8 @@ def test_effective_fingerprint_is_part_of_physical_cache_identity(tmp_path):
     target = tmp_path / "config.json"
     target.write_text("{}", encoding="utf-8")
     environment = {"LOCALAPPDATA": str(tmp_path), "LIMITORA_OPENCODE_API_KEY": "private-key"}
-    first = V2QuotaCache(config(target, runner=r"C:\\first.exe"), environment, target)
-    second = V2QuotaCache(config(target, runner=r"C:\\second.exe"), environment, target)
+    first = RefreshCoordinator(config(target, runner=r"C:\\first.exe"), environment, target)
+    second = RefreshCoordinator(config(target, runner=r"C:\\second.exe"), environment, target)
 
     assert first.path != second.path
     assert first.fingerprint in first.path
@@ -284,8 +283,8 @@ def test_distinct_config_paths_use_distinct_cache_files_and_create_directory(tmp
     first_path.write_text("{}", encoding="utf-8")
     second_path.write_text("{}", encoding="utf-8")
     environment = {"LOCALAPPDATA": str(tmp_path / "missing-localappdata"), "LIMITORA_OPENCODE_API_KEY": "private-key"}
-    first = V2QuotaCache(config(first_path), environment, first_path)
-    second = V2QuotaCache(config(second_path), environment, second_path)
+    first = RefreshCoordinator(config(first_path), environment, first_path)
+    second = RefreshCoordinator(config(second_path), environment, second_path)
 
     assert first.path != second.path
     assert first.publish(public_bytes(), context())
@@ -384,7 +383,7 @@ def test_cache_rejects_provider_tooltip_from_independent_budget(tmp_path):
 
 def test_cache_accepts_projection_selected_shared_budget_near_cap(tmp_path):
     cache, _ = make_cache(tmp_path)
-    document = project_v2_bytes(V2ProjectionInput(_near_boundary_document(40)))
+    document = project_bytes(ProjectionInput(_near_boundary_document(40)))
     value = json.loads(document)
     assert len(document) <= 65_536
     assert value["execution_error"] is None
@@ -394,13 +393,14 @@ def test_cache_accepts_projection_selected_shared_budget_near_cap(tmp_path):
 
 
 def test_cache_transport_decompression_rejects_oversized_child_payload(monkeypatch):
-    from yasb_limitora import v2_cache, v2_path
+    from yasb_limitora import cache as cache_module
+    from yasb_limitora import path as path_module
 
-    payload = zlib.compress(b"x" * (v2_cache.MAX_CACHE_BYTES + 1))
-    monkeypatch.setattr(v2_path, "_bounded_file_call", lambda *args: payload)
+    payload = zlib.compress(b"x" * (cache_module.MAX_CACHE_BYTES + 1))
+    monkeypatch.setattr(path_module, "_bounded_file_call", lambda *args: payload)
 
-    with pytest.raises(v2_cache.V2FileError):
-        v2_cache._bounded_call(v2_cache._cache_read_child, ("unused",), context())
+    with pytest.raises(cache_module.FileError):
+        cache_module._bounded_call(cache_module._cache_read_child, ("unused",), context())
 
 
 def test_cache_rejects_secret_like_quantity_unit_after_presentation_recompute(tmp_path):
@@ -437,12 +437,13 @@ def test_cache_accepts_nonrooted_json_escaped_identity_text(tmp_path):
 
 
 def test_cache_account_identity_lookup_failure_fails_closed(monkeypatch):
-    from yasb_limitora import v2_cache, v2_guard
+    from yasb_limitora import cache as cache_module
+    from yasb_limitora import guard as guard_module
 
-    monkeypatch.setattr(v2_cache.os, "name", "nt")
-    monkeypatch.setattr(v2_guard, "_default_sid_bytes", lambda: b"")
-    with pytest.raises(v2_cache.V2FileError):
-        v2_cache._account_digest({})
+    monkeypatch.setattr(cache_module.os, "name", "nt")
+    monkeypatch.setattr(guard_module, "_default_sid_bytes", lambda: b"")
+    with pytest.raises(cache_module.FileError):
+        cache_module._account_digest({})
 
 
 @pytest.mark.parametrize("reason", ("deadline_exhausted", "guard_wait_timeout"))
@@ -468,8 +469,8 @@ def test_cache_rejects_provider_errors_cleanup_and_all_disabled_results(tmp_path
     assert cache.publish(public_bytes(disabled=True), context())
     assert not cache.publish(public_bytes(provider_error=True), context())
     assert not cache.publish(public_bytes(cleanup=True), context())
-    all_disabled = project_v2_bytes(
-        V2ProjectionInput(
+    all_disabled = project_bytes(
+        ProjectionInput(
             DocumentView.ordered(
                 ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason="disabled"),
                 ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN, not_run_reason="disabled"),
@@ -483,9 +484,9 @@ def test_cache_rejects_provider_errors_cleanup_and_all_disabled_results(tmp_path
 
 def test_cache_io_deadline_is_fail_closed(monkeypatch, tmp_path):
     cache, _ = make_cache(tmp_path)
-    from yasb_limitora import v2_cache
+    from yasb_limitora import cache as cache_module
 
-    monkeypatch.setattr(v2_cache, "_bounded_call", lambda *args: (_ for _ in ()).throw(RuntimeError("blocked")))
+    monkeypatch.setattr(cache_module, "_bounded_call", lambda *args: (_ for _ in ()).throw(RuntimeError("blocked")))
     assert not cache.publish(public_bytes(), context())
     assert cache.load(context()) is None
 
@@ -495,9 +496,9 @@ def test_failed_writer_does_not_remove_another_context_temp(monkeypatch, tmp_pat
     orphan = Path(cache.path).parent / ".quota-v2-orphan.tmp"
     orphan.parent.mkdir()
     orphan.write_bytes(b"partial")
-    from yasb_limitora import v2_cache
+    from yasb_limitora import cache as cache_module
 
-    monkeypatch.setattr(v2_cache, "_bounded_call", lambda *args: (_ for _ in ()).throw(RuntimeError("writer stopped")))
+    monkeypatch.setattr(cache_module, "_bounded_call", lambda *args: (_ for _ in ()).throw(RuntimeError("writer stopped")))
 
     assert not cache.publish(public_bytes(), context())
     assert orphan.exists()
@@ -529,7 +530,7 @@ class _KeyGuard:
 
 def _single_flight_cache(tmp_path, monkeypatch):
     cache, _ = make_cache(tmp_path)
-    monkeypatch.setattr("yasb_limitora.v2_cache._bounded_call", lambda function, args, context: function(*args))
+    monkeypatch.setattr("yasb_limitora.cache._bounded_call", lambda function, args, context: function(*args))
     lock = threading.Lock()
     monkeypatch.setattr(cache, "_guard_factory", lambda: _KeyGuard(lock))
     return cache
@@ -729,13 +730,14 @@ def test_dead_or_mismatched_owner_is_reclaimed_with_next_generation(tmp_path, mo
 def test_stale_generation_cannot_publish_after_authority_is_lost(tmp_path, monkeypatch):
     cache = _single_flight_cache(tmp_path, monkeypatch)
     current_token = cache._process_token(os.getpid())
+    expected_identity = "new-authority"
 
     def producer(_):
         assert cache._write_marker(
             {
                 "generation": 2,
                 "owner_pid": os.getpid(),
-                "owner_token": "new-authority",
+                "owner_token": expected_identity,
                 "started_at": "2026-08-15T00:00:00.000000Z",
             },
             context(),
@@ -749,7 +751,7 @@ def test_stale_generation_cannot_publish_after_authority_is_lost(tmp_path, monke
     assert result.cached_public_bytes is None
     assert cache.load(context()) is None
     marker = cache._read_marker(context())
-    assert marker is not None and marker["generation"] == 2 and marker["owner_token"] == "new-authority"
+    assert marker is not None and marker["generation"] == 2 and marker["owner_token"] == expected_identity
 
 
 def test_failed_publication_cleans_active_marker_without_cache_data(tmp_path, monkeypatch):
@@ -779,7 +781,7 @@ def test_retry_claims_use_fresh_process_tokens(tmp_path, monkeypatch):
 
 
 def test_owner_state_distinguishes_alive_dead_and_unknown_without_reclaiming_unknown(tmp_path, monkeypatch):
-    from yasb_limitora import v2_cache
+    from yasb_limitora import cache as cache_module
 
     cache = _single_flight_cache(tmp_path, monkeypatch)
     marker = {
@@ -790,7 +792,7 @@ def test_owner_state_distinguishes_alive_dead_and_unknown_without_reclaiming_unk
     }
     monkeypatch.setattr(cache, "_process_token", lambda _pid: "current")
     assert cache._owner_state(marker) is OwnerState.ALIVE
-    monkeypatch.setattr(cache, "_process_token", lambda _pid: v2_cache._PROCESS_MISSING)
+    monkeypatch.setattr(cache, "_process_token", lambda _pid: cache_module._PROCESS_MISSING)
     assert cache._owner_state(marker) is OwnerState.DEAD
     monkeypatch.setattr(cache, "_process_token", lambda _pid: (_ for _ in ()).throw(OSError("identity unreadable")))
     assert cache._owner_state(marker) is OwnerState.UNKNOWN
@@ -805,29 +807,30 @@ def test_owner_state_distinguishes_alive_dead_and_unknown_without_reclaiming_unk
 
 
 def test_process_identity_distinguishes_definite_missing_from_unknown(monkeypatch):
-    from yasb_limitora import v2_cache
+    from yasb_limitora import cache as cache_module
 
-    monkeypatch.setattr(v2_cache.os, "name", "posix")
+    monkeypatch.setattr(cache_module.os, "name", "posix")
 
     def raise_missing(*args, **kwargs):
         raise FileNotFoundError
 
     monkeypatch.setattr("builtins.open", raise_missing)
-    assert v2_cache._process_creation_token(999999) is v2_cache._PROCESS_MISSING
+    assert cache_module._process_creation_token(999999) is cache_module._PROCESS_MISSING
 
     def raise_unknown(*args, **kwargs):
         raise PermissionError
 
     monkeypatch.setattr("builtins.open", raise_unknown)
-    assert v2_cache._process_creation_token(999999) is None
+    assert cache_module._process_creation_token(999999) is None
 
 
 def test_process_identity_query_failure_is_unknown_and_never_reclaimed(tmp_path, monkeypatch):
     cache = _single_flight_cache(tmp_path, monkeypatch)
+    expected_identity = "owner-token"
     marker = {
         "generation": 3,
         "owner_pid": os.getpid(),
-        "owner_token": "owner-token",
+        "owner_token": expected_identity,
         "started_at": "2026-08-15T00:00:00.000000Z",
     }
     monkeypatch.setattr(cache, "_process_token", lambda _pid: None)
@@ -840,7 +843,7 @@ def test_process_identity_query_failure_is_unknown_and_never_reclaimed(tmp_path,
     assert calls == []
     assert result.coordination_failed
     current = cache._read_marker(context())
-    assert current is not None and current["generation"] == 3 and current["owner_token"] == "owner-token"
+    assert current is not None and current["generation"] == 3 and current["owner_token"] == expected_identity
 
 
 def test_unreadable_marker_fails_closed_without_starting_a_second_producer(tmp_path, monkeypatch):
