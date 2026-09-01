@@ -1,41 +1,41 @@
-"""Bounded, sanitized shared JSON v2 quota cache."""
+"""Bounded, sanitized shared JSON quota cache."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import hashlib
 import json
 import ntpath
 import os
 import re
-import time
 import stat
 import tempfile
+import time
 import zlib
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import Protocol, cast
 from unicodedata import normalize
 
 from .config import LocalConfig
+from .deadline import DeadlineContext
+from .guard import Guard, GuardError
 from .model import (
+    ProviderKey,
+    ProviderSnapshotView,
+    PublicProviderState,
     QuotaAvailability,
     QuotaMetricKind,
     QuotaQuantity,
     QuotaWindowKind,
     QuotaWindowView,
-    ProviderSnapshotView,
-    ProviderKey,
-    PublicProviderState,
     SnapshotFreshness,
 )
-from .projection_v2 import _presentation as _project_presentation, _window_sort_key
-from .v2_deadline import DeadlineContext
-from .v2_guard import GuardError, V2Guard
-from .v2_path import V2DeadlineError, V2FileError, canonicalize_v2_path, path_identity
-
+from .path import DeadlineError, FileError, canonicalize_path, path_identity
+from .projection import _presentation as _project_presentation
+from .projection import _window_sort_key
 
 CACHE_SCHEMA = 3
 CACHE_TTL_SECONDS = 180
@@ -164,15 +164,15 @@ def _validate_windows_path_identity(path: str) -> None:
         except FileNotFoundError:
             pass
         except OSError:
-            raise V2FileError("cache identity unavailable") from None
+            raise FileError("cache identity unavailable") from None
         else:
             if stat.S_ISLNK(metadata.st_mode) or getattr(metadata, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400):
-                raise V2FileError("cache identity unavailable")
+                raise FileError("cache identity unavailable")
         parent = os.path.dirname(current)
         if parent == current:
             return
         current = parent
-    raise V2FileError("cache identity unavailable")
+    raise FileError("cache identity unavailable")
 
 
 def _validate_windows_owner(path: str) -> None:
@@ -180,7 +180,7 @@ def _validate_windows_owner(path: str) -> None:
     if os.name != "nt":
         return
     try:
-        from .v2_guard import _default_sid_bytes, _valid_sid_bytes
+        from .guard import _default_sid_bytes, _valid_sid_bytes
 
         expected = _default_sid_bytes()
         if not _valid_sid_bytes(expected):
@@ -188,7 +188,7 @@ def _validate_windows_owner(path: str) -> None:
         if not os.access(path, os.R_OK):
             raise OSError
     except Exception:
-        raise V2FileError("cache identity unavailable") from None
+        raise FileError("cache identity unavailable") from None
 
 
 def _validate_cache_directory(directory: str) -> None:
@@ -693,38 +693,38 @@ def _cache_read_transport(path: str) -> bytes:
 def _decompress_cache_transport(value: object) -> bytes:
     """Bound child-controlled decompression and require one complete stream."""
     if not isinstance(value, bytes) or len(value) > _MAX_CACHE_TRANSPORT_BYTES:
-        raise V2FileError("cache I/O failed")
+        raise FileError("cache I/O failed")
     decompressor = zlib.decompressobj()
     try:
         data = decompressor.decompress(value, MAX_CACHE_BYTES + 1)
     except zlib.error:
-        raise V2FileError("cache I/O failed") from None
+        raise FileError("cache I/O failed") from None
     if (
         len(data) > MAX_CACHE_BYTES
         or not decompressor.eof
         or decompressor.unused_data
         or decompressor.unconsumed_tail
     ):
-        raise V2FileError("cache I/O failed")
+        raise FileError("cache I/O failed")
     return data
 
 
 def _bounded_call(function, args: tuple[object, ...], context: DeadlineContext) -> object:
     """Run potentially blocking cache filesystem work in a bounded child."""
     if context.usable_ns() <= 0:
-        raise V2DeadlineError("cache deadline exhausted")
+        raise DeadlineError("cache deadline exhausted")
     try:
-        from .v2_path import _bounded_file_call
+        from .path import _bounded_file_call
 
         transport = _cache_read_transport if function is _cache_read_child else function
         value = _bounded_file_call(transport, args, context)
         if transport is _cache_read_transport:
             return _decompress_cache_transport(value)
         return value
-    except (V2DeadlineError, V2FileError):
+    except (DeadlineError, FileError):
         raise
     except Exception:
-        raise V2FileError("cache I/O failed") from None
+        raise FileError("cache I/O failed") from None
 
 
 def cache_path(
@@ -743,43 +743,43 @@ def cache_path(
     filename = f"{CACHE_FILENAME[:-5]}-{identity}.json"
     if environment is not None:
         directory = _cache_directory(environment)
-        result = canonicalize_v2_path(
+        result = canonicalize_path(
             os.path.join(directory, filename)
             if os.name != "nt" and directory.startswith("/")
             else ntpath.join(directory, filename)
         )
         return result
-    canonical = canonicalize_v2_path(source)
+    canonical = canonicalize_path(source)
     directory = ntpath.dirname(canonical) if ntpath.splitdrive(canonical)[0] or canonical.startswith("\\") else os.path.dirname(canonical)
     if not directory:
         raise ValueError("invalid cache directory")
-    result = canonicalize_v2_path(os.path.join(directory, filename) if os.name != "nt" and canonical.startswith("/") else ntpath.join(directory, filename))
+    result = canonicalize_path(os.path.join(directory, filename) if os.name != "nt" and canonical.startswith("/") else ntpath.join(directory, filename))
     return result
 
 
 def _cache_directory(environment: Mapping[str, str]) -> str:
     localappdata = environment.get("LOCALAPPDATA", "")
     if not isinstance(localappdata, str) or not localappdata.strip():
-        raise V2FileError("missing cache directory")
+        raise FileError("missing cache directory")
     if os.name != "nt" and localappdata.startswith("/"):
         directory = os.path.join(localappdata, "yasb-limitora")
     else:
         directory = ntpath.join(localappdata, "yasb-limitora")
-    return canonicalize_v2_path(directory)
+    return canonicalize_path(directory)
 
 
 def _account_digest(environment: Mapping[str, str]) -> str:
     if os.name == "nt":
         try:
-            from .v2_guard import _default_sid_bytes, _valid_sid_bytes
+            from .guard import _default_sid_bytes, _valid_sid_bytes
 
             sid = _default_sid_bytes()
         except Exception:
-            raise V2FileError("account identity unavailable") from None
+            raise FileError("account identity unavailable") from None
         if (
             not _valid_sid_bytes(sid)
         ):
-            raise V2FileError("account identity unavailable")
+            raise FileError("account identity unavailable")
     else:
         sid = b""
     values = []
@@ -822,7 +822,7 @@ class RefreshCoordinator:
         config_path: object,
         *,
         now=None,
-        guard_factory=V2Guard,
+        guard_factory=Guard,
         sleep=time.sleep,
         process_token=_process_creation_token,
     ) -> None:
@@ -862,7 +862,7 @@ class RefreshCoordinator:
             if len(encoded) > MAX_CACHE_DOCUMENT_BYTES:
                 return None
             return encoded
-        except (CacheValidationError, UnicodeError, ValueError, TypeError, OSError, V2FileError, V2DeadlineError, json.JSONDecodeError):
+        except (CacheValidationError, UnicodeError, ValueError, TypeError, OSError, FileError, DeadlineError, json.JSONDecodeError):
             return None
         except Exception:
             return None
@@ -880,7 +880,7 @@ class RefreshCoordinator:
             )):
                 return None, False
             return _marker_document(json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_pairs, parse_constant=_reject_constant)), True
-        except (CacheValidationError, UnicodeError, ValueError, TypeError, OSError, V2FileError, V2DeadlineError, json.JSONDecodeError):
+        except (CacheValidationError, UnicodeError, ValueError, TypeError, OSError, FileError, DeadlineError, json.JSONDecodeError):
             return None, False
         except Exception:
             return None, False
@@ -1241,13 +1241,11 @@ class RefreshCoordinator:
             except Exception:
                 return False
             return True
-        except (CacheValidationError, UnicodeError, ValueError, TypeError, OSError, V2FileError, V2DeadlineError, json.JSONDecodeError):
+        except (CacheValidationError, UnicodeError, ValueError, TypeError, OSError, FileError, DeadlineError, json.JSONDecodeError):
             return False
         except Exception:
             return False
 
-# Keep the established cache name for callers while exposing the lifecycle role.
-V2QuotaCache = RefreshCoordinator
 
 __all__ = (
     "CACHE_FILENAME",
@@ -1259,7 +1257,6 @@ __all__ = (
     "RefreshDecision",
     "RefreshState",
     "SingleFlightResult",
-    "V2QuotaCache",
     "cache_path",
     "config_fingerprint",
 )

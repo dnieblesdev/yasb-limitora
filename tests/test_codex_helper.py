@@ -15,6 +15,7 @@ from limitora.models import Quantity, ProviderId, ProviderStatus, QuotaWindow, S
 import yasb_limitora.cli as cli
 import yasb_limitora.codex_helper as codex_helper
 from yasb_limitora.codex_helper import CodexHelperExecutor, _CHILD_BOOTSTRAP, _decode, _decode_timestamp, _INTERNAL_HELPER_FLAG, _payload, _source_for_provider, _timestamp
+from yasb_limitora.deadline import DeadlineContext
 from yasb_limitora.limitora_api import (
     CodexLimitoraAdapter,
     OpenCodeRequest,
@@ -38,7 +39,6 @@ from yasb_limitora.model import (
     ProviderSnapshotView,
     SnapshotFreshness,
 )
-from yasb_limitora.v2_deadline import DeadlineContext
 
 
 def test_frozen_runtime_uses_private_internal_helper_flag(monkeypatch):

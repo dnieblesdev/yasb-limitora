@@ -2,14 +2,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from yasb_limitora.v2_deadline import DeadlineContext
-from yasb_limitora.v2_guard import (
+from yasb_limitora.deadline import DeadlineContext
+from yasb_limitora.guard import (
     WAIT_ABANDONED,
     WAIT_FAILED,
     WAIT_OBJECT_0,
     WAIT_TIMEOUT,
     GuardError,
-    V2Guard,
+    Guard,
 )
 
 
@@ -52,7 +52,7 @@ def context(remaining_ns=1_000_000_000, reserve_ns=250_000_000):
 
 
 def test_scope_name_hashes_sid_bytes_and_canonical_path_without_leaks():
-    guard = V2Guard(api=FakeWin32(), sid_provider=lambda: TEST_SID)
+    guard = Guard(api=FakeWin32(), sid_provider=lambda: TEST_SID)
     first = guard.name_for(r"C:\Config\..\config.json")
     equivalent = guard.name_for(r"c:/config.json")
     other = guard.name_for(r"C:\other.json")
@@ -65,7 +65,7 @@ def test_scope_name_hashes_sid_bytes_and_canonical_path_without_leaks():
 @pytest.mark.parametrize("result", (WAIT_OBJECT_0, WAIT_ABANDONED))
 def test_object_and_abandoned_wait_results_establish_ownership(result):
     api = FakeWin32(result)
-    lease = V2Guard(api=api, sid_provider=lambda: TEST_SID).acquire(r"C:\config.json", context())
+    lease = Guard(api=api, sid_provider=lambda: TEST_SID).acquire(r"C:\config.json", context())
     assert lease.owned is True
     assert api.calls[0][2] is False
     assert api.calls[1] == ("wait", 41, 250)
@@ -74,7 +74,7 @@ def test_object_and_abandoned_wait_results_establish_ownership(result):
 def test_wait_timeout_closes_handle_and_maps_to_safe_guard_error():
     api = FakeWin32(WAIT_TIMEOUT)
     with pytest.raises(GuardError) as error:
-        V2Guard(api=api, sid_provider=lambda: TEST_SID).acquire(r"C:\config.json", context())
+        Guard(api=api, sid_provider=lambda: TEST_SID).acquire(r"C:\config.json", context())
     assert error.value.code == "guard_wait_timeout"
     assert api.calls[-1] == ("close", 41)
 
@@ -83,14 +83,14 @@ def test_wait_timeout_closes_handle_and_maps_to_safe_guard_error():
 def test_failed_wait_maps_to_guard_acquisition_failed(result):
     api = FakeWin32(result)
     with pytest.raises(GuardError) as error:
-        V2Guard(api=api, sid_provider=lambda: TEST_SID).acquire(r"C:\config.json", context())
+        Guard(api=api, sid_provider=lambda: TEST_SID).acquire(r"C:\config.json", context())
     assert error.value.code == "guard_acquisition_failed"
 
 
 def test_native_wait_exception_closes_created_mutex_handle():
     api = WaitRaisesWin32()
     with pytest.raises(GuardError) as error:
-        V2Guard(api=api, sid_provider=lambda: TEST_SID).acquire(r"C:\config.json", context())
+        Guard(api=api, sid_provider=lambda: TEST_SID).acquire(r"C:\config.json", context())
     assert error.value.code == "guard_acquisition_failed"
     assert api.calls[-1] == ("close", 41)
 
@@ -98,7 +98,7 @@ def test_native_wait_exception_closes_created_mutex_handle():
 def test_zero_remaining_budget_uses_zero_wait():
     api = FakeWin32(WAIT_TIMEOUT)
     with pytest.raises(GuardError) as error:
-        V2Guard(api=api, sid_provider=lambda: TEST_SID).acquire(
+        Guard(api=api, sid_provider=lambda: TEST_SID).acquire(
             r"C:\config.json", DeadlineContext(t0_ns=0, deadline_ns=0, reserve_ns=0, clock_ns=lambda: 0)
         )
     assert error.value.code == "guard_wait_timeout"
@@ -112,7 +112,7 @@ def test_identity_failure_is_sanitized():
         raise OSError("SID and path private detail")
 
     with pytest.raises(GuardError) as error:
-        V2Guard(api=api, sid_provider=fail_identity).acquire(r"C:\private.json", context())
+        Guard(api=api, sid_provider=fail_identity).acquire(r"C:\private.json", context())
     assert error.value.code == "guard_acquisition_failed"
     assert str(error.value) == "guard_acquisition_failed"
     assert api.calls == []
@@ -121,21 +121,21 @@ def test_identity_failure_is_sanitized():
 def test_malformed_sid_fails_closed_without_creating_a_mutex():
     api = FakeWin32()
     with pytest.raises(GuardError) as error:
-        V2Guard(api=api, sid_provider=lambda: b"sid").acquire(r"C:\config.json", context())
+        Guard(api=api, sid_provider=lambda: b"sid").acquire(r"C:\config.json", context())
     assert error.value.code == "guard_acquisition_failed"
     assert api.calls == []
 
 
 def test_release_and_close_are_explicitly_available():
     api = FakeWin32()
-    lease = V2Guard(api=api, sid_provider=lambda: TEST_SID).acquire(r"C:\config.json", context())
+    lease = Guard(api=api, sid_provider=lambda: TEST_SID).acquire(r"C:\config.json", context())
     assert lease.release() is True
     assert lease.close() is True
 
 
 def test_release_failure_retains_ownership_and_repeated_close_is_bounded():
     api = FakeWin32(release_result=False)
-    lease = V2Guard(api=api, sid_provider=lambda: TEST_SID).acquire(r"C:\config.json", context())
+    lease = Guard(api=api, sid_provider=lambda: TEST_SID).acquire(r"C:\config.json", context())
 
     assert lease.release() is False
     assert lease.owned is True and lease.closed is False
@@ -146,7 +146,7 @@ def test_release_failure_retains_ownership_and_repeated_close_is_bounded():
 
 def test_close_failure_retains_non_finalized_lease_for_a_later_bounded_retry():
     api = FakeWin32(close_result=False)
-    lease = V2Guard(api=api, sid_provider=lambda: TEST_SID).acquire(r"C:\config.json", context())
+    lease = Guard(api=api, sid_provider=lambda: TEST_SID).acquire(r"C:\config.json", context())
 
     assert lease.release() is True
     assert lease.close() is False
