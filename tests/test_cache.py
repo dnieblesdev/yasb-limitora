@@ -37,8 +37,8 @@ from yasb_limitora.model import (
     SnapshotFreshness,
 )
 from yasb_limitora.projection import ProjectionInput, project_bytes
-from yasb_limitora.v2_deadline import DeadlineContext
-from yasb_limitora.v2_guard import GuardError
+from yasb_limitora.deadline import DeadlineContext
+from yasb_limitora.guard import GuardError
 
 
 def _loaded(value: bytes | None) -> bytes:
@@ -394,12 +394,12 @@ def test_cache_accepts_projection_selected_shared_budget_near_cap(tmp_path):
 
 def test_cache_transport_decompression_rejects_oversized_child_payload(monkeypatch):
     from yasb_limitora import cache as cache_module
-    from yasb_limitora import v2_path
+    from yasb_limitora import path as path_module
 
     payload = zlib.compress(b"x" * (cache_module.MAX_CACHE_BYTES + 1))
-    monkeypatch.setattr(v2_path, "_bounded_file_call", lambda *args: payload)
+    monkeypatch.setattr(path_module, "_bounded_file_call", lambda *args: payload)
 
-    with pytest.raises(cache_module.V2FileError):
+    with pytest.raises(cache_module.FileError):
         cache_module._bounded_call(cache_module._cache_read_child, ("unused",), context())
 
 
@@ -438,11 +438,11 @@ def test_cache_accepts_nonrooted_json_escaped_identity_text(tmp_path):
 
 def test_cache_account_identity_lookup_failure_fails_closed(monkeypatch):
     from yasb_limitora import cache as cache_module
-    from yasb_limitora import v2_guard
+    from yasb_limitora import guard as guard_module
 
     monkeypatch.setattr(cache_module.os, "name", "nt")
-    monkeypatch.setattr(v2_guard, "_default_sid_bytes", lambda: b"")
-    with pytest.raises(cache_module.V2FileError):
+    monkeypatch.setattr(guard_module, "_default_sid_bytes", lambda: b"")
+    with pytest.raises(cache_module.FileError):
         cache_module._account_digest({})
 
 

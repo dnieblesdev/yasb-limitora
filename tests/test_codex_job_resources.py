@@ -5,7 +5,7 @@ import pytest
 import yasb_limitora.codex_job_resources as r
 from yasb_limitora.isolation.windows_job import DEFAULT_CLEANUP_BUDGET_SECONDS, PROCESS_ACCESS, JobError, JobErrorCode, WAIT_OBJECT_0
 from yasb_limitora.isolation.windows_job import WindowsJobBoundary
-from yasb_limitora.v2_deadline import DeadlineContext
+from yasb_limitora.deadline import DeadlineContext
 
 class Api:
     def __init__(self, **flags: object) -> None:
@@ -113,7 +113,7 @@ def test_job_owner_close_is_retryable_and_redacted() -> None:
     owner.close(); owner.close()
     assert owner._state is r._OwnerState.CLOSED
 
-def test_job_owner_v2_close_uses_real_boundary_deadline_adapter() -> None:
+def test_job_owner_close_uses_real_boundary_deadline_adapter() -> None:
     api, borrowed = Api(), object()
     owner = r._JobOwner(WindowsJobBoundary(api=api))
     owner.assign_borrowed_handle(borrowed)

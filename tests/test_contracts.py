@@ -80,7 +80,7 @@ def test_safe_error_codes_have_one_current_enum() -> None:
     assert SafeError("cleanup_failed").code is SafeErrorCode.CLEANUP_FAILED
 
 
-@pytest.mark.parametrize("name", ("_failure", "_LEGACY_READ_CONFIG", "_read_config", "_load_explicit", "_load_path", "_load"))
+@pytest.mark.parametrize("name", ("_failure", "_LEGACY_READ_CONFIG", "_read_config", "_load_v2_explicit", "_load_v2_path", "_load"))
 def test_removed_cli_helpers_are_absent(name: str) -> None:
     assert not hasattr(cli, name)
 
