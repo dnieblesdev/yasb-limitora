@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from .config import LocalConfig
+from .deadline import DeadlineContext
+from .guard import Guard, GuardError, GuardLease
 from .isolation.windows_job import WindowsJobBoundary
 from .limitora_api import (
     OPENCODE_API_KEY_ENV,
@@ -25,11 +27,8 @@ from .model import (
     ProviderView,
     SafeError,
     SafeErrorCode,
-    V2SafeErrorCode,
 )
-from .v2_deadline import DeadlineContext
-from .v2_guard import GuardError, GuardLease, V2Guard
-from .v2_path import _child_process, _start_quiet_child
+from .path import _child_process, _start_quiet_child
 
 
 def _safe_error(provider: ProviderKey, code: SafeErrorCode) -> ProviderView:
@@ -104,7 +103,7 @@ class WorkerRecord:
 
 
 @dataclass(frozen=True, slots=True)
-class V2ExecutionRecord:
+class ExecutionRecord:
     document: DocumentView
     opencode_evidence: OpenCodeFailureEvidence | None = None
 
@@ -313,7 +312,7 @@ class OpenCodeWorkerProcess:
 class RefreshAttempt:
     """Own one provider refresh, its fresh resources, and bounded cleanup."""
 
-    def __init__(self, *, guard_factory=V2Guard, codex_executor=None, opencode_factory=OpenCodeWorkerProcess) -> None:
+    def __init__(self, *, guard_factory=Guard, codex_executor=None, opencode_factory=OpenCodeWorkerProcess) -> None:
         self.guard_factory = guard_factory
         self.codex_executor = codex_executor
         self.opencode_factory = opencode_factory
@@ -322,7 +321,7 @@ class RefreshAttempt:
         self.codex_helpers: list[Any] = []
         self._unfinalized_leases: list[Any] = []
         self.authority_acquired = False
-        self.last_record: V2ExecutionRecord | None = None
+        self.last_record: ExecutionRecord | None = None
 
     def _cleanup_resources(self, context: DeadlineContext) -> bool:
         cleanup_error = False
@@ -451,12 +450,12 @@ class RefreshAttempt:
         for provider in provider_errors:
             views[provider] = _safe_error(provider, SafeErrorCode.CONFIGURATION_INVALID)
         if (self.worker_records or self.codex_helpers) and not self._cleanup_resources(context):
-            result = self._document(views, V2SafeErrorCode.CLEANUP_FAILED)
-            self.last_record = V2ExecutionRecord(result)
+            result = self._document(views, SafeErrorCode.CLEANUP_FAILED)
+            self.last_record = ExecutionRecord(result)
             return result
         if self._unfinalized_leases and not self._retry_unfinalized_leases():
-            result = self._document(views, V2SafeErrorCode.CLEANUP_FAILED)
-            self.last_record = V2ExecutionRecord(result)
+            result = self._document(views, SafeErrorCode.CLEANUP_FAILED)
+            self.last_record = ExecutionRecord(result)
             return result
         if self.worker_records or self.codex_helpers:
             self.worker_records.clear()
@@ -469,7 +468,7 @@ class RefreshAttempt:
             enabled = enabled | {ProviderKey.OPENCODE_GO}
         if not enabled:
             result = self._document(views)
-            self.last_record = V2ExecutionRecord(result)
+            self.last_record = ExecutionRecord(result)
             return result
         lease: GuardLease | None = None
         cleanup_error = False
@@ -490,7 +489,7 @@ class RefreshAttempt:
                         key: view if key in provider_errors else _not_run(key, "deadline_exhausted")
                         for key, view in views.items()
                     },
-                    V2SafeErrorCode.DEADLINE_EXHAUSTED,
+                    SafeErrorCode.DEADLINE_EXHAUSTED,
                 )
             elif ProviderKey.CODEX in enabled:
                 executor = self.codex_executor
@@ -511,7 +510,7 @@ class RefreshAttempt:
                 usable_ns = max(0, remaining_ns - context.reserve_ns)
                 if usable_ns <= 0:
                     views[ProviderKey.OPENCODE_GO] = _not_run(ProviderKey.OPENCODE_GO, "deadline_exhausted")
-                    result = self._document(views, V2SafeErrorCode.DEADLINE_EXHAUSTED)
+                    result = self._document(views, SafeErrorCode.DEADLINE_EXHAUSTED)
                 else:
                     opencode_api_key = api_key
                     if not isinstance(opencode_api_key, str) or not opencode_api_key:
@@ -536,7 +535,7 @@ class RefreshAttempt:
         try:
             error, _ = _capture_call(execute)
             if isinstance(error, GuardError):
-                code = V2SafeErrorCode.GUARD_WAIT_TIMEOUT if error.code == "guard_wait_timeout" else V2SafeErrorCode.GUARD_ACQUISITION_FAILED
+                code = SafeErrorCode.GUARD_WAIT_TIMEOUT if error.code == "guard_wait_timeout" else SafeErrorCode.GUARD_ACQUISITION_FAILED
                 reason = "guard_wait_timeout" if error.code == "guard_wait_timeout" else "document_aborted"
                 result = self._document({key: _not_run(key, reason) for key in views}, code)
             elif error is not None:
@@ -556,12 +555,12 @@ class RefreshAttempt:
                 self.codex_helpers.clear()
             if cleanup_error:
                 preserved = views if result is None else {view.provider: view for view in result.providers}
-                result = self._document(preserved, V2SafeErrorCode.CLEANUP_FAILED)
+                result = self._document(preserved, SafeErrorCode.CLEANUP_FAILED)
         if unexpected_error is not None:
             raise unexpected_error
-        document = result if result is not None else self._document(views, V2SafeErrorCode.GUARD_ACQUISITION_FAILED)
+        document = result if result is not None else self._document(views, SafeErrorCode.GUARD_ACQUISITION_FAILED)
         evidence = current_opencode_result.evidence if isinstance(current_opencode_result, OpenCodeReadResult) else None
-        self.last_record = V2ExecutionRecord(document, evidence)
+        self.last_record = ExecutionRecord(document, evidence)
         return document
 
     def run_refresh_attempt(
@@ -571,9 +570,9 @@ class RefreshAttempt:
         context: DeadlineContext,
         config_path: str,
     ):
-        """Run one normal v2 attempt and prepare its public cache bytes."""
-        from .projection_v2 import V2ProjectionInput, project_v2_bytes
-        from .v2_cache import SingleFlightResult
+        """Run one normal refresh attempt and prepare its public cache bytes."""
+        from .cache import SingleFlightResult
+        from .projection import ProjectionInput, project_bytes
 
         document = self.run(config, environment, context, config_path)
         evidence = self.last_record.opencode_evidence if self.last_record is not None else None
@@ -586,26 +585,26 @@ class RefreshAttempt:
             if enabled_flag
         )
         _, public_bytes = _try_call(
-            lambda: project_v2_bytes(V2ProjectionInput(document, enabled, evidence)),
+            lambda: project_bytes(ProjectionInput(document, enabled, evidence)),
             None,
         )
         return SingleFlightResult(value=document, cached_public_bytes=public_bytes, produced=True)
 
     @staticmethod
-    def _document(views: dict[ProviderKey, ProviderView], error: V2SafeErrorCode | None = None) -> DocumentView:
+    def _document(views: dict[ProviderKey, ProviderView], error: SafeErrorCode | None = None) -> DocumentView:
         return DocumentView.ordered(views[ProviderKey.CODEX], views[ProviderKey.OPENCODE_GO], SafeError(error) if error else None)
 
 
-class V2ExecutionOrchestrator:
+class ExecutionOrchestrator:
     """Create a fresh refresh owner for every orchestration call."""
 
-    def __init__(self, *, guard_factory=V2Guard, codex_executor=None, opencode_factory=OpenCodeWorkerProcess) -> None:
+    def __init__(self, *, guard_factory=Guard, codex_executor=None, opencode_factory=OpenCodeWorkerProcess) -> None:
         self.guard_factory = guard_factory
         self.codex_executor = codex_executor
         self.opencode_factory = opencode_factory
         self._attempt: RefreshAttempt | None = None
         self._worker_history: list[Any] = []
-        self.last_record: V2ExecutionRecord | None = None
+        self.last_record: ExecutionRecord | None = None
 
     @property
     def workers(self) -> list[Any]:
@@ -638,8 +637,8 @@ class V2ExecutionOrchestrator:
                     ProviderKey.OPENCODE_GO: _safe_error(ProviderKey.OPENCODE_GO, SafeErrorCode.CONFIGURATION_INVALID)
                     if ProviderKey.OPENCODE_GO in provider_errors else _not_run(ProviderKey.OPENCODE_GO, "disabled"),
                 }
-                result = previous._document(views, V2SafeErrorCode.CLEANUP_FAILED)
-                self.last_record = V2ExecutionRecord(result)
+                result = previous._document(views, SafeErrorCode.CLEANUP_FAILED)
+                self.last_record = ExecutionRecord(result)
                 return result
             previous.worker_records.clear()
             previous.codex_helpers.clear()
@@ -666,8 +665,8 @@ class V2ExecutionOrchestrator:
         provider_errors: frozenset[ProviderKey] | set[ProviderKey] = frozenset(),
     ):
         """Run one provider attempt and prepare its authoritative publication payload."""
-        from .projection_v2 import V2ProjectionInput, project_v2_bytes
-        from .v2_cache import SingleFlightResult
+        from .cache import SingleFlightResult
+        from .projection import ProjectionInput, project_bytes
 
         document = self.run(config, environment, context, config_path, provider_errors=provider_errors)
         record = self.last_record
@@ -689,8 +688,8 @@ class V2ExecutionOrchestrator:
             and any(view.outcome in (ProviderOutcome.SNAPSHOT, ProviderOutcome.UNDETECTED) for view in document.providers)
             and all(view.outcome is not ProviderOutcome.EXECUTION_ERROR for view in document.providers)
         )
-        projected = project_v2_bytes(V2ProjectionInput(document, enabled_providers, evidence)) if cacheable else None
+        projected = project_bytes(ProjectionInput(document, enabled_providers, evidence)) if cacheable else None
         return SingleFlightResult(value=document, cached_public_bytes=projected, produced=True)
 
 
-__all__ = ("OpenCodeWorkerProcess", "RefreshAttempt", "V2ExecutionOrchestrator", "V2ExecutionRecord", "WorkerRecord", "cleanup_complete")
+__all__ = ("ExecutionOrchestrator", "ExecutionRecord", "OpenCodeWorkerProcess", "RefreshAttempt", "WorkerRecord", "cleanup_complete")

@@ -1,4 +1,4 @@
-"""Opaque, bounded Win32 mutex acquisition for JSON v2."""
+"""Opaque, bounded Win32 mutex acquisition for the JSON contract."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import hashlib
 import os
 from collections.abc import Callable
 
-from .v2_deadline import DeadlineContext
-from .v2_path import canonicalize_v2_path
+from .deadline import DeadlineContext
+from .path import canonicalize_path
 
 
 WAIT_OBJECT_0 = 0x00000000
@@ -170,7 +170,7 @@ class GuardLease:
         return result
 
 
-class V2Guard:
+class Guard:
     """Acquire one opaque named mutex for a SID/path tuple.
 
     The ``Global\\`` namespace is intentional: cross-session serialization for
@@ -197,7 +197,7 @@ class V2Guard:
             sid = self._sid_provider()
             if not _valid_sid_bytes(sid):
                 raise ValueError
-            canonical = canonicalize_v2_path(path).casefold()
+            canonical = canonicalize_path(path).casefold()
             payload = sid + b"\0" + canonical.encode("utf-8")
             return self._name_prefix + _digest(self._hash_fn, payload)
         except GuardError:
@@ -259,15 +259,11 @@ class V2Guard:
             pass
 
 
-NamedMutexGuard = V2Guard
-
-
 __all__ = (
     "GuardError",
     "GuardLease",
     "MAX_WAIT_NS",
-    "NamedMutexGuard",
-    "V2Guard",
+    "Guard",
     "WAIT_ABANDONED",
     "WAIT_FAILED",
     "WAIT_OBJECT_0",

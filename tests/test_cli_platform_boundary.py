@@ -47,11 +47,9 @@ def test_non_windows_rejects_before_product_side_effects(monkeypatch):
 
     monkeypatch.setattr(cli, "_config_path", unexpected)
     monkeypatch.setattr(cli, "_resolve_config_path", unexpected)
-    monkeypatch.setattr(cli, "_load", unexpected)
-    monkeypatch.setattr(cli, "_load_v2_path", unexpected)
+    monkeypatch.setattr(cli, "_load_path", unexpected)
     monkeypatch.setattr(cli.time, "monotonic_ns", unexpected)
-    monkeypatch.setattr(cli, "RuntimeCoordinator", unexpected)
-    monkeypatch.setattr(cli, "V2ExecutionOrchestrator", unexpected)
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", unexpected)
     monkeypatch.setattr(cli, "_write", unexpected)
     stdout, stderr = io.BytesIO(), io.StringIO()
 
