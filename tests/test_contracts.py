@@ -26,7 +26,7 @@ from yasb_limitora.config import (
     CodexConfig,
 )
 from yasb_limitora.model import ProviderOutcome
-from yasb_limitora.projection_v2 import V2ProjectionInput, project_v2_bytes
+from yasb_limitora.projection import ProjectionInput, project_bytes
 
 
 def test_v1_golden_artifacts_are_absent() -> None:
@@ -38,7 +38,7 @@ def test_v1_golden_artifacts_are_absent() -> None:
 
 def test_legacy_runtime_modules_and_exports_are_absent() -> None:
     root = Path(__file__).parents[1]
-    legacy_modules = ("coord" + "inator", "project" + "ion")
+    legacy_modules = ("coord" + "inator", "projection_v2")
     for module_name in legacy_modules:
         assert not (root / "src/yasb_limitora" / f"{module_name}.py").exists()
         assert importlib.util.find_spec(f"yasb_limitora.{module_name}") is None
@@ -47,13 +47,40 @@ def test_legacy_runtime_modules_and_exports_are_absent() -> None:
         "Provider" + "Coordinator",
         "Runtime" + "Coordinator",
         "co" + "ordinate",
-        "project" + "document",
-        "project" + "bytes",
     )
     assert all(not hasattr(package, name) for name in legacy_symbols)
 
+    current_projection = importlib.import_module("yasb_limitora.projection")
+    assert hasattr(current_projection, "ProjectionInput")
+    assert hasattr(current_projection, "project_document")
+    assert hasattr(current_projection, "project_bytes")
+    assert not hasattr(current_projection, "V2ProjectionInput")
+    assert not hasattr(current_projection, "project_v2_document")
+    assert not hasattr(current_projection, "project_v2_bytes")
 
-@pytest.mark.parametrize("name", ("_failure", "_LEGACY_READ_CONFIG", "_read_config", "_load_explicit", "_load_path", "_load"))
+
+def test_safe_error_codes_have_one_current_enum() -> None:
+    model = importlib.import_module("yasb_limitora.model")
+    removed_enum_name = "V2" + "SafeErrorCode"
+
+    assert not hasattr(model, removed_enum_name)
+    assert tuple(code.value for code in SafeErrorCode) == (
+        "timeout",
+        "provider_error",
+        "internal_error",
+        "configuration_invalid",
+        "invocation_invalid",
+        "invalid_provider_data",
+        "unknown_provider_state",
+        "guard_acquisition_failed",
+        "guard_wait_timeout",
+        "deadline_exhausted",
+        "cleanup_failed",
+    )
+    assert SafeError("cleanup_failed").code is SafeErrorCode.CLEANUP_FAILED
+
+
+@pytest.mark.parametrize("name", ("_failure", "_LEGACY_READ_CONFIG", "_read_config", "_load_v2_explicit", "_load_v2_path", "_load"))
 def test_removed_cli_helpers_are_absent(name: str) -> None:
     assert not hasattr(cli, name)
 
@@ -188,7 +215,7 @@ def test_legacy_config_parser_names_are_absent() -> None:
     assert not hasattr(LocalConfig, legacy_parser)
 
 
-def test_v2_projection_keeps_canonical_order_and_aggregate_partial() -> None:
+def test_current_projection_keeps_canonical_order_and_aggregate_partial() -> None:
     document = DocumentView.ordered(
         ProviderView(ProviderKey.CODEX, ProviderState.SUCCESS, outcome=ProviderOutcome.UNDETECTED),
         ProviderView(
@@ -200,8 +227,8 @@ def test_v2_projection_keeps_canonical_order_and_aggregate_partial() -> None:
     )
 
     projected = json.loads(
-        project_v2_bytes(
-            V2ProjectionInput(document, frozenset({ProviderKey.CODEX, ProviderKey.OPENCODE_GO}))
+        project_bytes(
+            ProjectionInput(document, frozenset({ProviderKey.CODEX, ProviderKey.OPENCODE_GO}))
         )
     )
 
@@ -223,7 +250,8 @@ def test_codex_timeout_range_remains_independent_from_opencode_timeout_range() -
 def test_models_have_closed_states_codes_and_safe_validation() -> None:
     assert {code.value for code in SafeErrorCode} == {
         "timeout", "provider_error", "internal_error", "configuration_invalid", "invocation_invalid",
-        "invalid_provider_data", "unknown_provider_state",
+        "invalid_provider_data", "unknown_provider_state", "guard_acquisition_failed", "guard_wait_timeout",
+        "deadline_exhausted", "cleanup_failed",
     }
     assert {state.value for state in ProviderState} == {"loading", "success", "unavailable", "safe_error"}
     document = DocumentView.ordered(
