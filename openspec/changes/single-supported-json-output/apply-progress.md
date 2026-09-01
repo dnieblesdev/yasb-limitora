@@ -1495,3 +1495,37 @@ Final native/no-rename count versus `47b1f91` is **2,579 changed lines** (1,311 
 - Residue classification: old-path matches are historical roadmap/OpenSpec evidence; no runtime, test-discovery, or active documentation reference remains.
 - Rollback is limited to the spec-test filename rename and this checklist/progress evidence.
 - Final accounting versus `7acf881`: native/no-rename is **1,487** changed lines (757 additions + 730 deletions); Git rename-aware is **31 changed lines** (29 additions + 2 deletions). The prior 1,265-line estimate failed; the maintainer approved this exact measured 1,487-line rebudget.
+
+## Progress: size:exception 7 — schema rename
+### Status
+
+- **Slice:** Mechanical schema normalization on `refactor/137-rename-schema`.
+- **Authorization:** `size:exception 7`; maintainer-approved complete-work-unit no-rename ceiling **1,458** lines.
+- **Delivery:** Feature-branch-chain / auto-chain; leave changes uncommitted for parent inspection; no push or PR.
+
+### Completed tasks
+- Renamed `docs/specifications/json-v2.schema.json` to `docs/specifications/json-output.schema.json`.
+- Updated only active schema references in `README.md`, `docs/specifications/json-output.md`, and `tests/test_json_spec.py`.
+- Changed only the schema `$id` path; all other schema bytes, ordering, rules, metadata, and identities are preserved.
+
+### Strict TDD Cycle Evidence and verification
+| Check | Result |
+|---|---|
+| RED exception | Updated the schema test path/reference first; focused spec suite produced the expected **7 missing-target failures**, with 18 unrelated tests passing. |
+| GREEN / focused contract | `python -m pytest -q --strict-markers tests/test_json_spec.py tests/test_contracts.py tests/test_windows_only_documentation_contract.py tests/test_customwidget_examples.py` → **93 passed** |
+| Schema parse/validation | JSON parse and root-order checks passed; `jsonschema` was unavailable, so no external Draft 2020-12 validator ran. |
+| Native proof | `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` → **11 passed** |
+| Strict collection | `python -m pytest -q --strict-markers --collect-only` → **593 tests collected**, 0 errors |
+| Links and residue | Authorized links/paths passed; active old-schema residue absent. Historical `apply-progress.md`/`design.md` and the exact task wording retain old names by design. |
+| Ruff / compile / diff | Ruff, `py_compile`, and `git diff --check` passed. |
+| Content identity | New schema matches the base schema byte-for-byte after exactly one `$id` path substitution; 25,555 bytes. |
+| Full suite | `python -m pytest -q` → **589 passed, 3 skipped, 1 pre-existing environment failure** (`test_isolated_cli_ignores_forged_dist_info`, Python 3.10 isolated safe-path prerequisite). |
+
+### Deviations and remaining tasks
+- No deviations from design; no runtime code, historical roadmap/OpenSpec evidence, persisted identity, or contract rule changed.
+- Remaining: parent-owned final verification and delivery; no schema work remains in this slice.
+
+### Workload / PR boundary
+- Schema rename driver versus `bf5451e`: native/no-rename **1,410** lines (705 additions + 705 deletions); rename-aware schema pair **2** lines (1 addition + 1 deletion).
+- The maintainer approved the exact complete-work-unit ceiling of **1,458** no-rename lines. Including active reference, task, and progress records, complete-work-unit accounting is **1,458** no-rename lines (746 additions + 712 deletions) and **50** rename-aware lines (42 additions + 8 deletions). The prior **1,411** driver-only estimate was insufficient because this work unit necessarily includes its active references and OpenSpec evidence; those edits are within, not outside, the approved budget.
+- Rollback is limited to the schema filename, its `$id`, three active references, the exact schema task, and this progress entry.
