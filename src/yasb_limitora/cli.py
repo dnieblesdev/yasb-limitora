@@ -124,7 +124,7 @@ def _cache_eligible(config: LocalConfig, environment: Mapping[str, str]) -> bool
     )
 
 
-def _v2_provider_error_overlay(document: DocumentView, provider_errors: frozenset[ProviderKey]) -> DocumentView:
+def _provider_error_overlay(document: DocumentView, provider_errors: frozenset[ProviderKey]) -> DocumentView:
     if not provider_errors:
         return document
     providers = tuple(
@@ -142,7 +142,7 @@ def _v2_provider_error_overlay(document: DocumentView, provider_errors: frozense
     return DocumentView(providers, document.document_error)
 
 
-def _v2_exit_code(document: DocumentView, enabled: frozenset[ProviderKey]) -> int:
+def _exit_code(document: DocumentView, enabled: frozenset[ProviderKey]) -> int:
     if document.document_error is not None:
         return 2
     if not any(view.state is ProviderState.SAFE_ERROR for view in document.providers):
@@ -305,8 +305,8 @@ def main(
                     )
                     if enabled_flag
                 )
-                document = _v2_provider_error_overlay(document, provider_errors)
-                exit_code = _v2_exit_code(document, enabled)
+                document = _provider_error_overlay(document, provider_errors)
+                exit_code = _exit_code(document, enabled)
                 diagnostic = (
                     "guard_wait_timeout"
                     if document.document_error is not None

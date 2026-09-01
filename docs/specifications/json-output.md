@@ -7,8 +7,7 @@ output.
 The current JSON document is the sole supported output at the machine boundary
 for `YASB CustomWidget -> yasb-limitora CLI -> Limitora public API`. It has no
 output selector or public root version. The companion structural support
-file is [`json-v2.schema.json`](json-v2.schema.json). The filename remains
-`json-v2.schema.json` until the later mechanical normalization rename.
+file is [`json-output.schema.json`](json-output.schema.json).
 
 The product runtime is Windows-only. The installed console route and
 `python -m yasb_limitora` converge on one CLI boundary that rejects every
