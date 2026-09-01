@@ -1,6 +1,6 @@
-import pytest
+import pytest  # pyright: ignore[reportMissingImports] - optional test dependency is present at runtime
 
-from yasb_limitora.v2_deadline import DeadlineContext
+from yasb_limitora.deadline import DeadlineContext
 
 
 def test_deadline_context_uses_one_absolute_endpoint_and_reserve():
@@ -29,3 +29,8 @@ def test_deadline_context_rejects_non_finite_or_non_positive_duration():
         DeadlineContext.from_seconds(0, t0_ns=0)
     with pytest.raises(ValueError):
         DeadlineContext.from_seconds(float("inf"), t0_ns=0)
+
+
+def test_deadline_context_rejects_huge_finite_duration():
+    with pytest.raises(ValueError, match="deadline must be a finite positive number"):
+        DeadlineContext.from_seconds(1e308, t0_ns=0)
