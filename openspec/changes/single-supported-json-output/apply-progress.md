@@ -1469,3 +1469,29 @@ Final native/no-rename count versus `47b1f91` is **2,579 changed lines** (1,311 
 - `python -m pytest -q` reached **589 passed, 3 skipped, 1 failed**; the sole failure is the pre-existing Python 3.10 isolated-safe-path prerequisite in `tests/test_pr3b_package_provenance.py`.
 - The native competition proof reproduced an owner-sentinel write race twice; the direct fallback now waits for the complete `PROVIDER_STARTED` payload instead of file existence. RED: empty payload; GREEN: the competition test passed, and the paired Windows spawn seam also passed (**2 passed**).
 - Rollback boundary is limited to these three source renames, four unit-test renames, direct consumer import/reference updates, and the corrected CLI-helper absence expectation.
+
+## Progress: size:exception 6 — spec-test rename
+### Status
+
+- **Slice:** Mechanical spec-test filename normalization on `refactor/137-rename-spec-tests`.
+- **Authorization:** Maintainer-approved `size:exception 6`; native/no-rename ceiling 1,487 lines.
+- **Delivery:** Leave changes for parent inspection; no commit, push, PR, or schema rename.
+### Completed tasks
+
+- Renamed `tests/test_json_v2_spec.py` to `tests/test_json_spec.py` with `git mv`.
+- Preserved test bytes, test names, assertions, schema path, and contract semantics.
+- Preserved roadmap historical text and all runtime, documentation, and schema files.
+### Strict TDD and verification evidence
+
+| Cycle | Evidence | Result |
+|---|---|---|
+| RED | Not meaningful for a filename-only mechanical rename | Justified exception; no semantic behavior changed. |
+| GREEN | Renamed spec/docs/CustomWidget/contract suite | **93 passed** |
+| TRIANGULATE | Strict-marker collection | **593 collected**, 0 collection errors |
+| REFACTOR | Ruff and `py_compile` on `tests/test_json_spec.py` | Passed |
+| Identity | Pre-rename and renamed worktree blobs | Identical Git hash `5e948619271270186ba68b130699083e0a16fc0a` |
+### Boundary and rollback
+
+- Residue classification: old-path matches are historical roadmap/OpenSpec evidence; no runtime, test-discovery, or active documentation reference remains.
+- Rollback is limited to the spec-test filename rename and this checklist/progress evidence.
+- Final accounting versus `7acf881`: native/no-rename is **1,487** changed lines (757 additions + 730 deletions); Git rename-aware is **31 changed lines** (29 additions + 2 deletions). The prior 1,265-line estimate failed; the maintainer approved this exact measured 1,487-line rebudget.
