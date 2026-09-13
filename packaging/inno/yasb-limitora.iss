@@ -13,6 +13,8 @@
 #define G1PriorPayloadSuffix ".old"
 #define G1FailedPayloadSuffix ".failed"
 #define G1RegistrySnapshotSuffix ".reg"
+#define G1UninstallCleanupBudgetMs 30000
+#define G1UninstallCleanupPollMs 250
 
 [Setup]
 AppId={{55D372A6-1DA5-41BE-B7AB-65CAB362E620}
@@ -81,6 +83,12 @@ var
   PriorDisplayVersion: string;
   PriorUninstallString: string;
   PriorInstallLocation: string;
+  FailedQuarantineOwned: Boolean;
+
+{ R4-001: the manual-close gate and its read-only running probe are defined at
+  the bottom of this section; forward declarations let the hooks above call them. }
+function YasbDetectedRunning: Boolean; forward;
+function ManualCloseGate(DetectedRunning: Boolean): Boolean; forward;
 
 function HasCoherentPriorInstallOwnership(AppDir: string): Boolean;
 var
@@ -101,6 +109,7 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   AppDir: string;
   OldDir: string;
+  FailedDir: string;
   SnapshotPath: string;
   SnapshotOk: Boolean;
   ResultCode: Integer;
@@ -109,9 +118,22 @@ begin
   NeedsRestart := False;
   AppDir := ExpandConstant('{app}');
   OldDir := AppDir + '{#G1PriorPayloadSuffix}';
+  { R4-001: the manual-close gate runs before any registry capture or
+    canonical-directory evacuation; the user alone closes processes and Cancel aborts. }
+  if not ManualCloseGate(YasbDetectedRunning) then
+  begin
+    Result := 'Operator cancelled the YASB manual-close gate; aborting with the prior install intact.';
+    Exit;
+  end;
   RegQueryStringValue(HKCU, G1UninstallKey, 'DisplayVersion', PriorDisplayVersion);
   RegQueryStringValue(HKCU, G1UninstallKey, 'UninstallString', PriorUninstallString);
   RegQueryStringValue(HKCU, G1UninstallKey, 'InstallLocation', PriorInstallLocation);
+  FailedDir := AppDir + '{#G1FailedPayloadSuffix}';
+  if DirExists(FailedDir) then
+  begin
+    Result := 'Stale ' + FailedDir + ' from an interrupted recovery; aborting with the prior install intact.';
+    Exit;
+  end;
   if not DirExists(AppDir) then
     Exit;
   if DirExists(OldDir) then
@@ -155,6 +177,7 @@ var
   NewUninstallString: string;
   ResultCode: Integer;
   UninstallerRan: Boolean;
+  WaitedMs: Integer;
 begin
   AppDir := ExpandConstant('{app}');
   FailedDir := AppDir + '{#G1FailedPayloadSuffix}';
@@ -167,18 +190,41 @@ begin
     if (not UninstallerRan) or (ResultCode <> 0) then
       Log('G1 rollback: new native uninstaller did not run cleanly (code ' + IntToStr(ResultCode) + '); continuing filesystem rollback.');
   end;
-  { Step 2: quarantine any residual new payload before touching prior payload or prior registry. }
-  if DirExists(FailedDir) then
-    DelTree(FailedDir, True, True, True);
-  if DirExists(AppDir) and not RenameFile(AppDir, FailedDir) then
+  { Step 1b (R3): the checked launcher can return while its second-phase copy is
+    still deleting the canonical tree; wait bounded for cleanup/unlock, then fail closed. }
+  if UninstallerRan and (ResultCode = 0) then
   begin
-    Log('G1 rollback: quarantine of the new payload failed; registry left matching the canonical new payload; prior payload recoverable at ' + EvacuatedOldDir + '.');
-    Exit;
+    WaitedMs := 0;
+    while DirExists(AppDir) and (WaitedMs < {#G1UninstallCleanupBudgetMs}) do
+    begin
+      Sleep({#G1UninstallCleanupPollMs});
+      WaitedMs := WaitedMs + {#G1UninstallCleanupPollMs};
+    end;
+    if DirExists(AppDir) then
+    begin
+      Log('G1 rollback: uninstaller cleanup did not complete within the bounded wait; aborting rollback; prior payload recoverable at ' + EvacuatedOldDir + '; prior registry not re-advertised.');
+      Exit;
+    end;
+  end;
+  { Step 2: quarantine any residual new payload before touching prior payload or
+    prior registry. A stale .failed aborts in PrepareToInstall, so a .failed seen
+    here was established by this transaction and is only deleted or renamed back
+    under that ownership. }
+  if FailedQuarantineOwned and DirExists(FailedDir) then
+    DelTree(FailedDir, True, True, True);
+  if DirExists(AppDir) then
+  begin
+    if not RenameFile(AppDir, FailedDir) then
+    begin
+      Log('G1 rollback: quarantine of the new payload failed; registry left matching the canonical new payload; prior payload recoverable at ' + EvacuatedOldDir + '.');
+      Exit;
+    end;
+    FailedQuarantineOwned := True;
   end;
   { Step 3: restore the prior payload; the prior registry may follow only a proven restoration. }
   if not RenameFile(EvacuatedOldDir, AppDir) then
   begin
-    if DirExists(FailedDir) then
+    if FailedQuarantineOwned and DirExists(FailedDir) then
       RenameFile(FailedDir, AppDir);
     Log('G1 rollback: prior payload restoration failed; prior payload remains at ' + EvacuatedOldDir + '; prior registry not re-advertised.');
     Exit;
@@ -206,7 +252,14 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if (CurStep = ssPostInstall) and (EvacuatedOldDir <> '') then
   begin
-    DelTree(EvacuatedOldDir, True, True, True);
+    { R4-002: checked cleanup; the snapshot is deleted and ownership cleared only
+      after deletion is proven; a cleanup failure is fatal (RaiseException, since
+      handler-only Exit cannot fail setup) and preserves the recovery state. }
+    if not DelTree(EvacuatedOldDir, True, True, True) then
+    begin
+      Log('G1 commit: cleanup of the evacuated prior payload at ' + EvacuatedOldDir + ' failed; registry snapshot and recovery state preserved.');
+      RaiseException('G1 commit: cleanup of the evacuated prior payload at ' + EvacuatedOldDir + ' failed; setup cannot continue; registry snapshot and recovery state preserved.');
+    end;
     if PriorRegistrySnapshot <> '' then
     begin
       DeleteFile(PriorRegistrySnapshot);
@@ -258,6 +311,12 @@ end;
 
 function InitializeUninstall: Boolean;
 begin
+  { R4-001: the manual-close gate runs before consent, cleanup, or deletion; Cancel aborts. }
+  if not ManualCloseGate(YasbDetectedRunning) then
+  begin
+    Result := False;
+    Exit;
+  end;
   CleanupConsent := ConfirmStateCleanup;
   Result := True;
 end;
@@ -277,7 +336,35 @@ end;
 
 function ManualCloseGate(DetectedRunning: Boolean): Boolean;
 begin
+  { R4-001: the user alone closes processes; Retry re-probes, Cancel aborts. }
   Result := True;
-  if DetectedRunning then
-    Result := PromptManualClose;
+  while DetectedRunning do
+  begin
+    if not PromptManualClose then
+    begin
+      Result := False;
+      Exit;
+    end;
+    DetectedRunning := YasbDetectedRunning;
+  end;
+end;
+
+function YasbDetectedRunning: Boolean;
+var
+  ProbePath: string;
+  ProbeOutput: AnsiString;
+  ProbeList: string;
+  ResultCode: Integer;
+begin
+  { Read-only tasklist enumeration; an inconclusive probe fails closed as running. }
+  Result := True;
+  ProbePath := ExpandConstant('{tmp}\yasb-running-probe.csv');
+  if Exec(ExpandConstant('{cmd}'), '/C tasklist /FO CSV /NH > "' + ProbePath + '"',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0)
+     and LoadStringFromFile(ProbePath, ProbeOutput) then
+  begin
+    ProbeList := Lowercase(String(ProbeOutput));
+    Result := (Pos('"yasb.exe"', ProbeList) > 0) or (Pos('"yasb-limitora.exe"', ProbeList) > 0);
+  end;
+  DeleteFile(ProbePath);
 end;
