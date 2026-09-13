@@ -12,6 +12,7 @@
 #define G1LifecycleMechanism "pre-install-evacuation"
 #define G1PriorPayloadSuffix ".old"
 #define G1FailedPayloadSuffix ".failed"
+#define G1RegistrySnapshotSuffix ".reg"
 
 [Setup]
 AppId={{55D372A6-1DA5-41BE-B7AB-65CAB362E620}
@@ -61,8 +62,10 @@ var
   the prior uninstaller on disk coherently point at that directory; otherwise
   setup aborts without touching the directory.
   On a post-bookkeeping failure, the exact new native uninstaller is the
-  rollback correction; the prior registry values are re-advertised only after
-  the prior payload restoration is proven, so no failure path mixes identities.
+  rollback correction; the complete prior registry key, snapshotted with its
+  original value types by a bounded reg.exe export before evacuation, is
+  re-advertised verbatim by reg.exe import only after the prior payload
+  restoration is proven, so no failure path mixes identities.
   The rejected post-install rename is deliberately absent. }
 
 { Executable G1 hooks: PrepareToInstall gates, evacuates, and captures the
@@ -74,6 +77,7 @@ const
 
 var
   EvacuatedOldDir: string;
+  PriorRegistrySnapshot: string;
   PriorDisplayVersion: string;
   PriorUninstallString: string;
   PriorInstallLocation: string;
@@ -97,6 +101,9 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   AppDir: string;
   OldDir: string;
+  SnapshotPath: string;
+  SnapshotOk: Boolean;
+  ResultCode: Integer;
 begin
   Result := '';
   NeedsRestart := False;
@@ -117,10 +124,28 @@ begin
     Result := 'Existing ' + AppDir + ' lacks coherent prior-install ownership evidence; aborting with the directory untouched.';
     Exit;
   end;
+  { Snapshot the complete prior HKCU registration, with original value types,
+    before any canonical byte moves; export failure is fail-closed. }
+  SnapshotPath := OldDir + '{#G1RegistrySnapshotSuffix}';
+  SnapshotOk := Exec('reg.exe', 'export "HKCU\' + G1UninstallKey + '" "' + SnapshotPath + '" /y',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  if (not SnapshotOk) or (ResultCode <> 0) then
+  begin
+    if FileExists(SnapshotPath) then
+      DeleteFile(SnapshotPath);
+    Result := 'Prior-registry snapshot export failed (code ' + IntToStr(ResultCode) + '); aborting with the prior install intact.';
+    Exit;
+  end;
   if RenameFile(AppDir, OldDir) then
-    EvacuatedOldDir := OldDir
+  begin
+    EvacuatedOldDir := OldDir;
+    PriorRegistrySnapshot := SnapshotPath;
+  end
   else
+  begin
+    DeleteFile(SnapshotPath);
     Result := 'Pre-install evacuation of ' + AppDir + ' failed; aborting with the prior install intact.';
+  end;
 end;
 
 procedure RestoreEvacuatedPriorInstall;
@@ -159,12 +184,21 @@ begin
     Exit;
   end;
   EvacuatedOldDir := '';
-  { Step 4: the prior payload is canonical again, so the prior registry identity is coherent. }
-  if PriorUninstallString <> '' then
+  { Step 4: the prior payload is canonical again, so re-advertise the complete
+    prior registration verbatim (all values, original types) by importing the
+    pre-evacuation snapshot; import failure never advertises success and keeps
+    the recovery bytes for manual restoration. }
+  if (PriorUninstallString <> '') and (PriorRegistrySnapshot <> '') then
   begin
-    RegWriteStringValue(HKCU, G1UninstallKey, 'DisplayVersion', PriorDisplayVersion);
-    RegWriteStringValue(HKCU, G1UninstallKey, 'UninstallString', PriorUninstallString);
-    RegWriteStringValue(HKCU, G1UninstallKey, 'InstallLocation', PriorInstallLocation);
+    if Exec('reg.exe', 'import "' + PriorRegistrySnapshot + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
+       and (ResultCode = 0) then
+    begin
+      DeleteFile(PriorRegistrySnapshot);
+      PriorRegistrySnapshot := '';
+      Log('G1 rollback: complete prior registry key re-advertised from the snapshot import.');
+    end
+    else
+      Log('G1 rollback: snapshot import failed (code ' + IntToStr(ResultCode) + '); prior registry not re-advertised; recovery bytes retained at ' + PriorRegistrySnapshot + '.');
   end;
 end;
 
@@ -173,6 +207,11 @@ begin
   if (CurStep = ssPostInstall) and (EvacuatedOldDir <> '') then
   begin
     DelTree(EvacuatedOldDir, True, True, True);
+    if PriorRegistrySnapshot <> '' then
+    begin
+      DeleteFile(PriorRegistrySnapshot);
+      PriorRegistrySnapshot := '';
+    end;
     EvacuatedOldDir := '';
   end;
 end;

@@ -111,12 +111,17 @@ def test_manual_close_retry_cancel_has_no_process_control() -> None:
         assert forbidden not in code
 
 
-def test_exec_is_reserved_for_the_native_uninstaller_rollback() -> None:
+def test_exec_is_reserved_for_rollback_uninstaller_and_registry_snapshot() -> None:
     code = code_section(script_text())
-    assert code.count("Exec(") == 1
-    call = next(line for line in code.splitlines() if "Exec(" in line)
-    assert "NewUninstallString" in call
+    assert code.count("Exec(") == 3
+    assert code.count("ewWaitUntilTerminated, ResultCode") == 3
+    exec_lines = " ".join(line for line in code.splitlines() if "Exec(" in line)
+    assert "NewUninstallString" in exec_lines
+    assert exec_lines.count("'reg.exe'") == 2
     assert "VERYSILENT" in code
+    # every reg.exe Exec is fail-closed on both the launch flag and the exit code
+    assert "(not SnapshotOk) or (ResultCode <> 0)" in code
+    assert re.search(r"if Exec\('reg\.exe', 'import.*\n\s*and \(ResultCode = 0\)", code)
 
 
 def test_pre_install_evacuation_is_executable_before_copy() -> None:
@@ -132,16 +137,67 @@ def test_failed_upgrade_restores_prior_registry_and_payload() -> None:
     assert "procedure DeinitializeSetup;" in code
     assert "RestoreEvacuatedPriorInstall" in code
     assert "'{#G1FailedPayloadSuffix}'" in code
+    # the three identity values are still read for the ownership gate
     for value in ("'DisplayVersion'", "'UninstallString'", "'InstallLocation'"):
         assert f"RegQueryStringValue(HKCU, G1UninstallKey, {value}" in code
-        assert f"RegWriteStringValue(HKCU, G1UninstallKey, {value}" in code
+    # the complete prior key is restored from the snapshot; string-typed
+    # per-value rewrites (which lose original registry types) are gone
+    assert "RegWriteStringValue" not in code
+    assert "Exec('reg.exe', 'import \"' + PriorRegistrySnapshot" in code
+
+
+def prepare_procedure(code: str) -> str:
+    """Slice of [Code] covering only PrepareToInstall."""
+    return code.split("function PrepareToInstall", 1)[1].split(
+        "procedure RestoreEvacuatedPriorInstall", 1
+    )[0]
+
+
+def test_complete_prior_registry_snapshot_is_exported_before_evacuation() -> None:
+    text = script_text()
+    assert '#define G1RegistrySnapshotSuffix ".reg"' in text
+    code = code_section(text)
+    assert "PriorRegistrySnapshot: string;" in code
+    prepare = prepare_procedure(code)
+    export = prepare.index(
+        "SnapshotOk := Exec('reg.exe', 'export \"HKCU\\' + G1UninstallKey"
+    )
+    rename = prepare.index("RenameFile(AppDir, OldDir)")
+    assert export < rename
+    assert "'{#G1RegistrySnapshotSuffix}'" in prepare
+    # fail-closed: launch flag and exit code are checked, and the abort
+    # happens before any canonical byte moves
+    abort_branch = prepare[export:rename]
+    assert "(not SnapshotOk) or (ResultCode <> 0)" in abort_branch
+    assert "aborting with the prior install intact" in abort_branch
+    assert "DeleteFile(SnapshotPath)" in abort_branch
+    # the snapshot path is bound only after the evacuation rename succeeds
+    assert prepare.index("PriorRegistrySnapshot := SnapshotPath") > rename
+
+
+def test_registry_restore_is_verbatim_import_fail_closed_and_keeps_recovery_bytes() -> None:
+    restore = restore_procedure(code_section(script_text()))
+    imported = restore.index("Exec('reg.exe', 'import")
+    assert "and (ResultCode = 0)" in restore[imported:]
+    # the snapshot is deleted only after the checked successful import
+    assert imported < restore.index("DeleteFile(PriorRegistrySnapshot)")
+    # the failure path logs without advertising success and retains the snapshot
+    failure_log = restore[restore.index("snapshot import failed") :]
+    assert "prior registry not re-advertised" in failure_log
+    assert "recovery bytes retained at" in failure_log
+    assert "DeleteFile" not in failure_log
 
 
 def test_old_payload_is_deleted_only_after_a_successful_install() -> None:
     code = code_section(script_text())
     assert "procedure CurStepChanged(CurStep: TSetupStep);" in code
     assert "CurStep = ssPostInstall" in code
-    assert "DelTree(EvacuatedOldDir" in code
+    commit = code.split("procedure CurStepChanged", 1)[1].split(
+        "procedure DeinitializeSetup", 1
+    )[0]
+    assert "DelTree(EvacuatedOldDir" in commit
+    # the registry snapshot is cleaned only on the same successful commit
+    assert "DeleteFile(PriorRegistrySnapshot)" in commit
 
 
 def restore_procedure(code: str) -> str:
@@ -181,13 +237,13 @@ def test_rollback_restores_payload_before_registry_and_never_mixes_identities() 
     restore = restore_procedure(code_section(script_text()))
     quarantine = restore.index("RenameFile(AppDir, FailedDir)")
     payload_back = restore.index("RenameFile(EvacuatedOldDir, AppDir)")
-    first_registry_write = restore.index("RegWriteStringValue")
+    registry_import = restore.index("Exec('reg.exe', 'import")
     # Coherent order: quarantine new payload -> restore prior payload -> prior registry.
-    assert quarantine < payload_back < first_registry_write
+    assert quarantine < payload_back < registry_import
     # Every filesystem failure path exits before any prior-registry advertisement.
     failure_exits = [m.start() for m in re.finditer(r"\bExit;", restore)]
     assert len(failure_exits) >= 2
-    assert all(position < first_registry_write for position in failure_exits)
+    assert all(position < registry_import for position in failure_exits)
     # Failed quarantine must not leave .old renamed away from recovery.
     quarantine_failure = restore[quarantine:payload_back]
     assert "Exit;" in quarantine_failure and "Log(" in quarantine_failure
