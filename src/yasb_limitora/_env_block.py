@@ -1,8 +1,9 @@
 """Private, consented, byte-preserving YASB ``.env`` managed-block transaction."""
 from __future__ import annotations
 
+import ctypes
 import os
-import shutil
+import stat
 import tempfile
 import uuid
 from contextlib import suppress
@@ -19,18 +20,103 @@ class Result(NamedTuple):
     reason: str | None
 
 
+def _reparse(path: Path) -> bool:
+    """Windows junctions are reparse points but are not necessarily symlinks."""
+    try:
+        return bool(path.lstat().st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+
+
 def _safe(path: Path) -> bool:
-    """Reject a target or any existing ancestor that is a reparse/symlink point."""
+    """Reject every existing reparse component, including a junction or leaf."""
     try:
         current = path
         while True:
-            if current.exists() and current.is_symlink():
+            if _reparse(current):
                 return False
             if current.parent == current:
                 return True
             current = current.parent
     except OSError:
         return False
+
+
+def _handle_final_path(fd: int) -> str | None:
+    if os.name != "nt":
+        return str(Path(os.readlink(f"/proc/self/fd/{fd}"))) if os.path.exists(f"/proc/self/fd/{fd}") else None
+    try:
+        import msvcrt
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = ctypes.WinDLL("kernel32", use_last_error=True).GetFinalPathNameByHandleW(
+            ctypes.c_void_p(msvcrt.get_osfhandle(fd)), buffer, len(buffer), 0
+        )
+        return buffer.value if 0 < length < len(buffer) else None
+    except (ImportError, OSError, ValueError):
+        return None
+
+
+def _opened_at(fd: int, path: Path) -> bool:
+    final = _handle_final_path(fd)
+    expected = str(path.absolute())
+    return final is not None and final.casefold() == ("\\\\?\\" + expected).casefold()
+
+
+def _checked_read(path: Path) -> bytes:
+    if not _safe(path) or not path.is_file():
+        raise OSError("unsafe read")
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+    try:
+        if not _opened_at(fd, path):
+            raise OSError("unsafe read")
+        with os.fdopen(fd, "rb") as stream:
+            return stream.read()
+    except BaseException:
+        with suppress(OSError):
+            os.close(fd)
+        raise
+
+
+def _restore(backup: Path, target: Path) -> None:
+    """Restore through a verified target handle; never rename backup bytes by pathname."""
+    raw = _checked_read(backup)
+    fd = os.open(target, os.O_WRONLY | getattr(os, "O_BINARY", 0))
+    try:
+        if not _opened_at(fd, target):
+            raise OSError("unsafe rollback")
+        os.ftruncate(fd, 0)
+        os.write(fd, raw)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    if _checked_read(target) != raw:
+        raise OSError("rollback verify")
+
+
+def _checked_backup(backups: Path, raw: bytes) -> Path:
+    if not _safe(backups.parent):
+        raise OSError("unsafe state")
+    backups.mkdir(parents=True, exist_ok=True)
+    if not _safe(backups) or not backups.is_dir():
+        raise OSError("unsafe state")
+    backup = backups / ("env." + uuid.uuid4().hex + ".bak")
+    fd = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+    try:
+        if not _safe(backup) or not _opened_at(fd, backup):
+            raise OSError("unsafe backup")
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        return backup
+    except BaseException:
+        with suppress(OSError):
+            os.close(fd)
+        with suppress(OSError):
+            backup.unlink()
+        raise
 
 
 def _render(invocation: str, newline: str) -> bytes | None:
@@ -73,20 +159,24 @@ def _rewrite(raw: bytes, invocation: str) -> tuple[bytes | None, str | None]:
     return bom + output, None
 
 
-def apply(home: Path, state_root: Path, invocation: str, *, consent: bool = True) -> Result:
-    """Apply exactly one comment-only block; every refusal leaves YASB bytes untouched."""
-    if not consent:
+def apply(home: Path, state_root: Path, invocation: str, *, consent: bool = False) -> Result:
+    """Apply one comment-only block, rechecking every mutable pathname boundary."""
+    if not isinstance(consent, bool) or not consent:
         return Result("env-consent-required")
-    target = home / ".env"
+    target, backups = home / ".env", state_root / "backups"
     if not _safe(home):
         return Result("env-home-unsafe")
-    if target.exists() and (target.is_symlink() or not target.is_file()):
+    if not _safe(state_root):
+        return Result("env-state-unsafe")
+    if target.exists() and (not _safe(target) or not target.is_file()):
         return Result("env-target-unsafe")
     created_home, existed = not home.exists(), target.exists()
     try:
         if created_home:
             home.mkdir(parents=True)
-        raw = target.read_bytes() if existed else b""
+        if not _safe(home):
+            return Result("env-home-unsafe")
+        raw = _checked_read(target) if existed else b""
     except OSError:
         return Result("env-target-unsafe")
     replacement, reason = _rewrite(raw, invocation)
@@ -96,17 +186,20 @@ def apply(home: Path, state_root: Path, invocation: str, *, consent: bool = True
     temporary: str | None = None
     try:
         if existed:
-            backups = state_root / "backups"
-            backups.mkdir(parents=True, exist_ok=True)
-            backup = backups / ("env." + uuid.uuid4().hex + ".bak")
-            shutil.copyfile(target, backup)
+            backup = _checked_backup(backups, raw)
+        if not _safe(home) or not _safe(state_root):
+            raise OSError("unsafe temp parent")
         fd, temporary = tempfile.mkstemp(prefix=".env.yasb-limitora.tmp-", dir=home)
         with os.fdopen(fd, "wb") as stream:
+            if not _safe(Path(temporary)) or not _opened_at(fd, Path(temporary)):
+                raise OSError("unsafe temp")
             stream.write(replacement or b"")
             stream.flush()
             os.fsync(stream.fileno())
+        if not _safe(home) or not _safe(target) or not _safe(state_root):
+            raise OSError("unsafe replace")
         os.replace(temporary, target)
-        if target.read_bytes() != replacement:
+        if _checked_read(target) != replacement:
             raise RuntimeError("verify")
         return Result(None)
     except RuntimeError:
@@ -116,13 +209,15 @@ def apply(home: Path, state_root: Path, invocation: str, *, consent: bool = True
     finally:
         if temporary is not None:
             with suppress(OSError):
-                os.unlink(temporary)
+                Path(temporary).unlink()
     try:
+        if not _safe(home) or not _safe(state_root) or (backup is not None and not _safe(backup)):
+            raise OSError("unsafe rollback")
         if backup is not None:
-            os.replace(backup, target)
-        elif target.exists():
+            _restore(backup, target)
+        elif target.exists() and _safe(target):
             target.unlink()
-        if created_home and not any(home.iterdir()):
+        if created_home and _safe(home) and not any(home.iterdir()):
             home.rmdir()
     except OSError:
         return Result("env-rollback-failed")

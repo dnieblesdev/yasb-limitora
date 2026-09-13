@@ -202,7 +202,7 @@ def _execute(names: tuple[tuple[str, bool], ...], environment: Mapping[str, str]
             elif invocation.state != discovery.INVOCATION_RESOLVED or invocation.command is None:
                 records.append({"operation": name, "status": "refused", "reason": "env-invocation-unavailable"})
             else:
-                result = _env_block.apply(Path(home.path), Path(local_appdata) / "yasb-limitora", invocation.command)
+                result = _env_block.apply(Path(home.path), Path(local_appdata) / "yasb-limitora", invocation.command, consent=True)
                 records.append({"operation": name, "status": "ok"} if result.reason is None else {"operation": name, "status": "refused", "reason": result.reason})
         else:  # semantics arrive in S07-S09; a bounded nonfatal refusal keeps the program transaction continuable
             records.append({"operation": name, "status": "refused", "reason": "operation-unavailable"})
