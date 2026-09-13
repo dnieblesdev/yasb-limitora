@@ -862,3 +862,180 @@ The product never stops, restarts, installs, uninstalls, patches, configures bey
 surface at all; discovery is read-only; the only YASB-directed write in the entire design is the
 commented block between markers in `.env`, and only after explicit consent. YASB restart after a
 PATH change is always a **user** action described in documentation, never a product action.
+
+## 6. No-PATH/spaced-path spike decision table
+
+### 6.1 Bounded candidate mechanisms
+
+The spike runs against the **real release-target YASB installation**, with its actual `run_cmd`
+handling, PATH unchanged, and `use_shell` as stated. Exploration records that upstream YASB
+currently splits `run_cmd` with `.split(" ")` and that upstream issue #815 remains open; the
+archived split evidence is pinned-v2.0.5 historical, so the release target's behavior must be
+re-observed rather than assumed.
+
+| ID | Mechanism | `run_cmd` | `use_shell` | Needs PATH | Role |
+| --- | --- | --- | --- | --- | --- |
+| M1 | Bare name, PATH task enabled | `yasb-limitora` | `false` | Yes | Control: proves the convenience task works; **cannot** be the integration path |
+| M2 | Bare name, PATH unchanged | `yasb-limitora` | `false` | No | Control: expected to fail; proves the no-PATH requirement is real |
+| M3 | Full path, resolved path contains **no** space | `<progdir>\yasb-limitora.exe` | `false` | No | Primary candidate |
+| M4 | Quoted full path, resolved path **contains a space** | `"<spaced>\yasb-limitora.exe"` | `false` | No | Must be run and recorded; expected to fail under `split(" ")` |
+| M5 | Unquoted full path with a space | `<spaced>\yasb-limitora.exe` | `false` | No | Must be run and recorded; expected to fail |
+| M6 | 8.3 short-path alias of the spaced path (space-free) | `<shortpath>\yasb-limitor.exe` or generated short name | `false` | No | Rescue candidate when the profile path contains a space; requires short-name generation enabled on the volume |
+| M7 | Shell-enabled spaced path | any spaced form | `true` | No | **Diagnostic only.** Run to confirm the parser is the cause; the result is recorded and **never counts as a pass** |
+| M8 | Launcher in a space-free directory reachable without elevation | `<space-free>\yasb-limitora.exe` | `false` | No | Rescue candidate; viable only if such a directory exists without elevation or a machine-wide write |
+
+**Evaluated and rejected discovery mechanisms.** The following materially relevant Windows
+executable-discovery mechanisms were explicitly evaluated and are rejected with recorded
+dispositions rather than silence:
+
+| ID | Mechanism | Disposition | Reason |
+| --- | --- | --- | --- |
+| M9 | Per-user drive alias: `SUBST` or `DefineDosDevice` mapping a space-free drive letter to the spaced program dir | **Rejected** | DOS-device mappings are per-session and non-persistent: they vanish at logoff/reboot, and nothing in a no-elevation install may register a logon task to recreate them without adding a durable mechanism with its own lifecycle. A chosen drive letter can collide with existing, removable, or network drives, and collision handling would be a guess. A `run_cmd` that depends on a letter that may not exist at widget-spawn time is exactly the silent environment dependence the fail-closed rule prohibits, and uninstall would own yet another cleanup surface. Reconsider only if release-target evidence demonstrates persistence, collision-freedom, and cleanup guarantees that current Windows behavior does not provide |
+| M10 | `App Paths` registry entry (`HKCU\Software\Microsoft\Windows\CurrentVersion\App Paths\yasb-limitora.exe`) | **Rejected** | `App Paths` is consulted by `ShellExecute`, not by the bare-name `CreateProcess` resolution a no-shell spawn uses; honoring it would route discovery through a shell intermediary, which §6.2 evidence rule 7 forbids. It is also a second registry mutation surface with its own removal duty and no benefit without PATH |
+| M11 | NTFS junction/symlink alias from a space-free location to the program dir | **Rejected** | Symlinks need a privilege the per-user model refuses; a junction needs a space-free user-writable parent (for example a drive root), which does not exist without elevation — the same structural constraint that makes M8 unguaranteed — and machine-wide writes are excluded by the proposal's non-goals |
+
+**Scope statement.** The M1–M8 candidates plus the M9–M11 rejections cover the materially
+relevant Windows executable-discovery mechanisms for a no-shell, per-user, no-PATH spawn:
+PATH (M1/M2), literal absolute paths (M3–M5), 8.3 short names (M6), shell parsing (M7,
+diagnostic only), a space-free relocated launcher (M8), DOS-device drive aliases (M9),
+App Paths (M10), and reparse-point aliases (M11). Any mechanism not listed here would
+require elevation, machine-wide writes, shell intermediation, or editing YASB — all
+excluded by the proposal's non-goals. If the spike surfaces a materially different
+mechanism, it must be added to this table with an explicit disposition before use; nothing
+may be adopted silently outside these dispositions.
+
+### 6.2 Exact two-checkpoint evidence and pass/fail language
+
+G2 is one overall release gate with two distinct checkpoints. G2a and G2b use the same real
+release-target YASB harness and evidence criteria, but their claims and artifact bindings differ.
+Every mechanism execution at either checkpoint captures:
+
+1. YASB version and installation path.
+2. The exact `run_cmd` and `use_shell` values, quoted from the test YAML.
+3. The widget rendering the expected label from a real run (screenshot, cropped, redacted).
+4. **Rules 4–7 (observability):** live YASB evidence must bind the exact YAML `run_cmd`/`use_shell`,
+   widget rendering, child argv (`argv[0]` = intended path, no extra tokens), and direct YASB→child
+   relationship in one session. Passing mechanisms use `use_shell:false`; no cmd/powershell/pwsh/conhost
+   may occur **between YASB and child**; ancestors above YASB are recorded but do not fail.
+   Raw stdout (current selector-free JSON, no root `version`) and contract-matching exit may instead
+   come from a complementary direct execution of the **verbatim same `run_cmd`**, `shell=false`,
+   one-token argv, unchanged environment/PATH, immutably bound to the same complete PyInstaller
+   onedir/exe/build-info. It supplies only stdout/exit, never YASB spawn/render/ancestry or YASB stdout
+   interception. Missing/mismatched live or complementary binding fails; equivalent paths, different
+   short spellings, or merely matching exe hashes do not qualify.
+8. The machine's PATH at test time, shown unchanged from before the arrangement or candidate was
+   installed.
+9. Secret-scan and redaction results before evidence retention.
+
+A mechanism execution **fails** when any of these hold: the widget is empty or error-state; the
+child command line shows the path split into multiple tokens; the run exits non-zero without a
+valid document; stdout is not the current contract; the mechanism required `use_shell: true`; PATH
+had to change; or any required evidence is absent.
+
+**G2a feasibility/selection evidence** additionally records the S02 frozen-target digest, S04a
+harness revision, every disposable/prototype M3/M6/M8 arrangement created for the run, and exactly one mechanism,
+including its bounded machine-class behavior, selected for S04c. A G2a pass means only that
+the selected arrangement is feasible against the real release-target YASB under the criteria above.
+Prototype paths, aliases, launchers, and installer-shaped scaffolding are explicitly labeled
+non-candidate and disposable. G2a evidence is full execution evidence, but it **must not** claim
+that S04c has adopted the mechanism, that an installer can guarantee it, that any retained setup
+candidate contains it, or that the `yasb-spaced-path` acceptance-ledger gate has passed. G2a is
+`fail` when no permitted arrangement is feasible or selection evidence is incomplete, and `unrun`
+when the external execution did not occur; either status blocks S04c.
+
+**G2b installed-candidate acceptance evidence** additionally records the selected build run ID,
+`rc-manifest.json` digest, retained `setup.exe` name and SHA-256, installed program identity/path,
+and the G2a selection-evidence reference. It is collected only after installing those exact
+retained candidate bytes. A G2b pass requires the real-YASB spaced-path/no-PATH proof to pass
+against the actual S04c-adopted behavior, not against a prototype or manually substituted alias.
+Only that candidate-bound G2b pass may set the acceptance ledger's `yasb-spaced-path` gate to
+`pass`; its evidence references include G2b and the traced G2a selection record. G2b is `fail` on
+any behavioral, evidence, or candidate-binding failure and `unrun` if the installed-candidate
+execution did not occur. Neither status can be promoted to pass by G2a evidence.
+
+### 6.3 Fail-closed rule and non-circular adoption order
+
+```
+Overall release-blocking G2 gate:
+
+  S02 frozen target + S04a harness
+            │
+            ▼
+  G2a FEASIBILITY/SELECTION
+    PASS  <=> a permitted M3/M6/M8 mechanism passes on the real release target
+              with PATH unchanged and use_shell false, and exactly one mechanism is selected
+    FAIL/UNRUN -> no S04c adoption; publication remains blocked
+            │ pass (selection evidence only)
+            ▼
+  static installer path/identity contract, when the selection depends on it
+            │
+            ▼
+  S04c BOUNDED ADOPTION
+    encode exactly the selected mechanism and only its deliberate paired example/test change
+            │
+            ▼
+  later installer/build slices -> exact retained setup candidate + manifest identity
+            │
+            ▼
+  G2b INSTALLED-CANDIDATE CONFIRMATION
+    PASS  <=> install the exact retained candidate and repeat the real-YASB
+              spaced-path/no-PATH proof against the actual adopted behavior,
+              satisfying every §6.2 criterion and candidate-identity binding
+    FAIL/UNRUN -> overall G2 is not pass; publication is blocked
+            │ pass only
+            ▼
+  overall G2 PASS -> yasb-spaced-path ledger acceptance may be pass -> publication may proceed
+```
+
+If the release-target profile path contains no space, M3 may pass for that machine class only. M4
+and M5 must still be executed and recorded, and G2a cannot select an M3-only release arrangement as
+coverage for a spaced-path machine class. The installer must not silently depend on a space-free
+username: under the selected arrangement it computes the resolved invocation path at install time
+and, if that path contains a space and no G2a-selected M6/M8 behavior is available, it must (a)
+still install successfully, (b) skip writing any integration command, (c) inform the user that
+automatic YASB command integration is unavailable on this machine, and (d) report that machine
+class as unproven, not passed. Such an unproven required class prevents G2b from passing.
+
+If a spaced candidate path has neither a selected M6 nor M8 behavior that passes, G2a fails before
+adoption or G2b fails against the installed candidate, depending on where the defect is observed.
+In either case publication is blocked. Prohibited substitutions remain `use_shell: true`, making
+the PATH task a hidden prerequisite, documenting M1 as the integration path, shipping an example
+that only works on space-free machines, editing YASB's parser, or shipping widget code.
+
+M6 has a real limitation that must be recorded honestly: 8.3 short-name generation can be disabled
+per volume, in which case M6 is unavailable and selection falls to M8 or fails. M8 has no guaranteed
+space-free, user-writable, non-elevated location on Windows, so it may be structurally unavailable.
+G2a may establish feasibility for a concrete arrangement but cannot turn either limitation into an
+installer guarantee; only G2b can accept the actual behavior installed from a bound candidate.
+
+**S04 ↔ overall-G2 implementation/adoption seam.**
+`examples/customwidget/customwidget.yaml` currently uses a bare `run_cmd: "yasb-limitora"` with
+`use_shell: false`, and `tests/test_customwidget_examples.py` asserts that exact string appears
+twice plus `use_shell: false` and the absence of shell metacharacters. Boundary 4 is therefore
+sequenced into five non-overlapping units:
+
+1. **S04a — pre-selection construction:** after S02 supplies the frozen target, implement read-only
+   discovery, process probing, PATH support, and `spacepath_spike.ps1` as a harness capable of
+   exercising M1-M8. Unit tests may prove classification and evidence-capture shape, but this slice
+   leaves the shipped example and its pinned test unchanged and records no adopted mechanism.
+2. **G2a — feasibility/selection checkpoint:** run that harness against the real release-target YASB,
+   using disposable/prototype M3/M6/M8 arrangements as needed, and retain all §6.2 selection
+   evidence. Only a G2a pass selects what S04c may encode; it does not accept a release candidate or
+   prove installer guaranteeability.
+3. **S04c — bounded adoption:** only after G2a passes, and after the static installer path/identity
+   contract exists when the selection relies on it, encode exactly the selected mechanism. If that
+   mechanism requires an example change, update `examples/customwidget/customwidget.yaml` and
+   `tests/test_customwidget_examples.py` together with the recorded rationale. The example keeps
+   `use_shell: false`, a single literal command, and no shell metacharacters. No adoption occurs when
+   G2a is `fail` or `unrun`.
+4. **Integrated candidate construction:** the later installer/build slices incorporate S04c and
+   produce one exact retained `setup.exe` candidate with immutable manifest identity. Prototype G2a
+   bytes or arrangements are not promoted.
+5. **G2b — installed-candidate confirmation:** install that exact candidate and repeat the real-YASB
+   spaced-path/no-PATH proof against its actual adopted behavior. Only G2b pass closes overall G2 for
+   the acceptance ledger and publication.
+
+A G2b `fail` or `unrun` blocks publication and cannot silently reopen S04c or substitute another
+mechanism under the same candidate identity. Selecting a different mechanism requires returning to
+G2a, recording a new selection, performing a new bounded S04c adoption, and producing a new retained
+candidate identity before G2b runs again.
