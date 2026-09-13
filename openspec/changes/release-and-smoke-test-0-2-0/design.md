@@ -529,3 +529,336 @@ cleanup is an explicit confirmation with **No** as the default button:
 | --- | --- | --- |
 | Custom `TNewCheckBox` uninstall page | Rejected | Adds a wizard-page implementation and its own test surface for one boolean; the default-negative confirmation is equally explicit and far smaller |
 | `Flags: unchecked` task shown at install time to pre-authorize future deletion | Rejected | Pre-authorizing destruction of data that does not yet exist inverts the spec's "only when the user explicitly selects it" |
+
+## 4. Configuration-assistance boundary: application-owned helper vs Inno Pascal
+
+### 4.1 Ownership split
+
+**Selected: a private, internal setup-assist entrypoint inside the already-frozen executable
+owns every user-data and environment mutation. Inno Pascal owns only the installer's own
+program-file transaction, consent UI, and registry identity.**
+
+| Responsibility | Owner | Why |
+| --- | --- | --- |
+| Consent capture: wizard checkbox, `.env` checkbox, cleanup confirmation | Inno Pascal | UI is Inno's job; it produces booleans, not file edits |
+| Program-file copy, staged swap, rollback, program-root deletion | Inno Pascal | It is the installer's own transaction and must work on a first install before any application code exists on disk |
+| Uninstall registry identity | Inno Pascal | Registry identity is installer metadata |
+| Invoking the assist: derive/create the nonce temp transport, write `request.json`, `Exec` the sentinel with the nonce env value, read `result.json`, then delete the exact transport | Inno Pascal | One `Exec` call plus bounded UTF-8 transport operations outside state; all mutation semantics stay in testable Python |
+| YASB discovery and outcome classification | Assist | Needs registry, filesystem, and process-snapshot logic that must be unit-testable |
+| User PATH read-modify-write and removal | Assist | String surgery on a user-critical registry value must be pytest-proven, never Pascal-proven |
+| `.env` managed block create/update | Assist | Needs byte-exact preservation, encoding detection, backup, atomic replace |
+| `config.json` two-gate transaction: whole-document validation, reject-and-preserve, safe merge, backup, rollback | Assist | Needs JSON parsing, full reuse of `config.py` runtime-contract validation, and byte-identity guarantees |
+| Explicit-consent state cleanup | Assist | Deletion needs the same path-safety proofs as the rest of the state model |
+| Any YAML or CSS edit | **Nobody** | Forbidden by spec |
+| Any secret read, write, or transport | **Nobody** | Forbidden by spec |
+
+Why this reduces unsafe installer script logic:
+
+- **Testability.** Assist behavior runs through pytest on the same source path as the runtime,
+  under the repository's strict-TDD rule. Inno Pascal has no test harness here; every line of
+  Pascal is unverifiable except by manual native runs.
+- **Reuse of existing safety invariants.** The assist reuses `_reject_credential_keys` for
+  secret refusal, the strict JSON parsing discipline from `cli.py`, the deadline discipline from
+  `deadline.py`, and the mutex/lock discipline from `guard.py`. Pascal would reimplement all of
+  these badly.
+- **Encoding and byte safety.** `config.json` and `.env` are user data with possibly non-ASCII
+  content and BOM/CRLF variation. Python byte-level handling is provable; Pascal string handling
+  is a known corruption source.
+- **Smallest Pascal surface.** Pascal is reduced to consent booleans, a directory transaction it
+  already owns, one invocation, and two small request/result file operations. That is reviewable
+  inside the 400-line budget.
+
+**Keeping the helper private and internal:**
+
+- No new public console script in `pyproject.toml`; `[project.scripts]` stays
+  `yasb-limitora = "yasb_limitora.cli:main"`.
+- No new frozen executable. The assist is the same `yasb-limitora.exe` with a private sentinel,
+  mirroring the existing `--__yasb-limitora-codex-helper` precedent, so there is one artifact to
+  hash, one bundle to prove, and no second PyInstaller target.
+- The sentinel is inert unless `setup.exe` set the per-run nonce environment value for that
+  invocation; without it, the sentinel string is not recognized at all and the invocation fails
+  exactly like any other unknown argument (`InvocationError`, exit `2`), touching nothing.
+- The nonce is **correlation and accidental-invocation protection, not authorization**. A
+  same-user caller already owns every file and registry location the assist can touch, so the
+  assist's security model is the same-user OS boundary plus its fail-closed schema, path, and
+  credential checks — never the secrecy of the nonce. The assist runs with no elevated
+  privilege.
+- The sentinel stays outside the public CLI contract: it is dispatched before `_config_path`,
+  the public argv surface (`--config`, `-c`, `--config=`) is unchanged, and no README, release
+  note, migration guidance, or example mentions the sentinel, the nonce variable, or the
+  protocol. `test_frozen_entry_order.py` and `test_setup_assist_protocol.py` lock both
+  properties.
+- The assist never emits the runtime JSON contract and introduces **no second stdout
+  contract**: its bounded, sanitized, machine-readable result is `result.json` in the independently
+  derived per-user temp transport, which the installer reads and renders. The executable's stdout
+  during an assist run is not a consumed interface.
+
+**Interface.** Inno writes a request file, calls the exe, and reads a result file:
+
+```
+setup.exe side:
+  1. generate a cryptographically random nonce encoded as exactly 32 lowercase hex characters
+  2. resolve Local AppData via Inno's trusted `{localappdata}` constant; derive only:
+       %LOCALAPPDATA%\Temp\yasb-limitora-setup-assist\<nonce>\
+     validate/create the fixed parent without enumerating Temp; refuse any reparse component or a
+     pre-existing nonce directory; create that nonce directory exclusively
+  3. write request.json exclusively (UTF-8, <=64 KiB, strict schema, no secrets or target paths)
+  4. Exec: yasb-limitora.exe --__yasb-limitora-setup-assist
+     env: <private nonce var>=<nonce>   (correlation + accidental-invocation protection,
+                                         NOT authorization; no elevated privilege)
+  5. read result.json only if it is a regular, non-reparse file <=64 KiB and schema-valid
+  6. render the sanitized result; delete only request.json/result.json and the now-empty exact
+     nonce directory, refusing rather than following or recursively traversing a reparse point
+
+assist side:
+  1. validate the nonce grammar before any filesystem access
+  2. resolve Local AppData through the Windows known-folder API; append only the fixed
+     Temp\yasb-limitora-setup-assist segments and nonce; never accept a transport/target path
+     from the request
+  3. refuse a missing, malformed, over-size, non-regular, or reparse-point request/transport
+  4. execute only schema-listed operations; for state-cleanup, delete only the independently
+     resolved literal mutable-state root after default-negative consent, then write result.json
+     outside the deleted tree
+  5. exit 0 on success and non-zero on refusal/failure; whenever the safe transport remains
+     writable, create `result.json` exclusively with the bounded sanitized result; stdout is never
+     parsed
+```
+
+**Transport selection.** Inno's `Exec`/`[Run]` cannot pipe stdin to a child, and a stdout
+result would create a second stdout JSON contract on the public executable, so the transport
+is a nonce-derived directory under the per-user Local AppData temp root:
+
+| Transport | Verdict | Reason |
+| --- | --- | --- |
+| Request in argv | Rejected | `_SECRET` argv scanning; process-listing visibility |
+| stdin/stdout JSON | Rejected | Inno cannot pipe stdin through `Exec`/`[Run]`; a stdout result is a second public stdout contract |
+| Inherited-handle / named-pipe IPC | Rejected | No mechanism is proven inside Inno's constraints without extra native code or a broker process; unproven here, so it is not selected |
+| `%LOCALAPPDATA%\Temp\yasb-limitora-setup-assist\<nonce>\{request,result}.json` | **Selected** | Outside program and state roots, survives state cleanup, does not create mutable application state during discovery, and is independently derivable without honoring a supplied path |
+
+**Schemas and hardening.** `request.json` is an object with exactly `schema:
+"gentle-ai.yasb-limitora.setup-assist-request/v1"` and `operations`; `operations` is a bounded,
+non-empty array of unique operation objects. Each object has exactly an allowed operation name and
+its fixed typed user choices; unknown/duplicate fields, unknown operations, values outside their
+bounded domains, and all path-bearing keys are refused. The allowed operations are `discover`,
+`yasb-running`, `path-add`, `path-remove`, `env-block-apply`, `config-apply`, and `state-cleanup`.
+`result.json` has exactly `schema: "gentle-ai.yasb-limitora.setup-assist-result/v1"`, `status`, and
+bounded per-operation reason/warning records; it carries no secret values or unsanitized absolute
+user paths. Both files have a 64 KiB maximum.
+
+Installer and assist each derive roots independently; the nonce selects correlation only. Before
+create/read/write/delete, each side rejects any reparse-point component and any non-regular file.
+The assist never recursively follows a reparse point. `state-cleanup` also refuses if the literal
+state root or any descendant is a reparse point, so deletion cannot escape through a link. The
+request contains only operations and choices, never a target path. Missing nonce/request,
+malformed/over-size data, unsafe roots, schema violations, or cleanup ambiguity fail closed with no
+target mutation. Inno owns final transport removal after consuming the result; it removes only the
+two literal files and empty nonce directory, never a caller-selected or recursively discovered path.
+
+### 4.2 `.env` managed block design
+
+Runs only after explicit consent. The block is **entirely commented**, so it cannot change YASB
+behavior even if YASB parses the file naively.
+
+```
+# >>> yasb-limitora managed block v1 (id: yasb-limitora) >>>
+# Managed by yasb-limitora setup. YASB loads this file at startup.
+# This block is documentation only: every line is a comment.
+# It never contains secrets. Provider credentials stay in your own .env entries.
+#
+# Default configuration location:
+#   %LOCALAPPDATA%\yasb-limitora\config.json
+# Invoke without PATH from YASB CustomWidget using the full path:
+#   <resolved invocation path, see the spaced-path gate>
+# <<< yasb-limitora managed block v1 (id: yasb-limitora) <<<
+```
+
+| Rule | Design |
+| --- | --- |
+| Ownership markers | The exact `# >>> ... >>>` and `# <<< ... <<<` lines, including `v1` and `id: yasb-limitora`. Only bytes between a matched marker pair are ever rewritten |
+| Commented | Every emitted line starts with `#`. The assist refuses to emit a non-comment line |
+| Idempotent | If a matching marker pair exists, the region is replaced in place; the block is never appended twice. Marker count must be exactly 0 or exactly 1 pair; more than one pair is a refusal, not a guess |
+| Unrelated content | Read as **bytes**, split on marker lines, and rejoined so every byte outside the region survives verbatim, including trailing newline state |
+| Encoding | Detect UTF-8 with or without BOM and preserve the original BOM and dominant newline style. If the file is not decodable as UTF-8, refuse and report `env-undecodable`; do not modify |
+| Location | Exactly `<resolved YASB config home>\.env`. A resolved safe home with no `.env` is a valid creatable target after explicit consent, not `inconclusive`; unresolved/unsafe home or absent YASB remains a non-fatal refusal. Discovery itself creates nothing |
+| Atomicity | If the safe config home is absent, create only that exact directory after consent and re-run the non-reparse safety check. Write `<home>\.env.yasb-limitora.tmp-*`, flush, `os.fsync`, then `os.replace` to `.env`; remove the temp on failure |
+| Backup | If `.env` exists, copy its original bytes to `%LOCALAPPDATA%\yasb-limitora\backups\env.<UTC-timestamp>.bak`, bounded to the most recent 5. If absent, record `create` as the recovery point; no fictional backup is made |
+| Rollback | On any error after the recovery point, restore the backup with `os.replace`, or delete the newly created `.env` for `create`; remove an empty home created by this operation. A restore failure reports `env-rollback-failed`; the temp is never promoted on a failed path |
+| Secrets | The assist refuses if the rendered region would contain any key or token matching the existing `_CREDENTIAL_KEY` pattern from `config.py`. It writes no credential-like name at all, so the check is a belt-and-braces gate |
+| YAML/CSS | Never opened, never read for mutation, never written. Only `.env` is in scope, and only between markers |
+| Failure recovery | The installer reports the reason code verbatim in its summary page and completes successfully; consented assistance is not a precondition for installation |
+
+### 4.3 `config.json` transaction: whole-document validation, reject-and-preserve, safe merge
+
+**Owned paths.** The wizard writes only these keys, and only when explicitly selected:
+
+```
+deadline_seconds
+codex.enabled            codex.runner            codex.timeout_seconds
+opencode_go.enabled      opencode_go.timeout_seconds
+```
+
+Everything else in the document is *unowned*. In the safe-merge path every other
+contract-valid field survives unchanged in its original position and structure.
+
+**One validator, two gates.** The assist validates the **complete** document against the
+current runtime contract — the same `config.py` validation the CLI applies, including
+unknown-field rejection (`_fields`) and credential-key rejection (`_reject_credential_keys`)
+— once before any mutation is planned, and once on the final merged document before the
+write. There is no split between "owned-projection validation" and a "whole-document
+warning", and no path in which a document that fails the runtime contract is committed
+successfully.
+
+**Gate 1 — reject-and-preserve (invalid existing document).** If the existing `config.json`
+fails the runtime contract for any reason — an unknown field, a wrong type, an out-of-range
+number, a credential-like key, a duplicate key, a non-finite number, undecodable bytes:
+
+- the optional configuration operation is abandoned **before** any backup, merge, write,
+  normalization, or reserialization; no temp file is even created;
+- the original file remains **byte-for-byte identical** and authoritative;
+- the result document enumerates the detected validation errors — field path plus reason
+  code per error, capped at a fixed maximum count, never including values — so diagnostics
+  stay bounded and non-secret;
+- the install/upgrade **continues**: this outcome is nonfatal to the program-file
+  transaction (§3.3 step 8) and appears on the installer summary page as a skipped optional
+  step with the enumerated errors;
+- the document is never repaired, normalized, partially rewritten, reserialized, or deleted,
+  and runtime validation is never loosened to accept it. The runtime's own behavior is
+  unchanged: the CLI still fails closed on that document with `configuration_invalid`.
+
+**Gate 2 — safe merge (runtime-valid existing document, or no document).**
+
+```
+1. resolve      path = %LOCALAPPDATA%\yasb-limitora\config.json (fixed; no override invented)
+2. acquire      single-writer lock (reuse guard.py mutex discipline; fall back to an
+                O_CREAT|O_EXCL lock file in the state root) so a concurrent CLI refresh
+                cannot interleave
+3. read         original bytes, or record "absent"
+4. validate     the WHOLE document against the runtime contract: ordered parse with
+                duplicate-key and non-finite rejection (same discipline as
+                cli.py::_load_explicit), then LocalConfig.from_mapping plus credential-key
+                rejection.
+                failure  -> Gate 1 reject-and-preserve: release the lock, report, done.
+                "absent" -> nothing to validate; the recovery point is "create"
+5. backup       if present -> backups\config.<UTC-timestamp>.json (bounded to 5)
+                if absent -> record "create" as the recovery point (recovery = delete)
+6. merge        apply only the explicitly selected owned paths from the request; keep key
+                order via an ordered mapping; leave every other contract-valid field as parsed
+7. validate     the final merged document, whole, against the runtime contract BEFORE writing
+8. write        temp file in the same directory, flush, os.fsync, os.replace
+9. verify       re-read, re-parse, re-validate; confirm owned paths equal the request and
+                unowned fields equal the original
+10. release     lock; report success
+on any failure at 6-9: restore from the backup with os.replace (or delete for "create"),
+                       re-verify, remove the temp file, report the reason code. A failed
+                       update leaves the prior configuration restored or authoritative —
+                       never a partial or malformed replacement.
+```
+
+The backup deliberately sits **after** the validation gate: an invalid document receives no
+backup, no merge, no write, no normalization, and no reserialization at all. Only a document
+that passes the runtime contract is ever backed up and merged.
+
+| Alternative | Verdict | Reason |
+| --- | --- | --- |
+| Preserve unknown fields, commit the merge, and warn that the runtime will reject the document | Rejected | It commits a document the current runtime contract rejects. The corrected configuration-assistance spec requires reject-and-preserve instead: an invalid existing config abandons the optional operation and is never mutated |
+| Delete or repair unknown fields so the runtime accepts the result | Rejected | Repair, normalization, and field-dropping on an invalid document are forbidden and would silently destroy user data |
+| Loosen `_fields` to ignore unknown keys | Rejected | Reopens a fixed runtime contract and weakens a fail-closed boundary |
+| Split validation: owned-projection shape/type checks gate the write; whole-document runtime acceptance is only a warning | Rejected | Same commit-an-invalid-document defect as the first row, and it gives the assist a second, weaker validator that can drift from `config.py` |
+
+**Never auto-create.** The runtime continues to only select `config.json`; it never creates it.
+The wizard is the sole creator, and only after explicit opt-in; a newly created document must
+itself pass whole-document validation before the write. The state directory is created
+only when the wizard actually writes.
+
+### 4.4 No secrets and choice-only enabled state
+
+| Rule | Design |
+| --- | --- |
+| Secret values are never read into the assist | Prerequisite checks test **key-name presence** in the effective environment only; the value is never fetched, never compared, never logged |
+| No secret in argv | The request is fixed-name `request.json` inside the nonce-derived temp directory; argv carries only the sentinel. `_SECRET` argv rejection remains intact and is never bypassed |
+| No secret in the result document | The assist output schema has no value-carrying field; it reports names, booleans, and reason codes |
+| No secret in installer logs, evidence, or artifacts | The existing `Scan-Candidates`/`Assert-SafeScan` discipline from `windows-proof.yml` is applied to build logs, `rc-manifest.json`, the SBOM, assist output, and every committed evidence file |
+| Enabled state source | `enabled` is written **only** from an explicit selection in the request. There is no code path that derives it from discovery, from secret presence, or from prerequisite availability |
+| Missing secret or prerequisite | Produces a `warnings[]` entry naming the missing requirement. It does not change `enabled`, does not block the commit, and does not disable the provider |
+| Provider selection overrides readiness warnings | **Normative and preserved:** if the user explicitly selects a provider state and a required secret or external prerequisite is missing, the commit succeeds, `enabled` reflects the selection, and the wizard warns that the provider may not work until the requirement is met. Warnings never veto a selection |
+| Warnings are not the contract gate | Readiness warnings (missing secrets/prerequisites) are advisory and never block a commit of a runtime-valid document. Runtime-contract invalidity is a gate: it abandons the optional operation before any write (§4.3). The two are never conflated |
+| No explicit selection | `enabled` is left exactly as found (or absent for a new document). Discovery outcome, secret presence, and prerequisite presence are all irrelevant to state |
+| Provider logic ownership | The assist contains no authentication, transport, selection, or interpretation logic. It writes booleans, numbers, and a runner string. Limitora remains the owner |
+
+## 5. YASB discovery and manual-close design
+
+### 5.1 Discovery outcomes
+
+Discovery is read-only, time-bounded by the existing deadline discipline, and can never fail the
+installation. Probe errors/timeouts that prevent a safe classification yield `inconclusive`; an
+absent `.env` under an otherwise resolved safe config home is a complete result, not a partial error.
+
+Ordered probes:
+
+1. `HKCU` and `HKLM` `...\CurrentVersion\Uninstall\*` for a display name matching YASB →
+   `InstallLocation`.
+2. Known directories: `%LOCALAPPDATA%\Programs\yasb`, `%PROGRAMFILES%\YASB`,
+   `%PROGRAMFILES(X86)%\YASB`.
+3. Process snapshot for a YASB process (§5.2).
+4. Resolve the configuration home without reading `.env`:
+   - if the inherited OS environment contains `YASB_CONFIG_HOME`, it is authoritative only when
+     non-empty and an absolute normalized local Windows path that contains no device/UNC prefix or
+     `..` segment, is not a drive/root directory, and whose existing components are directories and
+     not reparse points;
+   - an explicitly present but empty or unsafe `YASB_CONFIG_HOME` makes configuration discovery
+     `inconclusive`; never fall back and write to a different directory that YASB did not select;
+   - only when `YASB_CONFIG_HOME` is absent, resolve `%USERPROFILE%\.config\yasb` from the inherited
+     OS `USERPROFILE` using the same safety checks; failure leaves the config home unresolved/unsafe;
+   - never inspect or parse `.env`, YAML, CSS, or any YASB content to discover the config home.
+5. After the home is resolved, inspect only filesystem metadata for `<home>\.env` to classify it
+   as `present`, `absent-creatable`, or `unsafe/unreadable`; discovery neither opens/parses its
+   contents nor creates any directory or file.
+
+| Outcome | Condition | Installer behavior |
+| --- | --- | --- |
+| `detected` | Install evidence and a safe configuration home are resolved; `.env` is either `present` or `absent-creatable` | Offer consented `.env` assistance; when absent, identify it as a new file that will be created only after consent; report only the S04c-adopted invocation behavior; G2a selection evidence is not final acceptance, and only G2b may accept the installed candidate (§6) |
+| `absent` | No install evidence from any install/process probe | Install succeeds; skip YASB-specific integration; inform "YASB was not found" |
+| `inconclusive` | Install evidence exists but the config home is unresolved/unsafe, `.env` is unsafe/unreadable, or a required probe errored/timed out | Install succeeds; skip or defer integration; inform "detection was inconclusive" |
+
+Absent versus inconclusive is distinguished first by **whether any install evidence was found**.
+Within `detected`, `.env` presence is a separate field: absence means a creatable consented target,
+not failed discovery. This avoids elevating, scanning the filesystem broadly, or using a file to
+discover its own parent.
+
+Discovery never creates application state, never edits YAML or CSS, never writes to a YASB
+directory, and never treats a discovery failure as an install failure. Only the later explicitly
+consented `env-block-apply` operation may create or modify the resolved `.env`.
+
+### 5.2 Running-YASB manual-close gate
+
+Applies at install, upgrade, and uninstall, before any file mutation.
+
+```
+probe -> yasb process present?
+  no  -> continue
+  yes -> modal page:
+           "YASB is currently running. Close YASB manually, then choose Retry.
+            yasb-limitora will never close, restart, or manage YASB for you."
+           [ Retry ]  re-probe (bounded; each Retry is a fresh probe)
+           [ Cancel ] abort; prior installation and all state remain intact
+         no third option, no timeout that auto-continues, no "continue anyway"
+```
+
+| Concern | Design |
+| --- | --- |
+| Detection method | Process snapshot via the repository's existing native Win32 discipline (`CreateToolhelp32Snapshot` through `ctypes`), matching the fail-closed style of `isolation/windows_job.py`. No WMI dependency, no external binary |
+| Match rule | Exact executable name match against a small known set; no substring matching that could catch an unrelated process |
+| Never manage lifecycle | No `TerminateProcess`, no `CloseMainWindow`, no service control, no restart, no install or uninstall of YASB. The assist has no code path that sends a signal to a foreign process |
+| Cancellation | `Cancel` aborts before staging; nothing is copied, renamed, or deleted; the report says the operation was cancelled by the user |
+| Stale detection | Every `Retry` re-probes from scratch; the result is never cached across the prompt. If the snapshot itself fails, the outcome is `inconclusive` and the user is told detection failed rather than being told YASB is closed |
+| Failed continuation | If the user retries, the probe clears, and the swap then fails on a lock, the rollback in §3.3 applies and the prior install is restored |
+| Own process | A running `yasb-limitora.exe` (a YASB-spawned child) triggers the same manual-only prompt. It is never killed either, so one rule covers both cases |
+| Unbounded waiting | Retry count is bounded only by the user; there is no auto-continue timer, because auto-continue would proceed into a locked-file failure |
+
+### 5.3 No lifecycle ownership
+
+The product never stops, restarts, installs, uninstalls, patches, configures beyond the consented
+`.env` block, or otherwise controls YASB. Concretely: the assist has no process-control API
+surface at all; discovery is read-only; the only YASB-directed write in the entire design is the
+commented block between markers in `.env`, and only after explicit consent. YASB restart after a
+PATH change is always a **user** action described in documentation, never a product action.
