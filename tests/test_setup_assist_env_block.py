@@ -138,6 +138,37 @@ def test_opened_handle_rejects_home_swap_at_read_boundary(tmp_path, monkeypatch)
     shutil.rmtree(tmp_path, ignore_errors=True)
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows directory-handle proof")
+def test_held_directory_guard_denies_rename_junction_swap_after_final_check(tmp_path, monkeypatch):
+    original = b"USER=original\n"
+    result, target, state = apply(tmp_path, original, consent=True)
+    assert result.reason is None
+    target.write_bytes(original)
+    home, held, outside = target.parent, target.parent.with_name("held"), tmp_path / "outside"
+    outside.mkdir()
+    real_replace, attempt = env.os.replace, {"fired": False, "denied": False, "substituted": False}
+
+    def raced_replace(source, destination):
+        attempt["fired"] = True  # os.replace is reached only after the final pathname checks.
+        try:
+            home.rename(held)
+        except OSError:
+            attempt["denied"] = True
+        else:
+            attempt["substituted"] = True
+            _junction(home, outside)
+            raise OSError("attacker substituted destination parent")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(env.os, "replace", raced_replace)
+    try:
+        result = env.apply(home, state, r"C:\PROGRA~1\yasb-limitora.exe", consent=True)
+        assert attempt == {"fired": True, "denied": True, "substituted": False}
+        assert result.reason is None and target.read_bytes() != original and not (outside / ".env").exists()
+    finally:
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows reparse proof")
 def test_rollback_swap_at_replace_boundary_never_leaks_original_bytes(tmp_path, monkeypatch):
     original = b"USER=original\n"
