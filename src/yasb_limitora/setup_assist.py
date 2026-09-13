@@ -21,7 +21,7 @@ import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from . import _env_block, discovery
+from . import _env_block, _path_cleanup, discovery
 from .discovery import FsView, _canonical_local_dir, _components_safe
 
 _SETUP_ASSIST_FLAG = "--__yasb-limitora-setup-assist"
@@ -184,7 +184,8 @@ def _write_result(root: str, payload: Mapping[str, object], fs: FsView) -> bool:
         return False
     return True
 
-def _execute(names: tuple[tuple[str, bool], ...], environment: Mapping[str, str], local_appdata: str) -> list[dict[str, object]]:
+def _execute(names: tuple[tuple[str, bool], ...], environment: Mapping[str, str], local_appdata: str,
+             registry: _path_cleanup.UserPathRegistry | None = None) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
     for name, consent in names:
         if name == "discover":
@@ -204,12 +205,17 @@ def _execute(names: tuple[tuple[str, bool], ...], environment: Mapping[str, str]
             else:
                 result = _env_block.apply(Path(home.path), Path(local_appdata) / "yasb-limitora", invocation.command, consent=True)
                 records.append({"operation": name, "status": "ok"} if result.reason is None else {"operation": name, "status": "refused", "reason": result.reason})
-        else:  # semantics arrive in S07-S09; a bounded nonfatal refusal keeps the program transaction continuable
+        elif name in {"path-add", "path-remove"}:
+            path_registry = registry or _path_cleanup.WindowsUserPathRegistry()
+            result = _path_cleanup.append_user_path(path_registry, os.path.dirname(sys.executable)) if name == "path-add" else _path_cleanup.remove_recorded_user_path(path_registry)
+            records.append({"operation": name, "status": "ok"} if result.changed else {"operation": name, "status": "refused", "reason": result.reason or "path-unchanged"})
+        else:  # semantics arrive in S08-S09; a bounded nonfatal refusal keeps the program transaction continuable
             records.append({"operation": name, "status": "refused", "reason": "operation-unavailable"})
     return records
 
 def _run_setup_assist(environment: Mapping[str, str], *, local_appdata: str | None = None,
-                      fs: FsView = discovery.REAL_FS, appdata_resolver: Callable[[], str | None] = resolve_local_appdata) -> int:
+                      fs: FsView = discovery.REAL_FS, appdata_resolver: Callable[[], str | None] = resolve_local_appdata,
+                      registry: _path_cleanup.UserPathRegistry | None = None) -> int:
     if not _valid_nonce(environment.get(_NONCE_ENV, "")):
         return 1  # nonce grammar is validated before any filesystem access
     resolved = local_appdata if local_appdata is not None else appdata_resolver()
@@ -227,7 +233,7 @@ def _run_setup_assist(environment: Mapping[str, str], *, local_appdata: str | No
         refusal = {"schema": _RESULT_SCHEMA, "status": "refused", "operations": [{"operation": "request", "status": "refused", "reason": reason}]}
         _write_result(root, refusal, fs)
         return 1
-    records = _execute(names, environment, canonical)
+    records = _execute(names, environment, canonical, registry)
     status = "complete" if all(record["status"] == "ok" for record in records) else "partial"
     if not _write_result(root, {"schema": _RESULT_SCHEMA, "status": status, "operations": records}, fs):
         return 1
