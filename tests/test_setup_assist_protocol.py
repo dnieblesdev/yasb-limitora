@@ -5,6 +5,8 @@ from __future__ import annotations
 import inspect
 import json
 import ntpath
+import os
+import subprocess
 
 import pytest  # pyright: ignore[reportMissingImports]
 
@@ -145,3 +147,104 @@ def test_preexisting_result_is_never_overwritten(tmp_path):
     la, root = transport(tmp_path, request_bytes([{"operation": "discover"}]))
     (root / "result.json").write_bytes(b"SENTINEL")
     assert run(la, {"USERPROFILE": str(tmp_path)}) == 1 and (root / "result.json").read_bytes() == b"SENTINEL"
+
+# --- TOCTOU: nonce directory substituted by a junction after validation, before each I/O boundary ---
+
+needs_nt = pytest.mark.skipif(os.name != "nt", reason="real junction substitution is Windows-only")
+
+def make_junction(link, target):
+    try:
+        import _winapi
+        _winapi.CreateJunction(str(target), str(link))
+    except (ImportError, AttributeError, OSError):  # pragma: no cover - fallback for exotic hosts
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], check=True, capture_output=True)
+
+class SwapFs:
+    """Real FsView that performs the attacker swap on the first probe of `trigger`.
+
+    Simulates the exact race the precheck cannot close: the nonce directory passes
+    component/kind validation, then is replaced by a junction to an attacker-chosen
+    directory before the request open or the result creation reaches the filesystem.
+    """
+
+    def __init__(self, trigger, swap):
+        self.trigger, self.swap, self.done = trigger, swap, False
+
+    def is_dir(self, path):
+        return sa.discovery.REAL_FS.is_dir(path)
+
+    def is_reparse(self, path):
+        return sa.discovery.REAL_FS.is_reparse(path)
+
+    def file_kind(self, path):
+        if not self.done and ntpath.normcase(path) == ntpath.normcase(self.trigger):
+            self.done = True
+            self.swap()
+        return sa.discovery.REAL_FS.file_kind(path)
+
+def substitute_with_junction(root, attacker):
+    """Move the validated nonce directory aside and re-create it as a junction to `attacker`."""
+    attacker.mkdir(parents=True, exist_ok=True)
+    os.rename(str(root), str(root) + "-orig")
+    make_junction(root, attacker)
+    return str(root) + "-orig"
+
+@needs_nt
+def test_request_open_rejects_nonce_directory_swapped_to_junction_after_validation(tmp_path):
+    raw = request_bytes([{"operation": "discover"}])
+    la, root = transport(tmp_path, raw)
+    attacker = tmp_path / "attacker"
+    swap_state = {"armed": True}
+
+    def swap():
+        if swap_state["armed"]:
+            swap_state["armed"] = False
+            attacker.mkdir(parents=True, exist_ok=True)
+            (attacker / "request.json").write_bytes(request_bytes([{"operation": "yasb-running"}]))
+            substitute_with_junction(root, attacker)
+
+    fs = SwapFs(ntpath.join(str(root), "request.json"), swap)
+    assert sa._run_setup_assist({sa._NONCE_ENV: NONCE}, local_appdata=str(la), fs=fs) == 1
+    assert fs.done and swap_state["armed"] is False  # the race actually fired
+    assert not (attacker / "result.json").exists()  # nothing written through the junction
+    assert not (root.parent / (root.name + "-orig") / "result.json").exists()
+    assert sorted(entry.name for entry in attacker.iterdir()) == ["request.json"]  # no stray artifacts
+
+@needs_nt
+def test_result_creation_rejects_nonce_directory_swapped_to_junction_after_request_read(tmp_path):
+    raw = request_bytes([{"operation": "discover"}])
+    la, root = transport(tmp_path, raw)
+    attacker = tmp_path / "attacker"
+    swap_state = {"armed": True}
+
+    def swap():
+        if swap_state["armed"]:
+            swap_state["armed"] = False
+            attacker.mkdir(parents=True, exist_ok=True)
+            substitute_with_junction(root, attacker)
+
+    fs = SwapFs(ntpath.join(str(root), "result.json"), swap)
+    assert sa._run_setup_assist({sa._NONCE_ENV: NONCE}, local_appdata=str(la), fs=fs) == 1
+    assert fs.done and swap_state["armed"] is False  # the swap fired at the result boundary
+    assert list(attacker.iterdir()) == []  # no result.json and no stray exclusive-created remnant
+    preserved = root.parent / (root.name + "-orig")
+    assert (preserved / "request.json").read_bytes() == raw and not (preserved / "result.json").exists()
+
+@needs_nt
+def test_read_request_fails_closed_when_parent_is_already_a_junction(tmp_path):
+    _la, root = transport(tmp_path, request_bytes([{"operation": "discover"}]))
+    attacker = tmp_path / "attacker"
+    attacker.mkdir()
+    (attacker / "request.json").write_bytes(request_bytes([{"operation": "yasb-running"}]))
+    os.rename(str(root), str(root) + "-orig")
+    make_junction(root, attacker)
+    data, defect = sa._read_request(ntpath.join(str(root), "request.json"), sa.discovery.REAL_FS)
+    assert data is None and defect == "request-unsafe"  # planted bytes behind the junction are never consumed
+
+@needs_nt
+def test_write_result_fails_closed_and_removes_stray_when_root_is_a_junction(tmp_path):
+    _la, root = transport(tmp_path)
+    attacker = tmp_path / "attacker"
+    substitute_with_junction(root, attacker)
+    assert sa._write_result(str(root), {"schema": "x"}, sa.discovery.REAL_FS) is False
+    assert list(attacker.iterdir()) == []  # exclusively created remnant removed; attacker gains nothing

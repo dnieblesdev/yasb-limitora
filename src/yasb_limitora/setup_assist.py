@@ -56,6 +56,41 @@ def resolve_local_appdata() -> str | None:
 def _valid_nonce(value: object) -> bool:
     return isinstance(value, str) and _NONCE.fullmatch(value) is not None
 
+def _expected_final(path: str) -> str:
+    return ("\\\\?\\" + path).casefold()
+
+def _handle_final_path(fd: int) -> str | None:
+    """True Win32 final path of an already-open fd with every reparse point resolved; None on failure.
+
+    Prechecks race: a validated nonce directory can be swapped for a junction between the
+    component/kind validation and the pathname-based open. Revalidating through the handle
+    itself binds each I/O to the location actually reached, never to a stale pathname view.
+    """
+    if os.name != "nt":
+        return None
+    try:
+        import msvcrt
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = kernel32.GetFinalPathNameByHandleW(ctypes.c_void_p(msvcrt.get_osfhandle(fd)), buffer, len(buffer), 0)
+        return buffer.value if 0 < length < len(buffer) else None
+    except (OSError, ImportError, ValueError):
+        return None
+
+def _fd_reached_path(fd: int, path: str) -> bool:
+    final = _handle_final_path(fd)
+    return final is not None and final.casefold() == _expected_final(path)
+
+def _close_and_remove_stray(fd: int, path: str) -> None:
+    """Close fd; when the exclusive create landed behind a substituted parent, delete only that empty remnant."""
+    try:
+        final = _handle_final_path(fd)
+        os.close(fd)
+        if final is not None and final.casefold() != _expected_final(path):
+            os.remove(final)
+    except OSError:
+        pass
+
 def _derive_transport_root(local_appdata: str, nonce: str) -> str:
     return ntpath.join(local_appdata, *_TRANSPORT_SEGMENTS, nonce)
 
@@ -116,6 +151,8 @@ def _read_request(path: str, fs: FsView) -> tuple[bytes | None, str | None]:
                 return None, "request-oversize"
             if not stat.S_ISREG(entry.st_mode) or getattr(entry, "st_file_attributes", 0) & _REPARSE:
                 return None, "request-unsafe"
+            if not _fd_reached_path(handle, path):  # parent swapped to a reparse point after validation
+                return None, "request-unsafe"
             data = os.read(handle, _MAX_FILE_BYTES + 1)
         finally:
             os.close(handle)
@@ -128,7 +165,14 @@ def _write_result(root: str, payload: Mapping[str, object], fs: FsView) -> bool:
     if fs.file_kind(path) != "missing" or len(data) > _MAX_FILE_BYTES:
         return False
     try:
-        with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _O_BINARY, 0o600), "wb") as stream:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _O_BINARY, 0o600)
+    except OSError:
+        return False
+    if not _fd_reached_path(fd, path):  # O_EXCL guards the leaf only; the parent may have been substituted
+        _close_and_remove_stray(fd, path)
+        return False
+    try:
+        with os.fdopen(fd, "wb") as stream:
             stream.write(data)
     except OSError:
         return False
