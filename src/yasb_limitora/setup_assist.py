@@ -17,9 +17,11 @@ import ntpath
 import os
 import re
 import stat
+import sys
 from collections.abc import Callable, Mapping
+from pathlib import Path
 
-from . import discovery
+from . import _env_block, discovery
 from .discovery import FsView, _canonical_local_dir, _components_safe
 
 _SETUP_ASSIST_FLAG = "--__yasb-limitora-setup-assist"
@@ -105,7 +107,7 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 def _reject_constant(value: str) -> None:
     raise ValueError("non-finite request number")
 
-def _validate_request(raw: bytes) -> tuple[tuple[str, ...] | None, str | None]:
+def _validate_request(raw: bytes) -> tuple[tuple[tuple[str, bool], ...] | None, str | None]:
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
@@ -123,20 +125,24 @@ def _validate_request(raw: bytes) -> tuple[tuple[str, ...] | None, str | None]:
         return None, "schema-violation"
     if len(operations) > _MAX_OPERATIONS:
         return None, "too-many-operations"
-    names: list[str] = []
+    names: list[tuple[str, bool]] = []
     for item in operations:
         if not isinstance(item, dict):
             return None, "schema-violation"
         if any(_PATH_KEY.search(str(key)) for key in item):
             return None, "path-key-rejected"
-        if set(item) != {"operation"} or not isinstance(item["operation"], str):  # S05 admits no choice keys yet
+        name = item.get("operation")
+        if not isinstance(name, str):
             return None, "schema-violation"
-        name = item["operation"]
+        consent = item.get("consent", True)
+        expected = {"operation", "consent"} if name == "env-block-apply" else {"operation"}
+        if set(item) != expected or type(consent) is not bool:
+            return None, "schema-violation"
         if name not in _ALLOWED_OPERATIONS:
             return None, "unknown-operation"
-        if name in names:
+        if any(prior == name for prior, _ in names):
             return None, "duplicate-operation"
-        names.append(name)
+        names.append((name, consent))
     return tuple(names), None
 
 def _read_request(path: str, fs: FsView) -> tuple[bytes | None, str | None]:
@@ -178,15 +184,27 @@ def _write_result(root: str, payload: Mapping[str, object], fs: FsView) -> bool:
         return False
     return True
 
-def _execute(names: tuple[str, ...], environment: Mapping[str, str]) -> list[dict[str, object]]:
+def _execute(names: tuple[tuple[str, bool], ...], environment: Mapping[str, str], local_appdata: str) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
-    for name in names:
+    for name, consent in names:
         if name == "discover":
             report = discovery.discover(environment)
             records.append({"operation": name, "status": "ok", "facts": {"outcome": report.outcome, "config-home-state": report.config_home_state, "env-file-state": report.env_file_state or "unavailable", "process-status": report.process_status}})
         elif name == "yasb-running":
             records.append({"operation": name, "status": "ok", "facts": {"process-status": discovery.probe_running_yasb().status}})
-        else:  # semantics arrive in S06-S09; a bounded nonfatal refusal keeps the program transaction continuable
+        elif name == "env-block-apply":
+            home = discovery.resolve_config_home(environment)
+            invocation = discovery.resolve_installed_invocation(sys.executable)
+            if not consent:
+                records.append({"operation": name, "status": "refused", "reason": "env-consent-required"})
+            elif home.path is None or home.state != discovery.HOME_RESOLVED:
+                records.append({"operation": name, "status": "refused", "reason": "env-home-unsafe"})
+            elif invocation.state != discovery.INVOCATION_RESOLVED or invocation.command is None:
+                records.append({"operation": name, "status": "refused", "reason": "env-invocation-unavailable"})
+            else:
+                result = _env_block.apply(Path(home.path), Path(local_appdata) / "yasb-limitora", invocation.command)
+                records.append({"operation": name, "status": "ok"} if result.reason is None else {"operation": name, "status": "refused", "reason": result.reason})
+        else:  # semantics arrive in S07-S09; a bounded nonfatal refusal keeps the program transaction continuable
             records.append({"operation": name, "status": "refused", "reason": "operation-unavailable"})
     return records
 
@@ -209,7 +227,7 @@ def _run_setup_assist(environment: Mapping[str, str], *, local_appdata: str | No
         refusal = {"schema": _RESULT_SCHEMA, "status": "refused", "operations": [{"operation": "request", "status": "refused", "reason": reason}]}
         _write_result(root, refusal, fs)
         return 1
-    records = _execute(names, environment)
+    records = _execute(names, environment, canonical)
     status = "complete" if all(record["status"] == "ok" for record in records) else "partial"
     if not _write_result(root, {"schema": _RESULT_SCHEMA, "status": status, "operations": records}, fs):
         return 1

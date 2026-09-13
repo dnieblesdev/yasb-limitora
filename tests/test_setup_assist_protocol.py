@@ -143,6 +143,12 @@ def test_unimplemented_operation_is_bounded_nonfatal_refusal(tmp_path):
     assert result["status"] == "partial" and result["operations"][1]["status"] == "ok"
     assert result["operations"][0] == {"operation": "path-add", "status": "refused", "reason": "operation-unavailable"}
 
+def test_env_block_choice_requires_explicit_true_consent(tmp_path):
+    raw = request_bytes([{"operation": "env-block-apply", "consent": False}])
+    la, root = transport(tmp_path, raw)
+    assert run(la, {"USERPROFILE": str(tmp_path)}) == 1
+    assert result_of(root)["operations"] == [{"operation": "env-block-apply", "status": "refused", "reason": "env-consent-required"}]
+
 def test_preexisting_result_is_never_overwritten(tmp_path):
     la, root = transport(tmp_path, request_bytes([{"operation": "discover"}]))
     (root / "result.json").write_bytes(b"SENTINEL")
