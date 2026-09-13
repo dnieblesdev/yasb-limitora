@@ -107,7 +107,7 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 def _reject_constant(value: str) -> None:
     raise ValueError("non-finite request number")
 
-def _validate_request(raw: bytes) -> tuple[tuple[tuple[str, bool], ...] | None, str | None]:
+def _validate_request(raw: bytes) -> tuple[tuple[tuple[str, object], ...] | None, str | None]:
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
@@ -125,7 +125,7 @@ def _validate_request(raw: bytes) -> tuple[tuple[tuple[str, bool], ...] | None, 
         return None, "schema-violation"
     if len(operations) > _MAX_OPERATIONS:
         return None, "too-many-operations"
-    names: list[tuple[str, bool]] = []
+    names: list[tuple[str, object]] = []
     for item in operations:
         if not isinstance(item, dict):
             return None, "schema-violation"
@@ -134,10 +134,18 @@ def _validate_request(raw: bytes) -> tuple[tuple[tuple[str, bool], ...] | None, 
         name = item.get("operation")
         if not isinstance(name, str):
             return None, "schema-violation"
-        consent = item.get("consent", True)
-        expected = {"operation", "consent"} if name == "env-block-apply" else {"operation"}
-        if set(item) != expected or type(consent) is not bool:
-            return None, "schema-violation"
+        if name == "env-block-apply":
+            if set(item) != {"operation", "consent"} or type(item.get("consent")) is not bool:
+                return None, "schema-violation"
+            consent: object = item["consent"]
+        elif name == "state-cleanup":
+            if set(item) != {"operation", "consent"} or item.get("consent") != "YES":
+                return None, "schema-violation"
+            consent = item["consent"]
+        else:
+            if set(item) != {"operation"}:
+                return None, "schema-violation"
+            consent = True
         if name not in _ALLOWED_OPERATIONS:
             return None, "unknown-operation"
         if any(prior == name for prior, _ in names):
@@ -184,7 +192,7 @@ def _write_result(root: str, payload: Mapping[str, object], fs: FsView) -> bool:
         return False
     return True
 
-def _execute(names: tuple[tuple[str, bool], ...], environment: Mapping[str, str], local_appdata: str,
+def _execute(names: tuple[tuple[str, object], ...], environment: Mapping[str, str], local_appdata: str,
              registry: _path_cleanup.UserPathRegistry | None = None) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
     for name, consent in names:
@@ -209,6 +217,14 @@ def _execute(names: tuple[tuple[str, bool], ...], environment: Mapping[str, str]
             path_registry = registry or _path_cleanup.WindowsUserPathRegistry()
             result = _path_cleanup.append_user_path(path_registry, os.path.dirname(sys.executable)) if name == "path-add" else _path_cleanup.remove_recorded_user_path(path_registry)
             records.append({"operation": name, "status": "ok"} if result.changed else {"operation": name, "status": "refused", "reason": result.reason or "path-unchanged"})
+        elif name == "state-cleanup":
+            if consent != "YES":
+                records.append({"operation": name, "status": "refused", "reason": "state-consent-required"})
+            else:
+                path_registry = registry or _path_cleanup.WindowsUserPathRegistry()
+                state_dir = ntpath.join(local_appdata, "yasb-limitora")
+                result = _path_cleanup.cleanup_literal_state(path_registry, state_dir)
+                records.append({"operation": name, "status": "ok"} if result.changed else {"operation": name, "status": "refused", "reason": result.reason or "state-unchanged"})
         else:  # semantics arrive in S08-S09; a bounded nonfatal refusal keeps the program transaction continuable
             records.append({"operation": name, "status": "refused", "reason": "operation-unavailable"})
     return records

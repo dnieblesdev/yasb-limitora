@@ -112,3 +112,54 @@ def test_removal_refuses_external_identical_element_after_owned_append():
     registry.value = (registry.value or "") + r";C:\bin"  # external edit after the product append
     assert cleanup.remove_recorded_user_path(registry).reason == "path-ownership-changed"
     assert registry.value == r"A;C:\bin;C:\bin" and registry.notifications == 1
+
+
+# --- S07-B: literal-state cleanup through native delete with registry ownership proof ---
+
+
+def test_cleanup_refuses_without_registry_record():
+    registry = FakeRegistry("A")
+    result = cleanup.cleanup_literal_state(registry, r"C:\state")
+    assert result.reason == "state-record-missing" and not result.changed
+
+
+def test_cleanup_refuses_non_absolute_state_path():
+    registry = FakeRegistry("A")
+    registry.write_recorded_element(cleanup._record(r"C:\bin", "A", cleanup.REG_SZ))
+    result = cleanup.cleanup_literal_state(registry, "relative/path")
+    assert result.reason == "state-path-unsafe" and not result.changed
+    assert registry.recorded is not None  # record untouched
+
+
+def test_cleanup_calls_native_delete_and_clears_record_on_success(monkeypatch):
+    import yasb_limitora._native_state_cleanup as nsc
+
+    registry = FakeRegistry("A")
+    registry.write_recorded_element(cleanup._record(r"C:\bin", "A", cleanup.REG_SZ))
+    deleted: list[str] = []
+    monkeypatch.setattr(nsc, "delete_directory", lambda p: (deleted.append(p), True)[1])
+    result = cleanup.cleanup_literal_state(registry, r"C:\state")
+    assert result.changed and deleted == [r"C:\state"] and registry.recorded is None
+
+
+def test_cleanup_refuses_when_native_delete_fails(monkeypatch):
+    import yasb_limitora._native_state_cleanup as nsc
+
+    registry = FakeRegistry("A")
+    registry.write_recorded_element(cleanup._record(r"C:\bin", "A", cleanup.REG_SZ))
+    monkeypatch.setattr(nsc, "delete_directory", lambda p: False)
+    result = cleanup.cleanup_literal_state(registry, r"C:\state")
+    assert result.reason == "state-delete-failed" and not result.changed
+    assert registry.recorded is not None  # record preserved on failure
+
+
+def test_cleanup_bookkeeping_failure_after_successful_delete(monkeypatch):
+    import yasb_limitora._native_state_cleanup as nsc
+
+    registry = FakeRegistry("A")
+    registry.write_recorded_element(cleanup._record(r"C:\bin", "A", cleanup.REG_SZ))
+    registry.clear_failure = True
+    monkeypatch.setattr(nsc, "delete_directory", lambda p: True)
+    result = cleanup.cleanup_literal_state(registry, r"C:\state")
+    assert result.reason == "state-bookkeeping-failed" and not result.changed
+    assert registry.recorded is not None  # record preserved when clear fails
