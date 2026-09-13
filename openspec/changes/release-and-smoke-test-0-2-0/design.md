@@ -308,3 +308,224 @@ Invariants the build must preserve, each with a test in §9.2:
    when the nonce is missing. The assist also introduces **no second stdout JSON contract** on
    the public executable: its machine-readable result is the result file, and the child's
    stdout during an assist run is not a consumed interface.
+
+## 3. Per-user `setup.exe` design (Inno Setup as the technology)
+
+`setup.exe` is the artifact; Inno Setup is the technology that produces it. Nothing in this
+section makes Inno part of the product contract.
+
+### 3.1 Program/state separation and installed layout
+
+| Root | Path | Mutability | Owner |
+| --- | --- | --- | --- |
+| Program | `%LOCALAPPDATA%\Programs\yasb-limitora\` | Immutable between lifecycle ops; replaced wholesale | Inno |
+| State | `%LOCALAPPDATA%\yasb-limitora\` | Mutable at runtime | Application |
+
+`PrivilegesRequired=lowest` makes Inno map `{autopf}` to `{userpf}` = `%LOCALAPPDATA%\Programs`,
+so the default directory is `{autopf}\yasb-limitora` with no elevation and no machine-wide write.
+This satisfies the least-privilege per-user requirement without needing an elevation path.
+
+Program layout:
+
+```
+%LOCALAPPDATA%\Programs\yasb-limitora\
+  yasb-limitora.exe            # frozen console entry; also the helper and assist host
+  _internal\                   # PyInstaller onedir payload
+    build-info.json            # version, git SHA, tool versions, SOURCE_DATE_EPOCH
+    ...                        # limitora + dependencies + bootloader
+unins000.exe / unins000.dat    # Inno uninstaller, inside the program root
+```
+
+State and transport layouts:
+
+```
+%LOCALAPPDATA%\yasb-limitora\
+  config.json                  # created ONLY by the opt-in wizard
+  quota-v2-cache-*.json        # runtime cache, fingerprinted
+  backups\
+    config.<UTC-timestamp>.json
+    env.<UTC-timestamp>.bak    # YASB .env backups live HERE, never in YASB's dir
+
+%LOCALAPPDATA%\Temp\yasb-limitora-setup-assist\<nonce>\
+  request.json                 # transient transport; written by setup.exe
+  result.json                  # transient sanitized result; written by the assist
+```
+
+Hard separation rules:
+
+- The state root is **never** nested inside the program root, and the program root is never
+  nested inside the state root. They are siblings under `%LOCALAPPDATA%`.
+- The transport root is a third, transient root under the per-user Local AppData temp directory;
+  it is outside both program and mutable-state roots. Read-only discovery therefore never creates
+  `%LOCALAPPDATA%\yasb-limitora` merely to exchange a request or result.
+- No installer operation may glob, enumerate, or delete `%LOCALAPPDATA%` or its `Temp` directory.
+  State cleanup targets the exact literal state root; transient cleanup targets only the exact
+  nonce directory independently derived under the fixed transport parent.
+- Backups of YASB-owned files are stored in our state root, so the product never adds files to a
+  YASB directory.
+- The runtime continues to resolve `config.json` from `LOCALAPPDATA` exactly as
+  `_default_windows_config_path` does; the installer does not introduce a second resolution path
+  and does not set `YASB_LIMITORA_CONFIG`.
+
+### 3.2 Stable identity, upgrade codes, and uninstall registration
+
+| Item | Value | Reason |
+| --- | --- | --- |
+| `AppId` | One fixed GUID, generated once and committed | Stable identity across versions; drives upgrade detection and the uninstall key |
+| `AppVerName` / `AppVersion` | `yasb-limitora 0.2.0` / `0.2.0` from `/DAppVersion` | Single version source (§2.2) |
+| `AppName`, `AppPublisher`, `AppSupportURL` | Filled from repository metadata | Registry display quality |
+| `DefaultDirName` | `{autopf}\yasb-limitora` | Per-user, no elevation |
+| `DisableProgramGroupPage` | `yes` | No Start Menu folder noise; no per-user group decision |
+| `PrivilegesRequired` | `lowest` | Per-user ownership model |
+| `PrivilegesRequiredOverridesAllowed` | `commandline` **not** enabled | Prevents an elevation path from silently changing the ownership model |
+| `ArchitecturesInstallIn64BitMode` | `x64compatible` | Matches the Windows-only, x64 runtime boundary |
+| `OutputBaseFilename` | `yasb-limitora-0.2.0-setup` | One public filename; internal RC uses the same name but is never published (§7.1) |
+| Uninstall registry | `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{AppId}_is1` (Inno default under `lowest`) | No `HKLM` write; `DisplayVersion=0.2.0`; `NoModify=1`, `NoRepair=1` |
+| Version-resource | Generated `version_info.txt` from `__version__` | File properties match registry and metadata |
+
+`NoRepair=1` is deliberate: see the repair decision in §3.3.
+
+### 3.3 Lifecycle and rollback model
+
+**G1 final evidence result: the selected pre-install evacuation fallback is proven.** The historical post-install staged directory rename-swap remains rejected because its exact new `UninstallString` exited `0` while leaving the canonical renamed payload behind. The separate fallback run evacuated the prior canonical directory before Inno copied/registered, retained canonical bookkeeping, passed success uninstall, passed induced post-bookkeeping failure cleanup with a late-failure native-uninstaller harness correction, restored prior HKCU values/types, passed the prior uninstall, and cleaned all exact disposable roots/key under `PrivilegesRequired=lowest`.
+
+The following block is the rejected post-install rename mechanism retained as historical spike context; it is not the selected S10/S11 implementation.
+
+```
+install/upgrade (canonical dir = {autopf}\yasb-limitora):
+  1. preflight: probe for running YASB and running yasb-limitora.exe (§5.2);
+                report any stale .old / .failed directory left by an interrupted run
+  2. stage:     copy the onedir payload to  {autopf}\yasb-limitora.new
+  3. verify:    confirm yasb-limitora.exe and _internal\build-info.json exist in .new
+                and that build-info version == expected version
+  4. capture:   record the prior lifecycle bookkeeping verbatim (DisplayVersion,
+                UninstallString, InstallLocation under the {AppId}_is1 uninstall key)
+                so a rollback can restore it exactly
+  5. swap:      5a. if the canonical dir exists -> rename it to yasb-limitora.old
+                5b. rename yasb-limitora.new -> canonical
+  6. register:  write the new version's uninstall registry entries and version resource
+  7. commit:    the program-file transaction COMMITS here; delete yasb-limitora.old
+  8. assist:    after commit, run the frozen assist entrypoint for consented mutations (§4).
+                ANY assist outcome — refusal, reject-and-preserve of an invalid config
+                (§4.3), .env failure — is NONFATAL: it is reported on the summary page and
+                never rolls back the committed program, never reopens the transaction.
+
+  on failure at 2/3:  delete .new; prior install intact; registry untouched; state untouched
+  on failure at 5a:   abort; canonical dir untouched; delete .new; state untouched
+  on failure at 5b:   rename .old back -> canonical; delete .new; registry untouched
+  on failure at 6 (the canonical destination is ALREADY OCCUPIED — rollback must still be
+  executable): reverse-swap with quarantine, in this exact order:
+r1. rename canonical -> yasb-limitora.failed   (quarantine first; never delete in place)
+r2. rename yasb-limitora.old -> canonical      (the prior program is live again)
+r3. restore the registry values captured at step 4 (the prior version identity is live)
+r4. delete any .new remnant; delete .failed only if it is unlocked, otherwise leave it
+quarantined and report it
+  if r1 or r2 fails (a lock): retry once after a bounded delay; if it still fails, leave
+  both directories untouched, keep the registry at its captured prior values, report
+  `rollback-incomplete`, and direct the user to rerun the same-version reinstall, which
+  completes the transaction. Never delete `.old` while the canonical dir does not hold a
+  verified coherent program.
+  locked file at 2/5:  do NOT force; report and abort with the prior install intact
+
+uninstall:
+  1. preflight running-YASB probe (§5.2)
+  2. Inno creates the independently derived nonce temp transport and invokes the assist
+  3. assist: remove the User PATH entry if it was added; on explicit consent only,
+             delete the literal state root (never anything above it); write the sanitized
+             operation result to temp transport outside that deleted tree
+  4. Inno reads the result and removes request.json, result.json, and the empty nonce directory
+  5. remove the program root and the uninstall registry entries
+```
+
+**Historical coherence claim disproven by G1.** The spike's exact new `UninstallString` pointed at
+the canonical directory and exited `0`, but the canonical payload remained after the uninstall key
+was removed. The post-install rename therefore does not keep the uninstaller pair coherent; this
+paragraph is retained only to explain the rejected mechanism and is not an acceptance claim.
+
+**Historical G1 result.** The native run reached commit and rewrote the registry paths, but the exact
+new `UninstallString` returned `0` while leaving the canonical disposable payload present. That
+proves the post-install rename does not preserve coherent Inno uninstaller bookkeeping and is
+rejected/disproven for this mechanism.
+
+**G1-proven selected fallback for S10/S11:** pre-install evacuation. Rename the prior canonical
+directory to `.old` **before** Inno copies files, let Inno install and register against the canonical
+path natively, and delete `.old` only on success. On induced post-bookkeeping failure, the exact
+new native uninstaller removes the new canonical/key, then the captured prior registry values/types
+and `.old` are restored. Inno 6.7.3 records its installation complete before `ssPostInstall`, so
+the exact native uninstaller is the smallest disposable harness correction for the late failure
+hook; it is recorded explicitly rather than claimed as an Inno transaction rollback. The fallback
+keeps Inno bookkeeping canonical at the cost of a short window with no canonical directory, which
+the running-YASB preflight already makes safe because no product executable is in use. The retained
+run's `evidence/integrity.json` is the bounded self-verifying hash record for compile inputs,
+retained copies, setup EXEs, and all used logs. Its `evidence/execution-binding.json` is explicitly
+post-run-derived: it binds ordered compile/setup/uninstaller actions from the harness source,
+native-log headers, process-exit ordering, and exact captured `UninstallString` values. Evidence:
+`docs/release/0.2.0/evidence/inno-staged-swap-spike.md` and the retained sanitized run under
+`build/g1-fallback/<run-id>/`.
+
+| Alternative | Verdict | Reason |
+| --- | --- | --- |
+| In-place overwrite into one directory | Rejected | A failed upgrade can leave mixed-version files while still reporting the new `DisplayVersion`; the spec requires the prior install to remain usable or be restored |
+| Side-by-side versioned directories plus a `current` pointer | Rejected | The invocation path would change per release or require a junction/symlink; junctions add a failure mode and symlinks need privileges the per-user model refuses. It also destabilizes any `run_cmd` path the user saved |
+| Rely solely on Inno's built-in file rollback | Rejected as sufficient | Inno rolls back copied files, but it cannot guarantee that a half-applied directory is the *prior usable* program; the swap makes the prior program a named, restorable object |
+
+**Repair decision (the proposal left this open):** no separate Repair entry is exposed
+(`NoRepair=1`). Reinstalling the same version will use the selected pre-install-evacuation
+lifecycle once S10/S11 implement it. Rationale: a distinct repair flow is a third lifecycle
+state that needs its own locked-file, partial-state, and rollback evidence; the budget does not
+allow proving it, and reinstall already delivers the same outcome. This is recorded as a
+selected decision, not a spec change.
+
+**Locked or malformed state (proposal question 8):**
+
+| Condition | Behavior |
+| --- | --- |
+| Program file locked by a running CLI or YASB child | Abort before the swap; prior install intact; manual-close prompt already offered (§5.2); never kill a process |
+| `yasb-limitora.old` or `yasb-limitora.failed` left over from an interrupted run | Detected at preflight; reported; removed only after a successful swap and only when the canonical dir holds a verified coherent program |
+| `config.json` malformed or unreadable | Assist refuses before any backup, merge, or write: the original bytes are preserved exactly, bounded validation errors are enumerated on the summary page, and the install/upgrade continues (§4.3). The runtime already fails closed with `configuration_invalid` |
+| Registration fails after the swap (canonical dir occupied) | Reverse-swap with quarantine per §3.3 step 6; registry values captured beforehand are restored; `rollback-incomplete` is reported when a rename is blocked; `.old` is never deleted while the canonical dir is incoherent |
+| State root exists but is a file, not a directory | Assist reports and performs no deletion; install still succeeds |
+| Insufficient disk space during staging | Fail at step 2 before any rename; prior install intact |
+| User cancels mid-wizard | Assist rolls back its own transaction (§4.3); the program swap already committed and stays committed, because cancelling a data wizard is not a failed install |
+
+Install, reinstall, upgrade, cancellation, and rollback failures never delete state. The sole
+state-deletion path is a successfully validated `state-cleanup` operation after the explicit
+uninstall choice (§3.4); its result transport is outside state and is cleaned separately by Inno.
+
+### 3.4 PATH and cleanup tasks
+
+**User PATH task (opt-in convenience).**
+
+| Property | Value |
+| --- | --- |
+| `[Tasks]` entry | `Name: "addtopath"`, `Flags: unchecked`, description states it is optional and not required for YASB |
+| Scope | `HKCU\Environment` `Path` only; System PATH is never read or written |
+| Executor | The frozen assist entrypoint, not Inno Pascal (§4.1) |
+| Algorithm | Read the current `REG_EXPAND_SZ`/`REG_SZ` value verbatim; if the exact program directory is already present as a path element, do nothing; otherwise append `;<dir>` to the verbatim string and write it back with the original value type |
+| Never | Parse PATH into a list and rejoin it; normalize case or separators; drop empty elements; expand `%VAR%`; truncate |
+| Record | The exact appended element is stored under the app's uninstall registry key so removal is precise |
+| Removal | On uninstall, the assist removes exactly that recorded element, again by verbatim string surgery, and broadcasts `WM_SETTINGCHANGE` |
+| Disclosure | Installer text and `MIGRATION.md` state that a PATH change takes effect only in newly started processes and that YASB must be restarted by the user for direct CLI discovery — while YASB integration itself never depends on PATH |
+
+**Cleanup task (destructive, default-negative).** Inno provides no uninstall-page checkbox, so
+cleanup is an explicit confirmation with **No** as the default button:
+
+- Presented only during uninstall, after the running-YASB preflight.
+- Wording names the exact directory that would be deleted and states that configuration, cache,
+  and backups are included.
+- `MB_YESNO | MB_DEFBUTTON2`; only an affirmative `YES` sets the flag the assist consumes.
+- Cancel, dismissal, or any non-`YES` result means "preserve state".
+- The request contains only the selected `state-cleanup` operation and the affirmative consent
+  choice; it contains no target path. The assist independently resolves the literal mutable-state
+  root from the Windows Local AppData known folder, verifies every existing path component is not a
+  reparse point, and verifies the target is neither the program root, the transport root,
+  `%LOCALAPPDATA%`, nor a parent of any of them.
+- Only after those checks and explicit `YES` consent does the assist delete that literal state root.
+  It then writes the bounded, sanitized result to the separately derived temp transport directory,
+  which remains available even though the state tree is gone. Inno reads the result and removes the
+  exact transient nonce directory afterward.
+
+| Alternative | Verdict | Reason |
+| --- | --- | --- |
+| Custom `TNewCheckBox` uninstall page | Rejected | Adds a wizard-page implementation and its own test surface for one boolean; the default-negative confirmation is equally explicit and far smaller |
+| `Flags: unchecked` task shown at install time to pre-authorize future deletion | Rejected | Pre-authorizing destruction of data that does not yet exist inverts the spec's "only when the user explicitly selects it" |
