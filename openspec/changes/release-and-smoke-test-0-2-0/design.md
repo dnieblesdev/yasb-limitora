@@ -727,14 +727,15 @@ number, a credential-like key, a duplicate key, a non-finite number, undecodable
 
 **Gate 2 — safe merge (runtime-valid existing document, or no document).**
 
-Gate 2 is split into four implementation boundaries: **D01a1** establishes the context-managed
+Gate 2 is split into implementation boundaries: **D01a1** establishes the context-managed
 primary Guard lease keyed by the exact fixed config.json path with the real 5-second deadline;
-**D01a2** defines the bounded canonical marker with exact schema/size and Win32 process-identity
-codec; **D01a3** implements file fallback acquisition and cleanup only on `guard_acquisition_failed`;
-**D01b** reads, validates, and yields an immutable snapshot under a context-managed lease owned by
-D01a; **D02** consumes that snapshot to merge, write, and verify. The D01b snapshot is valid only
-while the D01a lease remains owned; D02 must consume it inside that same ownership scope. D01a1,
-D01a2, D01a3, and D01b perform no backup, merge, or write. The S08 reject-and-preserve byte-identity
+**D01a2a** defines the bounded canonical marker codec with exact schema/size and strict
+validation; **D01a2b** defines the Win32 process-identity token; **D01a3** implements file
+fallback acquisition and cleanup only on `guard_acquisition_failed`; **D01b** reads, validates,
+and yields an immutable snapshot under a context-managed lease owned by D01a; **D02** consumes
+that snapshot to merge, write, and verify. The D01b snapshot is valid only while the D01a lease
+remains owned; D02 must consume it inside that same ownership scope. D01a1, D01a2a, D01a2b,
+D01a3, and D01b perform no backup, merge, or write. The S08 reject-and-preserve byte-identity
 contract is preserved: an invalid document is never touched, backed up, or reserialized.
 
 > **D01 split note.** The original combined D01 candidate (evidence
@@ -748,6 +749,21 @@ contract is preserved: an invalid document is never touched, backed up, or reser
 > and rolled back with no passing evidence. The maintainer authorized splitting D01a into
 > three sequential bounded sub-units — D01a1 (≤180 lines), D01a2 (≤220 lines), and D01a3
 > (≤280 lines) — while keeping D01a as the umbrella name. D01b depends on D01a3.
+>
+> **D01a2 budget raised.** The D01a2 candidate (evidence
+> `sha256:15a3e99d15c8e6d06d899dfbb60bce047e85a73a48355722bbe52b319f0d3bde`)
+> produced green behavioral tests but exceeded the 220-line budget at 247 code+test lines,
+> left the version schema undefined, had CloseHandle ambiguity, an incorrect PID upper
+> bound, and exception-handling inconsistency. It supplies no passing evidence. The
+> maintainer raised the D01a2 budget to ≤280 lines and defined the exact canonical marker
+> schema to resolve the ambiguity.
+>
+> **D01a2 further split.** After the budget raise to ≤280, a subsequent D01a2 candidate
+> (evidence `sha256:4405cb265935e8dffe8d56f96f597e7aca8e730f9d1bcca242121b0c9f0f1c6b`)
+> produced a dirty working state with semantically passing marker+Win32 identity but
+> exceeded the review budget. The maintainer split D01a2 into D01a2a (marker codec,
+> ≤260 lines) and D01a2b (Win32 process identity, ≤220 lines, depends D01a2a). D01a3
+> depends on D01a2b. No passing evidence is inherited by D01a2a or D01a2b.
 
 **D01a1 — Guard domain and real deadline.**
 
@@ -758,17 +774,39 @@ real/injected tests must prove `Global\` naming, exact path key, elapsed/retry s
 guaranteed release, and no config/state writes. Target ≤180 changed lines and one rollback
 boundary.
 
-**D01a2 — Process identity and marker codec.**
+**D01a2a — Marker codec.**
 
-Depends on D01a1. Bounded canonical marker with exact schema/size; Win32
-OpenProcess/GetProcessTimes creation token via a reusable safe primitive/pattern, no
-os.kill/process control; empty/malformed/oversize/unprovable refuse; tests exercise real
-Windows identity where supported and injected edge cases; no acquisition/reclaim/unlink
-yet. Target ≤220 changed lines and one rollback boundary.
+Depends on D01a1. The canonical marker is exactly the UTF-8 JSON object
+`{"pid": <DWORD 1..4294967295>, "token": <1..64 lowercase hex chars>, "version": 1}`
+with sorted keys and no whitespace. Hard preparse maximum is 256 bytes; input exceeding
+this limit is refused before field parsing. Duplicate keys, extra fields, missing fields,
+boolean values, invalid types, uppercase hex, non-hex characters, oversize output, and
+non-object input are all refused with one sanitized marker-validation error. Deterministic
+roundtrip; zero file I/O. No Win32/process identity code in this sub-unit.
+
+Target ≤260 changed lines and one rollback boundary.
+
+> **Failed evidence (parent D01a2).** The D01a2 candidate
+> `sha256:15a3e99d15c8e6d06d899dfbb60bce047e85a73a48355722bbe52b319f0d3bde`
+> produced green behavioral tests but exceeded the 220-line budget at 247 code+test lines,
+> left the version schema undefined, had CloseHandle ambiguity, an incorrect PID upper
+> bound, and exception-handling inconsistency. It supplies no passing evidence. No passing
+> evidence is inherited by D01a2a or D01a2b.
+
+**D01a2b — Win32 process identity.**
+
+Depends on D01a2a. Win32 OpenProcess/GetProcessTimes creation token via a reusable safe
+primitive/pattern with no os.kill/process control. A CloseHandle failure or unavailability
+during process-identity acquisition is **unprovable** — it produces no usable token and
+the marker is refused, not approximated. Tests exercise real Windows identity where
+supported and injected edge cases covering every refusal category; no
+acquisition/reclaim/unlink yet.
+
+Target ≤220 changed lines and one rollback boundary.
 
 **D01a3 — File fallback acquisition and cleanup.**
 
-Depends on D01a2. Fallback only on `guard_acquisition_failed`; fixed marker under existing
+Depends on D01a2b. Fallback only on `guard_acquisition_failed`; fixed marker under existing
 verified non-reparse parent; handle/path binding; deadline each retry; reclaim only
 provably missing or PID-token mismatch; identity-checked removal never deletes successor;
 race tests clean exact residues. Target ≤280 changed lines and one rollback boundary.
@@ -790,18 +828,21 @@ non-reparse parent directory; D01 invents no caller-supplied path.
 1. resolve      path = %LOCALAPPDATA%\yasb-limitora\config.json (fixed; no override invented)
 2. pre-check    if the fixed config parent directory is absent -> return `config-absent`;
                 do not create the state root; no lock is acquired
-3. acquire      [D01a1/D01a2/D01a3] single-writer lock with a 5-second bounded wait:
+3. acquire      [D01a1/D01a2a/D01a2b/D01a3] single-writer lock with a 5-second bounded wait:
                   primary:   [D01a1] Guard's SID/path-derived `Global\` named mutex,
                              context-managed lease keyed by exact fixed config.json path,
                              retry Guard's 250ms waits against one 5-second DeadlineContext
-                  marker:    [D01a2] bounded canonical marker with exact schema/size;
-                             Win32 OpenProcess/GetProcessTimes creation token via reusable
-                             safe primitive; no acquisition/reclaim/unlink in this sub-unit
+                  marker:    [D01a2a] canonical UTF-8 JSON marker with sorted keys,
+                             no whitespace, 256-byte preparse max, and one sanitized
+                             validation error; deterministic roundtrip; zero file I/O
+                  identity:  [D01a2b] Win32 process-identity token via reusable safe
+                             primitive; CloseHandle failure/unavailability is
+                             unprovable; no acquisition/reclaim/unlink in this sub-unit
                   fallback:  [D01a3] permitted ONLY for `guard_acquisition_failed` (native
                              mutex unavailable); use a safe O_CREAT|O_EXCL marker file
                              with the fixed literal name `yasb-limitora.lock` under the
                              verified existing non-reparse parent; the marker records
-                             bounded PID/process-identity ownership via D01a2's codec and
+                             bounded PID/process-identity ownership via D01a2a/D01a2b's codec and
                              may reclaim only a provably missing or PID-token-mismatched
                              owner; a live owner or unprovable ownership refuses with
                              sanitized `config-lock-busy`
