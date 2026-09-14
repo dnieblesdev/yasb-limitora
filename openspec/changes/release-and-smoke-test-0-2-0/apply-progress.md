@@ -728,3 +728,304 @@ delivery action occurred. This record does NOT advance S05/S06/S11 or G2b.
   added 54 lines and replaced 1 checkbox line (**55 changed lines**), so authoritative S04c
   accounting is **201 technical + 55 documentation = 256/400**. Rollback: revert only the M6
   integration guidance and this record; no fallback mechanism is substituted.
+
+## S05 — Private setup-assist dispatch and nonce-derived temp transport: COMPLETE
+
+Date: 2026-09-08 (local). Worker: delegated apply executor. Delivery: `auto-chain`, `feature-branch-chain`; single S05 review unit. No commit, tag, PR, installer build/execution, publication, install/uninstall, YASB config/PATH/process mutation, or native review; no later slice started.
+
+### Delivered
+
+- `src/yasb_limitora/setup_assist.py` (new; private: no public export, no `__all__`): sentinel `--__yasb-limitora-setup-assist` gated on the per-run `_YASB_SETUP_ASSIST_NONCE` env value; exact `[0-9a-f]{32}` nonce grammar validated before any filesystem access; Local AppData resolved through `SHGetKnownFolderPath`; transport independently derived as `%LOCALAPPDATA%\Temp\yasb-limitora-setup-assist\<nonce>\` from fixed literal segments through a two-input derivation — no request/argv/env-supplied transport or target path is ever accepted; request read bounded to a regular non-reparse ≤64 KiB file with fd-bound fstat recheck; strict request/v1 schema (exact root keys, ≤8 unique operations, path-bearing-key rejection, unknown/duplicate/malformed/undecodable/oversize refusals); result/v1 created exclusively (`O_CREAT|O_EXCL`, ≤64 KiB) and sanitized — status `complete|partial|refused`, fixed per-operation reason codes, discovery facts limited to state strings, no paths, never on stdout; `discover`/`yasb-running` run read-only via S04a discovery; operations owned by S06–S09 refuse nonfatally as `operation-unavailable` so a program transaction can continue.
+- `src/yasb_limitora/cli.py` (+4/−0): dispatch immediately after `freeze_support()` with the existing helper sentinel preserved first, before `_config_path`; without the nonce env value the sentinel is unrecognized and falls through to the normal invalid-argv exit 2 (`invocation_invalid` contract intact) touching nothing; public argv surface unchanged.
+- New tests: `tests/test_setup_assist_protocol.py` (38 cases: derivation literal/independence/program+state-root separation, nonce grammar, pre-filesystem refusal, no stdout contract, no state creation, transport/request/result defects incl. reparse component, non-regular file, oversize, stale-fs-view TOCTOU race, 15 schema-violation cases with request-byte preservation, nonfatal refusal, pre-existing result never overwritten) and `tests/test_frozen_entry_order.py` (5 cases: platform gate, freeze_support precedence, helper-before-assist, dispatch before `_config_path`, no-nonce fall-through with no mutation, extra-args rejection).
+
+### TDD Cycle Evidence
+
+| Phase | Action | Command | Result |
+| --- | --- | --- | --- |
+| RED | Both test modules authored before any implementation | `python -m pytest -q tests/test_setup_assist_protocol.py tests/test_frozen_entry_order.py` | 2 collection errors — `No module named 'yasb_limitora.setup_assist'`; failure exactly on the missing module/dispatch |
+| GREEN | `setup_assist.py` + 4-line cli dispatch | same focused command | 42 passed |
+| TRIANGULATE | Mutants on final bytes: `fullmatch`→`match`; cli `args ==`→`args[:1] ==`; dropped `O_EXCL`. The `O_EXCL` mutant initially SURVIVED (kind precheck masked it), so the stale-fs-view exclusivity test was added; each mutant then killed exactly 1 test; byte-identical restore sha256-verified | focused pytest per mutant + `sha256sum -c` | 1 failed/37 passed; 1 failed/4 passed; 1 failed/37 passed; restore OK → 43 passed |
+| REFACTOR | Compacted module/tests to house style; no assertion weakened | focused + full + native + ruff | 43 passed; 784 passed, 3 skipped; 11 passed; ruff clean |
+
+### Verification, boundaries, accounting
+
+- Focused: `python -m pytest -q --strict-markers tests/test_setup_assist_protocol.py tests/test_frozen_entry_order.py` → **43 passed**. Full: `python -m pytest -q --strict-markers` → **784 passed, 3 skipped**. Native: `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` → **11 passed** (runnable on this Windows host; not `unrun (external)`). `python -m ruff check` clean on all four touched files.
+- Boundaries honored: assist creates nothing except `result.json` (nonce directory owned by setup.exe; state/program roots never created — tested); no YASB/PATH/registry mutation; no secret or absolute user path in results; the Inno side must independently derive the same literal in S11; `state-cleanup`/PATH/`.env`/config semantics arrive in S06–S09.
+- Accounting: **369 technical** (172 module + 144 protocol tests + 49 entry-order tests + 4 cli diff) + 2 tasks.md + 26 this section = **397/400**. Rollback: delete `setup_assist.py` and both test files and revert the 4 cli lines — the existing helper sentinel order is restored and no user-data mutation surface remains.
+
+### S05 corrective rerun — TOCTOU hardening at request/result I/O boundaries (2026-09-08, local)
+
+**Blocker (independent verification FAILED):** `_components_safe`/`fs.kind` validated the transport path, but `_read_request` and `_write_result` then opened `request.json` / created `result.json` **by pathname**. `O_EXCL` protects only the leaf; a validated nonce directory (or parent) could be swapped to a junction/reparse point between check and I/O, redirecting the read or the exclusive create to an attacker-chosen location.
+
+**Fix (smallest Windows-safe, operation-boundary revalidation — not a second precheck):** after each pathname-based `os.open`, the open handle's true location is resolved with `GetFinalPathNameByHandleW` (`\\?\`-prefixed, all reparse points resolved) via `msvcrt.get_osfhandle`, and compared casefolded against the expected canonical path (`_fd_reached_path`/`_expected_final`/`_handle_final_path`):
+
+- `_read_request`: mismatch after fstat checks → `request-unsafe`; planted bytes behind a substituted parent are never consumed and never reach `_validate_request`.
+- `_write_result`: `O_EXCL` create retained; mismatch on the created handle → `_close_and_remove_stray` closes and deletes only the empty remnant this call exclusively created, returns `False` — the attacker directory gains nothing. Post-open binding is race-free: once the handle is open, later parent swaps cannot move it.
+- No weakening: `O_EXCL`, nonce grammar, `_canonical_dir`/`_components_safe`, schema/size/path-key checks, no-stdout contract, helper/assist dispatch order, and all 43 prior tests unchanged. Fail-closed on any `GetFinalPathNameByHandleW` failure (None → refuse).
+
+**RED tests (real junctions on this native Windows host, deterministic, both boundaries + direct units):** `SwapFs` fires the attacker swap (`os.rename` nonce dir aside + `_winapi.CreateJunction` to attacker dir, `mklink /J` fallback) exactly at the first `kind()` probe of `request.json` (before request open) or `result.json` (after request read, before result create), with `fs.done`/armed-flag assertions proving the race actually fired:
+
+1. `test_request_open_rejects_nonce_directory_swapped_to_junction_after_validation` — exit 1, no `result.json` through the junction or in the preserved original, attacker dir holds only its planted request (no stray artifacts).
+2. `test_result_creation_rejects_nonce_directory_swapped_to_junction_after_request_read` — exit 1, attacker dir ends **empty** (no result, no exclusive-create remnant), original request bytes preserved.
+3. `test_read_request_fails_closed_when_parent_is_already_a_junction` — `(None, "request-unsafe")`; planted bytes never returned.
+4. `test_write_result_fails_closed_and_removes_stray_when_root_is_a_junction` — `False` and attacker dir empty.
+
+**TDD Cycle Evidence (correction):**
+
+| Phase | Action | Command | Result |
+| --- | --- | --- | --- |
+| RED | 4 junction-substitution tests authored first (2 mid-run races via `SwapFs`, 2 direct unit boundaries); no implementation change yet | `python -m pytest -q --strict-markers tests/test_setup_assist_protocol.py tests/test_frozen_entry_order.py` | **4 failed, 43 passed** — failures exactly reproduced the blocker: attacker-planted request bytes consumed (`data is None` assertion failed with the planted JSON) and `result.json`/remnant created through the junction (`True is False`, non-empty attacker dir) |
+| GREEN | `_expected_final`/`_handle_final_path`/`_fd_reached_path`/`_close_and_remove_stray` added; guards inserted in `_read_request` (post-fstat) and `_write_result` (post-create, pre-`fdopen`) | same focused command | **47 passed** (one interim test-harness defect — `-orig` dir located under `tmp_path` instead of `root.parent` — fixed in the test, never in the guard) |
+| TRIANGULATE | Mutants: M1 drop read-side guard → 1 failed/41; M2 drop write-side guard → 3 failed/39; M3 `_fd_reached_path`→`True` → 4 failed/38; M4 drop stray `os.remove` → 3 failed/39; byte-identical restore after each | focused pytest per mutant + `sha256sum -c` | every mutant killed only by the new race tests; restore **OK** |
+| REFACTOR | `_la` unused-unpack cleanup for ruff RUF059; no assertion or guard weakened | focused + full + native + ruff | **47 passed**; full `python -m pytest -q --strict-markers` → **788 passed, 3 skipped**; native `tests/test_windows_native_proof.py` → **11 passed**; `python -m ruff check` → **All checks passed** on both touched files |
+
+**Verification, boundaries, correction accounting:**
+
+- Edit surfaces honored exactly: `src/yasb_limitora/setup_assist.py` (172→216 lines, +44), `tests/test_setup_assist_protocol.py` (144→241, +97), this file. Everything else read-only; no commit, review, delivery, installer, publication, real YASB/PATH/config/registry mutation, or later slice. All substitutions occurred only inside disposable pytest `tmp_path` dirs; junctions removed by pytest cleanup.
+- Native-Windows proof passed where runnable (junction races executed for real on this host, not simulated/mocked FS kinds); non-nt hosts skip the 4 junction tests via `needs_nt` while the guards fail closed (`_handle_final_path` returns None off-Windows).
+- Correction accounting: **141 technical** (44 module + 97 tests) + this section ≈ **176/400** — bounded and reviewable as a single corrective unit on top of the settled S05 unit (397/400), which the parent may aggregate or review separately per its settlement authority.
+- S05 checkbox in `tasks.md` remains `[x]`; this rerun closes the verification blocker without re-opening slice state. Gate order untouched: G2b/S06+ remain blocked as before.
+- Rollback boundary: revert the 4 new helpers + 2 guard insertions in `setup_assist.py` and delete the 4 new tests + helpers section in the protocol test file; prior S05 bytes are reconstructible from the sha256-verified pre-mutant restore point.
+
+## S06 — Consented, byte-preserving YASB `.env` assistance: COMPLETE
+
+Delivery: `auto-chain`, `feature-branch-chain`; standalone S06 only. No commit, installer, real YASB/PATH/config mutation, or later slice.
+
+### Completed tasks
+
+- [x] Explicit-consent-only `env-block-apply` choice, using S04c's M6 resolved no-PATH invocation only.
+- [x] Comment-only, marker-delimited `.env` transaction with UTF-8/BOM/dominant-newline and unrelated-byte preservation, idempotence, atomic replacement/verification, state-root backup, and rollback.
+- [x] Bounded nonfatal refusals cover unsafe/reparse home or target, malformed markers, undecodable bytes, credential-like rendering, create/replace/verify failure, and rollback failure. YAML/CSS are never opened or written.
+
+### TDD Cycle Evidence
+
+| Phase | Command / action | Result |
+| --- | --- | --- |
+| RED | Added `tests/test_setup_assist_env_block.py` before implementation | `python -m pytest -q --strict-markers tests/test_setup_assist_env_block.py` → collection failed: `ModuleNotFoundError: yasb_limitora._env_block` |
+| GREEN | Added `_env_block` transaction | same command → **9 passed** |
+| RED (protocol) | Added explicit-false consent assertion before dispatch/schema change | `python -m pytest -q --strict-markers tests/test_setup_assist_protocol.py::test_env_block_choice_requires_explicit_true_consent` → **1 failed** (`schema-violation`, not consent refusal) |
+| GREEN | Narrow `consent: bool` schema for `env-block-apply`; independently derive home/state/M6 invocation | focused required command → **57 passed** |
+| TRIANGULATE | Mutated rendered safe text to credential-like `token`; restored byte-for-byte | creator test → **1 failed** (no `.env` promoted); source restored |
+| REFACTOR | Added create-failure refusal coverage; Ruff and focused rerun | `python -m ruff check ...`; focused required command → clean; **58 passed** |
+
+### Verification and workload
+
+- Full: `python -m pytest -q --strict-markers` → **799 passed, 3 skipped** (40.50s).
+- Files: `src/yasb_limitora/_env_block.py`, `src/yasb_limitora/setup_assist.py`, `tests/test_setup_assist_env_block.py`, `tests/test_setup_assist_protocol.py`, `tasks.md`, and this progress record.
+- S06 review boundary: **305 additions+deletions** (129 new helper + 100 new tests + 40 setup-assist + 7 protocol + 2 task + 27 progress); ≤400. Rollback: revert these S06 files; an existing `.env` restores from state-root backup, while a created target is deleted on failure.
+- Remaining: S07 onward and external G2b remain untouched.
+
+## S06 reparse/atomicity corrective remediation: COMPLETE
+
+Delivery: parent-acquired `S06-reparse-atomicity-remediation` only. No new attempt was acquired or settled; no commit, installer, real YASB/state/PATH mutation, or later slice.
+
+### Completed corrective work
+
+- Direct `.env` mutation fails closed unless `consent=True` is explicitly supplied; setup-assist passes that literal only after validated request consent.
+- `lstat` reparse-point validation covers existing home, `.env` leaf, state root, backup, and temporary components. Real Windows `mklink /J` proofs cover home, target, and state root.
+- Reads, backup creation, and temp writes are bound to their opened Windows handles with `GetFinalPathNameByHandleW`; a post-open substitution fails closed before bytes are consumed or written. Replace/verify paths are revalidated; rollback restores through a verified target handle rather than pathname replacement.
+- Backup testing enumerates actual backup files and proves retained original bytes.
+
+### TDD Cycle Evidence (corrective)
+
+| Phase | Action / command | Result |
+| --- | --- | --- |
+| RED | Added default-consent, actual-junction, and opened-handle race tests first | `python -m pytest -q --strict-markers tests/test_setup_assist_env_block.py` → **4 failed, 10 passed**: default mutated; home/state junctions accepted; backup proof did not prove bytes. |
+| GREEN | Added reparse/handle guards, safe backup/restore, explicit default, and dispatch integration | same suite → **16 passed**. |
+| TRIANGULATE | Injected parent-to-junction swaps immediately after `os.open` and at rollback | focused suite → attacker tmp locations received no original bytes. |
+| REFACTOR | Retained byte/BOM/newline/idempotence/marker/M6/no-secret behavior and linted | **16 passed**; Ruff clean. |
+
+### Verification and boundary
+
+- Required focused: `python -m pytest -q --strict-markers tests/test_setup_assist_env_block.py tests/test_setup_assist_protocol.py tests/test_frozen_entry_order.py` → **64 passed**.
+- Full: `python -m pytest -q --strict-markers` → **805 passed, 3 skipped**.
+- Native Windows: `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` → **11 passed**; junction/race tests used only `tmp_path` and cleaned artifacts.
+- Ruff: `python -m ruff check src/yasb_limitora/_env_block.py src/yasb_limitora/setup_assist.py tests/test_setup_assist_env_block.py tests/test_setup_assist_protocol.py` → **All checks passed**.
+- Files changed: `src/yasb_limitora/_env_block.py`, `src/yasb_limitora/setup_assist.py`, `tests/test_setup_assist_env_block.py`, and this progress record. Bounded S06 remediation below 400 lines; S06 remains checked and no task/gate order changed.
+- Remaining: S07 onward and G2b; all external/publication gates stay unchanged.
+
+## S06 — final-check-to-replace directory-TOCTOU correction: COMPLETE
+
+Delivery: parent-authorized exact `S06-windows-directory-guard` correction only. No new native attempt was acquired or settled; no commit, installer, delivery, real YASB/state/PATH mutation, or later slice.
+
+### TDD Cycle Evidence
+
+| Phase | Action / command | Result |
+| --- | --- | --- |
+| RED | Added the native Windows race test before guard code. Its `os.replace` boundary hook runs only after final pathname checks, attempts a real parent-directory rename, and creates a junction only if the rename succeeds. | Exact node → **1 failed**: attack fired, rename succeeded, and substitution was possible. |
+| GREEN | Added a verified `CreateFileW` directory handle (`FILE_FLAG_BACKUP_SEMANTICS`, `GENERIC_READ`, shared read/write only — no `FILE_SHARE_DELETE`) held across temp creation, flush, replace, post-replace read verification, and rollback-sensitive verification. | Exact node → **1 passed**: attack fired at replacement, rename was denied, no junction was created, and `.env` updated normally. |
+| TRIANGULATE | Mutated the handle share mask from read/write (`0x3`) to read/write/delete (`0x7`), then restored the exact source bytes. | Exact node → **1 failed**: rename and junction substitution succeeded; restored guard passed. |
+| REFACTOR | Retained handle-bound read/temp/backup/rollback, O_EXCL, BOM/newline/idempotence/markers/M6/no-secret behavior. | Focused suite **65 passed**; Ruff and `py_compile` clean. |
+
+### Verification and scope
+
+- Determinism: the native junction race passed **20 consecutive** runs; all activity used pytest `tmp_path` and cleanup removed test trees/junctions.
+- Focused: `python -m pytest -q --strict-markers tests/test_setup_assist_env_block.py tests/test_setup_assist_protocol.py tests/test_frozen_entry_order.py` → **65 passed**.
+- Full: `python -m pytest -q --strict-markers` → **806 passed, 3 skipped** (39.60s). Native: `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` → **11 passed** (7.51s).
+- Diagnostics: `python -m ruff check src/yasb_limitora/_env_block.py tests/test_setup_assist_env_block.py` and `python -m py_compile src/yasb_limitora/_env_block.py tests/test_setup_assist_env_block.py` → clean.
+- Accounting is against immutable pre-correction tree `01513cb574a70354f15adec568d3ac401e54a53e`, not the ordinary index. Reproduce from the repository root:
+
+  ```sh
+  base=01513cb574a70354f15adec568d3ac401e54a53e; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT; total=0
+  for path in src/yasb_limitora/_env_block.py tests/test_setup_assist_env_block.py openspec/changes/release-and-smoke-test-0-2-0/apply-progress.md; do
+    baseline="$tmp/$(basename "$path")"; git show "$base:$path" > "$baseline"
+    numstat=$(git diff --no-index --numstat -- "$baseline" "$path" || test $? -eq 1); set -- $numstat
+    printf '%s +%s/-%s\n' "$path" "$1" "$2"; total=$((total + $1 + $2))
+  done; printf 'total=%s\n' "$total"
+  ```
+
+- Result after this evidence edit: `_env_block.py` **+78/−37 = 115**, `test_setup_assist_env_block.py` **+31/−0 = 31**, and this record **+33/−0 = 33**; total **179 changed lines** (≤400). The final correction section occupies 33 physical Markdown lines; physical lines and diff lines are distinct measures.
+- No design deviation: raw Windows handle acquisition/final-path failure fails closed; `CloseHandle`/fallback fd closes on all paths. S06 remains checked; S07 onward and G2b are untouched.
+
+## S07 — Optional User PATH and explicit literal-state cleanup: COMPLETE
+
+- Files: `setup_assist.py`, new `_path_cleanup.py`, new `test_setup_assist_path.py`, `test_setup_assist_protocol.py`, task/progress records. HKCU-only verbatim add/remove preserves `REG_SZ`/`REG_EXPAND_SZ`, `%VAR%`, and empty elements; only the recorded final exact element is removed. Cleanup accepts only `YES`, derives the literal state root, rejects file/reparse state, and leaves nonce transport for the result.
+- | TDD Cycle Evidence | Result |
+  | --- | --- |
+  | RED | `python -m pytest -q --strict-markers tests/test_setup_assist_path.py` → collection failed: missing `_path_cleanup` module. |
+  | GREEN | focused path/protocol → 50 passed, 1 skipped. |
+  | TRIANGULATE | independent duplicate/missing-record, `REG_SZ`/expand, empty-element/`%VAR%`, non-YES, file/reparse, and post-delete-result cases pass. |
+  | REFACTOR | ancestor reparse check added; focused rerun 50 passed, 1 skipped; Ruff clean. |
+- Verification: focused 50 passed/1 skipped; full `python -m pytest -q --strict-markers` → 813 passed, 4 skipped; native `tests/test_windows_native_proof.py` → 11 passed; scoped Ruff clean. No installer/YASB/process action. An early protocol test accidentally invoked the real adapter once; exact recorded element was immediately removed through the product's precise removal path; tests now inject a fake registry.
+- Workload/rollback: 399 changed lines (203 new helper + 124 new path tests + 39 setup add/delete + 19 protocol add/delete + 2 task checkbox + 12 evidence); ≤400. Roll back only the exact recorded PATH element and literal state root after YES; never delete transport. S08+ untouched.
+
+## S07-security-remediation — PARTIAL, security blockers narrowed
+
+Native rescope authorized by the maintainer; attempt token `sha256:793807382e60513bf02cd0b2f9f37af69f558c832e2e680cf0cc0e88e93ac1e2` was not acquired or settled here. This record does not claim settlement of `sha256:d8ea0a47a9a153d909c5c72912d9909245522b63a686d4753c53d251e299a864`.
+
+### Completed bounded corrections
+
+- PATH append now uses a bounded compare/retry operation, preserving an external edit observed before the retry; it preserves `REG_SZ`/`REG_EXPAND_SZ`, empty elements, and verbatim content.
+- PATH bookkeeping is rollback-safe: append/record and remove/clear failures compare-restore the original PATH value/type and do not notify.
+- The stored record now binds the owned final PATH string/type and element. Any concurrent PATH edit, including an externally appended identical element, refuses removal rather than guessing ownership.
+- Cleanup rechecks the literal state directory identity at every destructive descent and rejects a reparse root substituted after prior validation. The deterministic temp-only swap test proves outside content remains intact.
+- All operation tests use explicit fake registries. A protocol guard patches the default real adapter to raise and proves the injected fake is used instead.
+
+### TDD Cycle Evidence
+
+| Phase | Command / action | Result |
+| --- | --- | --- |
+| RED | `python -m pytest -q --strict-markers tests/test_setup_assist_path.py tests/test_setup_assist_protocol.py` | 6 failed, 48 passed, 1 skipped: retry, bookkeeping rollback, ownership, and post-validation root-swap protections were absent. |
+| GREEN | Implemented bounded CAS/retry, ownership-bound bookkeeping, rollback, and reparse identity checks | focused rerun: 55 passed, 1 skipped. |
+| TRIANGULATE | Mutated the ownership comparison to permit changed PATH ownership, then ran `tests/test_setup_assist_path.py::test_removal_refuses_external_identical_element_after_owned_append`; restored exact code | 1 failed under mutant; restored focused suite passed. |
+| REFACTOR | Scoped Ruff plus focused rerun | `ruff check` clean; 55 passed, 1 skipped. |
+
+### Verification and safety evidence
+
+- Focused S07/protocol: `python -m pytest -q --strict-markers tests/test_setup_assist_path.py tests/test_setup_assist_protocol.py` → **55 passed, 1 skipped**.
+- Full: `python -m pytest -q --strict-markers` → **818 passed, 4 skipped**.
+- Native: `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` → **11 passed**.
+- Ruff: `python -m ruff check src/yasb_limitora/_path_cleanup.py tests/test_setup_assist_path.py tests/test_setup_assist_protocol.py` → **All checks passed**.
+- Sanitized read-only HKCU snapshot before/after: `Path` remained `present`, type `2` (`REG_EXPAND_SZ`), SHA-256 `1a06e298463a47b52a3e818873769549c7758956653858e2f5e77026d32153c4`; bookkeeping remained `absent`. No registry contents were recorded. No real HKCU write, System PATH access, installer/config/YASB/release operation, or process launch was performed. Post-verification attributable process count: `0`.
+
+### Accounting correction and residual risk
+
+- Corrected the original S07 review accounting claim from **400** to the independently measured **399 changed lines** against the supplied attempt-begin accounting: `203 + 124 + 39 + 19 + 2 + 12 = 399`. This is a correction only; it does not authorize a new slice or broaden S07.
+- **Residual blocker:** Windows Python does not expose directory file-descriptor operations (`os.supports_dir_fd` is empty). The current cleanup revalidates identity/no-reparse at each path operation and the deterministic root-swap case passes, but it is not a Windows kernel-handle-bound recursive deleter. Do not settle the supplied evidence or treat the cleanup TOCTOU blocker as fully remediated until a true handle-bound Windows deletion primitive is implemented and natively proven.
+- S08 and all other slices remain untouched. No task checkbox was changed because this remediation is partial.
+
+## S07-C2 — integration/regression closure: COMPLETE
+
+Delivery: `auto-chain`, `feature-branch-chain`; C2 only. No commit, branch, PR, native-token acquisition/settlement, installer, or real PATH mutation.
+
+### TDD Cycle Evidence
+
+| Phase | Action / command | Result |
+| --- | --- | --- |
+| RED | Added the missing cross-operation integration guard before any production edit: injected fake registry, patched default real adapter to raise, PATH add/remove plus affirmative cleanup in one assist request. | New guard defines the previously unrepresented C1/C2 integration boundary; no production defect was exposed, so production code was intentionally unchanged. |
+| GREEN | `python -m pytest -q --strict-markers tests/test_setup_assist_protocol.py::test_s07_operations_use_injected_registry_and_keep_result_after_native_cleanup` | 1 passed. |
+| TRIANGULATE | The guard uses a raising `WindowsUserPathRegistry` replacement: any construction fails; it also requires deleted state, a readable `result.json` below Temp but outside the deleted state root, and empty stdout. | Passed, proving all exercised registry behavior uses the explicit fake and transport remains usable after C1 deletion. |
+| REFACTOR | No production refactor: the completed C1 native cleanup integration is correct. | Scoped Ruff clean. |
+
+### Verification, custody, and accounting
+
+- Focused: `python -m pytest -q --strict-markers tests/test_setup_assist_path.py tests/test_setup_assist_protocol.py tests/test_windows_native_state_cleanup.py` → **62 passed, 1 skipped**. This regresses S07-A PATH ownership/transaction and S07-B literal-YES, root, and transport behavior alongside C1's direct native proof.
+- Full: `python -m pytest -q --strict-markers` → **825 passed, 4 skipped**. Native proof: `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` → **11 passed**. The supplied native token `sha256:ddb8368ad8b58433ca4265af36dfa5d3d513f335aff13a0b8c24c72717080686` was neither acquired nor settled.
+- Ruff: `python -m ruff check src/yasb_limitora/setup_assist.py src/yasb_limitora/_path_cleanup.py tests/test_setup_assist_path.py tests/test_setup_assist_protocol.py tests/test_windows_native_state_cleanup.py` → **All checks passed**.
+- Sanitized HKCU snapshots before/after are identical: User `Path` is present, type `2` (`REG_EXPAND_SZ`), raw-value SHA-256 `b335b90d33445151c2706289f39ef8e8c1a2659c5b36f7895ceebb57ac629ba9`; app bookkeeping is absent (no value/type/hash). No PATH contents were recorded. The test patched the real adapter to raise and supplied an explicit fake; no registry write occurred.
+- Process/temp evidence: focused tests use pytest `tmp_path`; native cleanup tests use temp roots only. No real state root or transport was touched. Final attributable-process query excludes itself and reports `0` after runner completion.
+- Why the original **399-line** S07 was practically oversized: one nominal line of headroom could not honestly contain a handle-bound cleanup replacement plus native proof. C1 therefore became a separate feature-chain unit: **312-line base plus a separate 17-line proof correction**. C2 is separately bounded and does not relabel or compress those changes.
+- Exact C2 accounting against the C2 attempt-begin tree: `tests/test_setup_assist_protocol.py` +38/−0; `tasks.md` +4/−0; this progress record +24/−0; **66 changed lines**, within the hard ≤250 C2 budget. Aggregate S07 is now complete only because A, B, C1, and this passing C2 are explicitly checked in `tasks.md`; S08 remains unchecked.
+- Rollback boundary: remove only the C2 integration guard and its C2 task/progress entries; production cleanup, PATH behavior, state, registry, and transport remain untouched.
+
+## S08 — Config assist Gate 1: whole-document validation and reject-and-preserve: COMPLETE
+
+Delivery: `auto-chain`, `feature-branch-chain`; S08 only. No commit, branch, PR, installer, release-state, PATH, registry, YASB, or real user config mutation. Native attempt token `sha256:7e087b59861ee1dce23a7c5b544a4e9f5e4399532145dbc7325652382261e9fc` was neither acquired nor settled.
+
+### Completed task
+
+- [x] Exposed `config.validate_config_document()` to parse raw UTF-8 with duplicate-key and non-finite rejection and run the existing strict `LocalConfig.from_mapping()` contract without altering runtime callers or acceptance.
+- [x] `config-apply` now reads only an existing literal state config during Gate 1. Invalid bytes return one bounded `{field: "config", reason: ...}` diagnostic with no value disclosure and no backup, temp, write, normalization, reserialization, repair, merge, or deletion. Valid/absent configs stop nonfatally before S09's write path.
+
+### TDD Cycle Evidence
+
+| Phase | Command / action | Result |
+| --- | --- | --- |
+| RED | Added `tests/test_setup_assist_config.py` before production edits | `python -m pytest -q --strict-markers tests/test_setup_assist_config.py` → 8 failed, 1 passed; every invalid case reported the prior `operation-unavailable` behavior. |
+| GREEN | Added the reusable raw-document validator and read-only Gate 1 result path | focused test → 9 passed. |
+| TRIANGULATE | Replaced the one validator call with `pass` in a temporary source mutation, ran the focused suite, then restored the exact source hash | mutant → 7 failed, 3 passed; restored `setup_assist.py` SHA-256 `7500f89f73f5cfe58813efab907ed8e68d345d0053b01bbf21128ee2f45e1d86`; focused rerun → 10 passed. |
+| REFACTOR | Added the runtime-valid no-backup/no-temp boundary case and typed narrowing only; reran focused tests and Ruff | 10 passed; Ruff clean. |
+
+### Verification and preservation evidence
+
+- Focused: `python -m pytest -q --strict-markers tests/test_setup_assist_config.py` → **10 passed**.
+- Full: `python -m pytest -q --strict-markers` → **835 passed, 4 skipped** in 38.89s.
+- Native: `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` → **11 passed** in 7.52s.
+- Scoped Ruff: `python -m ruff check src/yasb_limitora/config.py src/yasb_limitora/setup_assist.py tests/test_setup_assist_config.py` → **All checks passed**.
+- Seven invalid byte inputs (malformed JSON, duplicate key, `NaN`, unknown key, credential-like key, wrong type, and undecodable bytes) are written only below pytest `tmp_path`; each test captures a SHA-256 before read and asserts the exact original bytes plus the same digest after refusal. The credential test asserts a fixed diagnostic and never permits its secret-like value into a record.
+- Directory assertions prove invalid and valid existing configs have only `config.json` after Gate 1; absent config leaves even the state root uncreated. The only assist output mutation remains S05's nonce transport result, not config state. No cleanup/process operation is invoked by S08.
+- Normal runtime remains fail-closed: the S08 test calls `cli._load_explicit` on an unknown-field document and receives `ConfigError`; existing CLI projection retains `configuration_invalid`. No runtime call site changed.
+
+### Workload / PR boundary and rollback
+
+- Exact S08 attempt-begin accounting: `config.py` **+45/−4** (49), `setup_assist.py` **+35/−0** measured from its 239-line S08 begin snapshot, new config tests **+79/−0**, task checkbox **+1/−1** (2), and this progress record **+34/−0**: **199 changed lines**, within the ≤400 budget. Existing untracked S05/S07 files are excluded from this per-slice accounting.
+- Rollback boundary: remove `validate_config_document`, the read-only `config-apply` Gate 1 branch, S08 tests, and this task/progress record. Invalid configs remain untouched; S09 merge/create/backup/write work is not present.
+- Remaining work starts at S09; it is deliberately not started by this slice.
+
+## S08 — Gate 1 remediation: COMPLETE
+
+Delivery remains `auto-chain`, `feature-branch-chain`; S08 correction only. Native token `sha256:b58a3f8b6f41add5bbc6f0f8f9eacae5ddc4017db350006c12b9d028d01db988` was neither acquired nor settled; passing remediation target `sha256:5dc980f832a631dbb9db260a69bb895bee20c154aae19860926a63d76eb0da02` is recorded.
+
+- [x] Gate 1 now invokes `LocalConfig.from_mapping` through `validate_config_document(..., provider_errors)` at runtime's provider-scoped whole-document boundary. Invalid root fields still refuse; invalid `codex`/`opencode_go` subdocuments match runtime acceptance and report only bounded `{provider, reason: provider-invalid}` diagnostics.
+- [x] Existing config reads are handle-bound: no `exists()`/`read_bytes()`, no-follow open, regular/reparse/size checks, final-handle path binding, and fail-closed refusal when verification is unavailable. The read handle—not a later pathname—supplies validation bytes. No backup/temp/write/normalization/reserialization occurs.
+- [x] RED: `python -m pytest -q --strict-markers tests/test_setup_assist_config.py` → **4 failed, 10 passed, 1 skipped** (provider parity and handle-swap cases). GREEN: same command → **14 passed, 1 skipped**. TRIANGULATE: removing the final-handle check made `test_gate_one_refuses_when_handle_verification_detects_a_config_swap` fail; source was restored byte-identically, then focused rerun → **15 passed, 1 skipped**. REFACTOR: scoped Ruff passed.
+- Verification: `python -m pytest -q --strict-markers` → **840 passed, 5 skipped**; `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` → **11 passed**; `python -m ruff check src/yasb_limitora/config.py src/yasb_limitora/setup_assist.py tests/test_setup_assist_config.py` → **All checks passed**. Temp-only deterministic root-junction coverage passed; file-symlink coverage skipped where the host denies it. External target bytes remained unchanged; no attributable Python/YASB/installer process remained.
+- Accounting correction: the historical S08 entry is preserved at the immutable native-ledger value **203 additions+deletions**. This second attempt is **143 additions+deletions**, for **346/400 cumulative**; the false **146/349** claim is removed. S08 remains checked. S09 is deliberately unchecked and unstarted; this proves only the nonfatal optional-operation result contract, not S11 installer continuation.
+- Rollback: revert only this Gate-1 validator/read/test correction and its evidence; invalid documents remain byte-identical and no S09 transaction exists.
+
+## S08 — final correction: COMPLETE
+
+Delivery remains `auto-chain`, `feature-branch-chain`; S08 final correction only. No production behavior changed, and no real config/PATH/registry/YASB/installer/release state was touched.
+
+- [x] Added a real Windows temp-filesystem parent-replacement race proof. The reader is synchronized before pathname open, the validated parent is replaced with a junction, and substituted bytes are rejected rather than consumed.
+
+### Strict TDD
+
+- RED: the new behavioral test passed immediately; current production already safely rejects the real race, so this correction is evidence-only and no fabricated RED failure is claimed.
+- GREEN: focused S08 config tests passed with the real filesystem race repeated three times inside the node.
+- TRIANGULATE: a temporary mutation forcing final-handle verification true made the real-race test fail with `config-gate-2-unavailable`; production was restored byte-identically.
+- REFACTOR: bound loop-local synchronization values as function defaults; scoped Ruff and the focused node passed.
+
+### Verification
+
+- Focused: `python -m pytest -q --strict-markers tests/test_setup_assist_config.py` → **16 passed, 1 skipped**.
+- Repeated race node: three standalone invocations → **1 passed** each.
+- Full: `python -m pytest -q --strict-markers` → **841 passed, 5 skipped**.
+- Standalone native proof: `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` → **11 passed**.
+- Ruff: `python -m ruff check src/yasb_limitora/setup_assist.py tests/test_setup_assist_config.py` → **All checks passed**.
+- Process/cleanup: pytest temp roots only; no real-state mutation or attributable process remained.
+
+### Accounting
+
+- Immutable native ledger: initial S08 **203**; second attempt **143**; prior cumulative **346**. S08 remains checked and S09 remains unchecked.
+- Exact normalized changed lines against this correction attempt-begin tree: **91** (`tests/test_setup_assist_config.py` +60/−0; production +0; progress record +29/−1).
+- Native attempt token `sha256:5cb17b72658841134e0a226aa965309d781c9d634160d01b2a44171ec8c139cd` was not settled.
+- Rollback boundary: remove only the real-race test and this final-correction record; production behavior and S09 remain unchanged.
+
+## S08 — final cleanup gate remediation: COMPLETE
+
+- Added explicit `finally` cleanup for every probe and replacement junction in `tests/test_setup_assist_config.py`. Cleanup uses Windows `os.rmdir` (directory-link removal; it does not follow the junction target) and asserts each recorded junction is absent. Existing attacker/original config sentinels remain asserted byte-for-byte.
+- Strict TDD RED: a temporary cleanup assertion against the pre-change test failed (`1 failed`) at `assert not os.path.lexists(probe)`; baseline inspection found all six created links (three probe junctions and three replacement junctions) in the pytest temp root. GREEN: the focused node passed, and three standalone repeats passed (`1 passed` each). Post-run scans reported `reparse_count=0` for all three repeat roots and `NEW_TEST_ATTRIBUTABLE_JUNCTIONS=0` in the pytest temp root. A broader scan found only two junctions from the unrelated pre-existing root-reparse test; they are not attributable to this node.
+- Verification: focused config tests **16 passed, 1 skipped**; full suite **841 passed, 5 skipped**; native proof **11 passed**; `python -m ruff check tests/test_setup_assist_config.py` **All checks passed**. No production code or S09 work changed.
+- Accounting uses only the native-authoritative prior value: **93/180 lines charged** before this correction. The current correction remains unsettled; no exact current-attempt total is claimed.
