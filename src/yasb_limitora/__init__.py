@@ -1,6 +1,6 @@
 """Native Windows machine-JSON contracts for the YASB integration."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .config import CodexConfig, ConfigError, LocalConfig, OpenCodeGoConfig
 from .model import (
