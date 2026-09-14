@@ -147,8 +147,9 @@ These units are already specified by the parent R11 artifacts or become direct a
 | D01a1 | Guard domain and real deadline | Context-managed primary Guard lease keyed by exact fixed config.json path; retry Guard's 250ms waits against one 5-second DeadlineContext; guard_wait_timeout remains contention and never activates fallback | S08 |
 | D01a2a | Marker codec | Canonical UTF-8 JSON marker `{"pid": <DWORD 1..4294967295>, "token": <1..64 lowercase hex>, "version": 1}` with sorted keys, no whitespace, 256-byte preparse max; one sanitized validation error for duplicate/extra/missing/bool/invalid/uppercase/nonhex/oversize/non-object; deterministic roundtrip; zero file I/O | D01a1 |
 | D01a2b | Win32 process identity | OpenProcess/GetProcessTimes creation token via reusable safe primitive; CloseHandle failure/unavailability is unprovable, not a usable token; no os.kill/process control | D01a2a |
-| D01a3 | File fallback acquisition and cleanup | Fallback only on guard_acquisition_failed; fixed marker under verified non-reparse parent; handle/path binding; deadline each retry; reclaim only provably missing or PID-token mismatch; identity-checked removal never deletes successor | D01a2b |
-| D01b | Immutable config snapshot and assist wiring | Handle-bound fstat read, exactly-once validation under owned lease, deeply immutable snapshot, and setup-assist wiring | D01a3 |
+| D01a3a | Safe marker primitives | Fixed parent hold/non-reparse/final identity; fixed O_EXCL marker create then verify; handle-derived identity; bounded handle read; write+flush+fsync; handle-bound identity-checked delete never successor; low-level sanitized errors; no Guard/reclaim/deadline policy | D01a2b |
+| D01a3b | Fallback policy and integration | Private typed ConfigLease unifies mutex/marker ownership; one shared DeadlineContext for D01a3b and D01b; fallback only on guard_acquisition_failed; retry/contention; decode/owner predicate; conservative busy rules; reclaim only for ProcessTokenMissing or returned token mismatch; cleanup outcome maps config-lock-release-failed | D01a3a |
+| D01b | Immutable config snapshot and assist wiring | Handle-bound fstat read, exactly-once validation under owned lease, deeply immutable snapshot, and setup-assist wiring | D01a3b |
 | D02 | Owned-field merge and atomic write | Preserve unowned fields and atomically replace only a valid result | D01b |
 | D03 | Config rollback and reread verification | Restore prior bytes or remove only a failed new creation | D02 |
 | D04 | Explicit provider selection state | Only explicit selection changes `enabled`; missing requirements only warn | D02 |
@@ -164,6 +165,10 @@ Together these replace oversized S09. Each unit must retain the S08 reject-and-p
 > **D01a2 further split.** After the budget raise to ≤280, a subsequent D01a2 candidate (evidence `sha256:4405cb265935e8dffe8d56f96f597e7aca8e730f9d1bcca242121b0c9f0f1c6b`) produced a dirty working state with semantically passing marker+Win32 identity but exceeded the review budget. The maintainer split D01a2 into D01a2a (marker codec, ≤260 lines) and D01a2b (Win32 process identity, ≤220 lines, depends D01a2a). D01a3 depends on D01a2b. No passing evidence is inherited by D01a2a or D01a2b.
 >
 > **D01a2b budget raised.** The D01a2b candidate (evidence `sha256:9336fb10360083509dbee533ebb2ea1385d98186f04abd4ee605320a499025f5`) was rejected with no passing evidence. Rejection reasons: real PID4 ERROR_ACCESS_DENIED was falsely missing; last error unused; API/query/CloseHandle exceptions escaped; close could leak; padded token diverged from cache pattern. The maintainer raised the D01a2b budget to ≤280 lines and pinned the correction contract: only OpenProcess error87 missing is a valid refusal; all other ambiguity is unprovable; use unpadded lowercase hex matching `cache.py`; token is emitted only after successful close; invalid caller PID is unprovable/refused rather than proof the OS process is missing. D01a3 dependency and cohesive Win32 identity scope are preserved.
+>
+> **D01a3 pre-implementation decisions.** The maintainer recorded the following explicit decisions from pre-implementation exploration for D01a3: a private typed `ConfigLease` unifies mutex (primary) and marker (fallback) ownership, and one shared `DeadlineContext` serves both D01a3 and D01b; the fallback uses literal `O_CREAT|O_EXCL` pathname create under a held verified non-reparse parent with delete-share denied, then immediately verifies the leaf's final path, reparse status, regular-file status, and handle identity, writing and flushing and fsyncing through the same acquired handle; empty, partial, malformed, oversize, or unverifiable marker content and own-process markers refuse conservatively as sanitized `config-lock-busy` and are never reclaimed (manual cleanup may be needed after a pre-write crash); only `ProcessTokenMissing` or a returned token mismatch permits reclaim, while `ProcessTokenUnprovable` or an equal token refuses; handle-derived identity and identity re-open before delete ensure handle-bound deletion never removes a successor; cleanup failure maps to `config-lock-release-failed`; one shared five-second deadline is checked on every Guard and marker retry; there is no fallback on `guard_wait_timeout`; the parent directory is fixed and existing with no creation. File targets are `_config_lock.py` and `test_config_lock.py`. Budget remains ≤280 lines.
+>
+> **D01a3 split.** The D01a3 candidate (evidence `sha256:cdfae75a600fc33e170ed1e6d2b5f90b5cacec6e0fc9b99cce071913618e824d`) was rejected with no passing evidence. Rejection reasons: 294/280 lines before adequate tests, one focused failure, no full/native/Ruff validation. The maintainer split D01a3 into D01a3a (safe marker primitives, ≤280 lines) and D01a3b (fallback policy and integration, ≤280 lines, depends D01a3a). D01b depends on D01a3b. No passing evidence is inherited by D01a3a or D01a3b.
 
 ### Installer completion
 
@@ -234,7 +239,7 @@ Construction readiness and release admission are intentionally separate. Passing
 
 ```text
 Config:
-  preserved baseline → D01a1 → D01a2 → D01a3 → D01b → D02 → {D03, D04}
+  preserved baseline → D01a1 → D01a2a → D01a2b → D01a3a → D01a3b → D01b → D02 → {D03, D04}
 
 Installer:
   preserved baseline → D05 → D06 → D07
