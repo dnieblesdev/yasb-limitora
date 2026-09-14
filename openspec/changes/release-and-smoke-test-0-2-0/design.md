@@ -1039,3 +1039,422 @@ A G2b `fail` or `unrun` blocks publication and cannot silently reopen S04c or su
 mechanism under the same candidate identity. Selecting a different mechanism requires returning to
 G2a, recording a new selection, performing a new bounded S04c adoption, and producing a new retained
 candidate identity before G2b runs again.
+
+## 7. CI internal-RC custody and artifact promotion
+
+### 7.1 Internal RC state
+
+Three workflows separate candidate construction, acceptance, and byte promotion:
+
+| Workflow | Trigger | Produces |
+| --- | --- | --- |
+| `.github/workflows/release-build.yml` | `workflow_dispatch` with the release commit, plus exact final-tag validation when applicable | Frozen bundle, `setup.exe`, immutable `rc-manifest.json`, `SHA256SUMS.txt`, `sbom.cdx.json`, `build-info.json`, and provenance attestation over the final artifact digest; uploads one immutable candidate artifact bundle and automated-check evidence |
+| `.github/workflows/release-acceptance.yml` | `workflow_dispatch` selecting a completed build run after the candidate exists and available evidence has been collected | Reads the retained identity metadata, validates the candidate binding/evidence set, then emits a separate `rc-acceptance.json` Actions artifact; it never includes or repackages candidate files in that ledger artifact |
+| `.github/workflows/release-publish.yml` | `workflow_dispatch` selecting both a build run and an acceptance run, gated by the protected `release-candidate` environment with required reviewers | Downloads the two separately custodied artifacts, verifies their binding, attestation, and all blocking pre-publication statuses, then publishes exact retained candidate bytes |
+
+Internal RC representation:
+
+- **No git tag and no `-rc` version.** The candidate's product version is `0.2.0` from the first
+  build; "RC" describes CI custody only.
+- `rc-manifest.json` is immutable **build-time identity/integrity metadata**, not an acceptance
+  record. It contains only `schema: gentle-ai.yasb-limitora.release-manifest/v1`, `version`,
+  `source_commit`, `source_date_epoch`, exact `tools`, `artifacts[]` (`name`, `size`, `sha256`), the
+  `sbom` (`name`, `sha256`), and the bound `build_info` digest. It has no gate status, approval,
+  evidence-reference, mutable custody-location, or post-publication field.
+- After the candidate exists, `.github/workflows/release-acceptance.yml` creates
+  `rc-acceptance.json` with schema `gentle-ai.yasb-limitora.release-acceptance/v1`. It contains
+  `build_run_id`, `acceptance_run_id`, `created_at`, `manifest: {name, sha256}`, a copied
+  `artifacts[]: {name, sha256}` binding, and `gates`, an object keyed by the stable pre-publication
+  gate IDs in §8.1. Each gate is exactly `{status: pass|fail|unrun, reason_code, evidence_refs}`.
+  `pass` requires `reason_code: null` plus at least one content-addressed or immutable-workflow
+  evidence reference; `fail`/`unrun` requires a bounded non-empty reason code and keeps any truthful
+  evidence references without being coerced to pass. For `yasb-spaced-path`, `pass` specifically
+  requires G2b evidence bound to this build run, manifest digest, and setup hash, with a reference
+  to the G2a selection record; G2a evidence alone cannot set that ledger status to `pass`.
+- Candidate custody and acceptance custody are separate `actions/upload-artifact` records, each
+  with `retention-days: 90`, plus separate checksummed objects in the private release cache. The
+  acceptance artifact contains the ledger only; creating it or a later ledger run never repacks the
+  candidate, changes candidate bytes, or edits `rc-manifest.json`. Publish selects explicit build
+  and acceptance run IDs rather than a mutable "latest" pointer.
+- The post-publication closeout check is excluded from `rc-acceptance.json`; it has its own evidence
+  under the closeout section of `SMOKE-0.2.0.md` (§8.1).
+
+### 7.2 Hashes, manifest, acceptance ledger, SBOM, provenance
+
+| Evidence | Format | Generation |
+| --- | --- | --- |
+| Integrity hashes | `SHA256SUMS.txt`, coreutils style (`<hex>  <filename>`) | `scripts/make_release_manifest.py` over every candidate artifact |
+| Immutable manifest | `rc-manifest.json`, release-manifest/v1 schema above | Build workflow only; deterministic key order; no acceptance state or build-machine absolute paths |
+| Acceptance ledger | `rc-acceptance.json`, release-acceptance/v1 schema above | Acceptance workflow only, after candidate creation; binds build run ID, manifest digest, and artifact hashes to pre-publication statuses/evidence without changing the candidate bundle |
+| SBOM | CycloneDX JSON, `sbom.cdx.json`, with its digest bound by the manifest | Generated from the **build environment's** resolved dependency set (`pip freeze` captured at build time inside the pinned build job), not from a developer environment, so it describes the bundle |
+| Provenance / attestation | SLSA-style build provenance via `actions/attest-build-provenance` over the final candidate artifact digest | Build workflow after final hashing; acceptance ledger references the immutable attestation record, and publish verifies its subject digest before release creation |
+| Build record | `build-info.json` inside `_internal/`, digest bound by the manifest | Version, commit SHA, Python patch, PyInstaller version, limitora version, `SOURCE_DATE_EPOCH` |
+| Secret scan | Existing `Scan-Candidates`/`Assert-SafeScan` PowerShell functions, plus scans over manifest, ledger, SBOM, assist output, and all referenced evidence | Build, acceptance, and publish jobs; any hit is a blocking pre-publication failure |
+
+### 7.3 Promotion and unsigned disclosure
+
+**Promotion is by download, never by rebuild or repack.**
+
+```
+publish job:
+  1. resolve the explicitly selected build run ID and acceptance run ID
+  2. download the immutable candidate bundle and separately custodied rc-acceptance.json
+  3. recompute the digest of rc-manifest.json and every candidate artifact/SBOM/build record
+  4. assert candidate bytes match rc-manifest.json, including the SBOM/build-info bindings,
+     and verify the retained provenance attestation subject is the same setup.exe digest
+  5. assert ledger.build_run_id == selected build run ID
+  6. assert ledger.manifest.sha256 == recomputed manifest digest
+     and ledger.artifacts exactly equal the manifest artifact name/hash set
+  7. validate the strict ledger schema and exact required pre-publication gate-ID set
+  8. require every blocking pre-publication gate status to be "pass" with valid evidence refs
+     - for yasb-spaced-path, require candidate-bound G2b evidence; G2a selection alone is insufficient
+     - any "fail"  -> refuse, quarantine, report
+     - any "unrun" -> refuse and report the gate as outstanding (never a pass)
+  9. require the ledger's build-integrity evidence to reference that verified attestation
+ 10. publish the identical retained setup.exe bytes and attach the immutable manifest, hashes,
+     SBOM, acceptance ledger, and attestation; generate the release body without rewriting them
+```
+
+Byte identity is guaranteed by construction: the publish job never invokes PyInstaller or ISCC,
+never updates `rc-manifest.json`, and never repacks the candidate. Acceptance can evolve only by a
+new separately custodied ledger run bound to the same immutable candidate; it cannot alter identity.
+
+Unsigned disclosure, in fixed wording in both `RELEASE_NOTES.md` and the release body:
+
+- The 0.2.0 `setup.exe` is **not Authenticode-signed**.
+- Windows SmartScreen may show "Windows protected your PC"; the user chooses **More info → Run
+  anyway**.
+- The published SHA-256 lets a user verify the download with
+  `Get-FileHash -Algorithm SHA256`.
+- No code-signing assurance, publisher identity, or trust is implied. Signing is not required for
+  0.2.0, and nothing in this release establishes signing-key custody for a future release.
+
+## 8. Smoke matrix, evidence ownership, failure modes, security, migration, rollback
+
+### 8.1 Smoke matrix and evidence ownership
+
+The acceptance ledger's exact pre-publication gate-ID set is:
+`build-integrity`, `source-full-suite`, `native-windows`, `frozen-runtime`, `clean-install`,
+`installer-lifecycle`, `yasb-spaced-path`, `yasb-boundaries`, `configuration-assistance`,
+`secret-scan`, and `representative-live-provider`. A gate may aggregate the related matrix rows
+below, but each `pass` points to every constituent evidence item. `yasb-spaced-path` is `pass` only
+from G2b's installed-candidate evidence, with its G2a selection trace; G2a by itself is not a ledger
+acceptance. `post-publication-closeout` is intentionally **not** a ledger gate ID.
+
+| Case | Evidence | Owner | Blocking |
+| --- | --- | --- | --- |
+| Clean Windows, no Python: install succeeds | Installer log, screenshot, `where python` empty | External manual | Yes |
+| Frozen CLI produces the current contract | stdout JSON, exit code, stderr | External manual + `smoke_frozen.py` | Yes |
+| Frozen helper relaunch works | Process-tree capture showing the sentinel child | External manual | Yes |
+| Multiprocessing bootstrap under freeze | Run log with no bootstrap error | External manual | Yes |
+| Job containment | Native proof of Job assignment | Native automated (`tests/test_windows_native_proof.py`) where supported | Yes |
+| Deadlines honored | Timeout run with bounded duration | Native automated + external manual | Yes |
+| Sanitized streams | No internal detail in stdout/stderr | Automated (existing suite) | Yes |
+| No-descendant / no-orphan cleanup | Process-tree empty after completion and after timeout | Native automated + external manual | Yes |
+| Optional PATH enabled: direct CLI works | New shell resolves `yasb-limitora` | External manual | Yes |
+| Optional PATH disabled: YASB integration still works | G2b installed-candidate record bound to the retained setup hash, plus its G2a selection trace (§6) | External manual | Yes |
+| PATH task unchecked by default | Installer screenshot | External manual | Yes |
+| Install / reinstall / upgrade | Logs + state listing before and after | External manual | Yes |
+| Failed-upgrade rollback | Induced failure, prior install usable, state intact | External manual | Yes |
+| Uninstall default preserves state | State listing after uninstall | External manual | Yes |
+| Uninstall with explicit cleanup deletes state | Confirmation screenshot + state listing | External manual | Yes |
+| YASB present / absent / undetected messaging | Three installer summaries | External manual | Yes |
+| YASB running → manual-close prompt, no lifecycle action | Screenshot; process list showing YASB still running after cancel | External manual | Yes |
+| Consented `.env` block: commented, idempotent, no secret | Before/after bytes, second run shows no duplication | Automated (assist unit tests) + external manual confirmation | Yes |
+| No YAML/CSS edit | File hashes of `config.yaml` and `styles.css` unchanged | External manual | Yes |
+| Wizard safe-merge on runtime-valid config: backup, merge of explicit selections only, final whole-document validation, atomic write, rollback; invalid existing config: reject-and-preserve byte-identity, enumerated bounded errors, install continues | Assist unit tests + external manual run | Automated + external manual | Yes |
+| Enabled state changes only by explicit selection; missing prereq warns but commits | Assist unit tests covering the override case | Automated | Yes |
+| Artifact integrity and custody: manifest, ledger, SHA-256, SBOM, provenance | Immutable `rc-manifest.json`, separate bound `rc-acceptance.json`, `SHA256SUMS.txt`, `sbom.cdx.json`, attestation | CI automated | Yes, pre-publication |
+| Secret scan clean across logs, evidence, artifacts | Scan output referenced by the ledger | CI automated | Yes, pre-publication |
+| Internal RC without a public `-rc` tag | Tag list, build-run candidate custody, separate acceptance-run ledger | CI automated | Yes, pre-publication |
+| Candidate-to-final byte identity | Publish-job manifest + ledger binding and hash-equality assertions | CI automated | Yes, pre-publication |
+| Representative live supported-provider flow | Redacted run record referenced by the ledger | External manual | Yes, pre-publication |
+| Post-publication clean-machine closeout check on published bytes | Install + run record on a clean machine after publication | External manual | **No — closeout only; never a publication gate or ledger entry** |
+| Native Windows proof where the environment supports it | `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` | CI automated | Yes where runnable; otherwise reported `unrun` |
+| Full suite | `python -m pytest -q --strict-markers` | CI automated | Yes |
+
+Evidence ownership and retention:
+
+- `docs/release/0.2.0/evidence/` holds redacted logs and cropped screenshots, committed only after
+  secret scanning.
+- `docs/release/0.2.0/SMOKE-0.2.0.md` is the human-readable checklist of record: each
+  pre-publication case is `pass`, `fail`, or `unrun (external)`, with a pointer to its evidence.
+  No `unrun` case may be recorded as a pass.
+- The separately custodied `rc-acceptance.json` mirrors only the blocking **pre-publication** cases
+  so CI can enforce them mechanically. Its manifest digest and artifact hashes bind those statuses
+  to one immutable build run; `rc-manifest.json` carries no status. For `yasb-spaced-path`, that
+  bound status comes from G2b; the referenced G2a record explains selection but carries no
+  candidate-acceptance status.
+- The post-publication clean-machine closeout check is recorded in a distinct closeout section and
+  evidence path after release creation. It is never copied into the pre-publication ledger. Failure
+  keeps R11 closeout open and triggers a documented incident/rollback decision with truthful
+  evidence; it cannot unpublish retroactively or rewrite prior approval, ledger status, hashes, or
+  artifact identity.
+- Screenshots are cropped to exclude any credential material, environment variable values, and
+  unrelated user files. `.env` contents are never committed; only before/after **hashes** and the
+  managed-block region are recorded.
+- Environment availability (which clean machines, which real-YASB versions, which live provider)
+  is recorded in `SMOKE-0.2.0.md` at the start of execution, so an unavailable environment is
+  visible as a gap rather than discovered at closeout.
+
+### 8.2 Failure modes
+
+| Failure mode | Detection | Response |
+| --- | --- | --- |
+| Frozen bundle breaks helper relaunch, multiprocessing, or Job cleanup | Clean no-Python frozen smoke; process-tree capture | Block publication; treat as a packaging defect, not a source defect |
+| Missing hidden import surfaces only on a clean machine | Frozen smoke on a machine with no Python | Add the explicit collection; re-run the whole matrix, not just the failing case |
+| Antivirus flags the unsigned frozen exe | Clean-machine install; SmartScreen record | Disclose; do not disable AV; do not switch to onefile to dodge it |
+| User PATH corruption | Assist unit tests on verbatim string surgery; manual PATH before/after capture | Refuse to rewrite PATH from a parsed list; removal uses the recorded exact element |
+| Accidental state deletion | Path-safety/reparse unit tests; uninstall smoke with state listing | Cleanup only on affirmative `YES`; request supplies no path; deletion only of the independently resolved literal state root; result survives in temp transport |
+| `.env` corruption or duplication | Byte-level before/after comparison; idempotence test | Marker-delimited region only; refuse on malformed markers; restore from backup |
+| Wizard mutates or commits an invalid existing config | Byte-identity and enumerated-error assertions in assist unit tests | Whole-document validation gates before any backup/temp/write (§4.3 Gate 1); the failure is nonfatal to the install |
+| Registration fails after the swap committed (canonical dir occupied) | Pascal step exit codes | Reverse-swap with quarantine ordering (§3.3 step 6); captured registry values restored; `rollback-incomplete` reported when a rename is blocked |
+| No feasible spaced-path arrangement at G2a | G2a real-target prototype/disposable evidence (§6) | Fail closed; do not run S04c or adopt a mechanism; publication remains blocked |
+| Adopted spaced-path behavior or candidate binding fails at G2b | G2b run against the installed retained candidate (§6) | Block publication; do not substitute a mechanism under the same identity; return to G2a/S04c and build a new candidate identity |
+| YASB running locks program files | Preflight probe; rename failure | Manual-close prompt; abort with prior install intact |
+| SmartScreen blocks a user | Disclosure record | Documented workaround; no implied trust |
+| Candidate, manifest, or ledger binding drift | Publish-job digest and build-run binding checks | Refuse to publish; rebuild is a new candidate, and a corrected acceptance record is a new separately custodied ledger run |
+| Live-provider evidence unavailable or unsafe | Matrix `unrun` state | Report `unrun`; never substitute a mocked provider for the live gate |
+| Secret leaks into evidence | Secret scan gate | Fail the job; purge and re-collect the evidence |
+| Stale `.old` program directory confuses a later upgrade | Preflight detection | Reported; removed only after a successful swap |
+| Post-publication clean-machine closeout check fails | Closeout run against published bytes | Keep R11 closeout open; retain truthful failure evidence; trigger incident triage and an explicit rollback/follow-up-release decision without rewriting the pre-publication ledger, approval, manifest, or hashes |
+
+### 8.3 Security and privacy
+
+- **Least privilege.** `PrivilegesRequired=lowest`; no `HKLM` write; no machine-wide directory; no
+  elevation override. No design element requires elevation.
+- **No secrets anywhere.** Credentials stay in YASB's startup-loaded `.env`/effective environment.
+  They are never copied into `config.json`, installer arguments, assist request or result files,
+  logs, JSON output, fixtures, reports, SBOM, or release artifacts. `_reject_credential_keys` is
+  the single shared refusal rule.
+- **Ownership.** Provider selection, authentication, transport, and interpretation remain in
+  Limitora. The assist writes booleans, numbers, and a runner string and contains no provider
+  logic.
+- **No automatic YASB mutation.** No YAML, CSS, credential, argv, log, output, fixture, or report
+  edit. The single permitted YASB write is the consented commented `.env` region.
+- **Private helper.** The assist is internal and undocumented for users. It runs only when
+  `setup.exe` set the per-run nonce environment value and wrote `request.json` in the independently
+  derived per-user temp transport. The nonce is correlation and accidental-invocation protection,
+  **not authorization**: a same-user caller already owns every affected file and registry location,
+  so the security boundary is same-user OS ownership plus fail-closed schema, known-folder,
+  no-reparse, path, and credential checks. No assist path uses elevated privilege.
+- **No second stdout contract.** The public executable's stdout JSON contract remains the only
+  one; assist results travel in the temp `result.json`, and the installer never parses the child's
+  stdout.
+- **Fail-closed defaults.** Every assist operation refuses on a malformed, over-size, missing, or
+  reparse-point request/transport, an unknown operation or field, a missing/invalid nonce env value,
+  an undecodable target file, a request-supplied path, or an unresolved/unsafe independently derived
+  root.
+- **Redaction reuse.** Assist output is sanitized with the same discipline as the runtime, so no
+  internal detail, absolute user path, or environment value escapes into installer logs.
+- **Unsigned honesty.** The disclosure states the artifact is unsigned and explains SmartScreen
+  behavior without implying assurance.
+
+### 8.4 Migration
+
+`MIGRATION.md` and `RELEASE_NOTES.md` carry, in this order:
+
+1. **0.2.0 is the first public release.** There is no 0.1.0 release, tag, or compatibility
+   promise. Existing repository metadata that said `0.1.0` was a placeholder.
+2. **The #137 contract break, stated plainly.** The selector-free current JSON document is the
+   sole supported output. The root `version` field is removed. The version-selection surface
+   (`--output-version` and its `=` form) is removed and is rejected as an invalid invocation with
+   exit code `2`. There is no compatibility selector, no v1 fallback, and no second contract.
+   Consumers that relied on the root `version` field must stop reading it.
+3. **Installation migration.** Installation no longer needs Python or an editable checkout.
+   Users with a prior `pip install -e .` must `pip uninstall yasb-limitora` to avoid two
+   `yasb-limitora` entry points competing on PATH; PATH order would otherwise decide which one
+   runs. YASB integration is unaffected because it uses the resolved full invocation path, not
+   PATH.
+4. **State migration.** `%LOCALAPPDATA%\yasb-limitora` config and cache carry over unchanged.
+   Nothing is auto-created, auto-migrated, or auto-mutated by installing.
+5. **PATH.** The User PATH task is optional and unchecked. Enabling it affects direct CLI
+   convenience only and requires newly started processes; YASB integration does not require it.
+6. **Unsigned release.** SmartScreen behavior and hash verification, as in §7.3.
+7. **YASB.** YASB is never managed by this product. If YASB is running during a lifecycle
+   operation, the user closes it manually.
+
+### 8.5 Rollback
+
+| Level | Mechanism | Boundary preserved |
+| --- | --- | --- |
+| Release candidate | `rc-acceptance.json` records every blocking pre-publication gate; any `fail` or `unrun` quarantines the separately retained candidate | No unvalidated publication; immutable manifest remains identity-only |
+| Publication | Publish verifies candidate bytes against the manifest and ledger binding, then promotes only exact retained bytes; any mismatch aborts | Byte identity and acceptance custody remain distinct |
+| Post-publication closeout | A failed clean-machine check leaves R11 open and triggers incident/rollback decision-making with preserved evidence | Publication is not retroactively blocked and approval/artifact identity are never rewritten |
+| Installed program | Staged swap with an executable reverse-swap and quarantine; registry bookkeeping captured before mutation and restored on rollback; a staging failure leaves the prior install untouched | Prior install usable |
+| Mutable state | Never deleted on any failure path; deletion only via the explicit default-negative uninstall choice | Default retention |
+| `config.json` | Runtime-valid documents: timestamped backup plus restore-on-failure; `create` recovery deletes a newly created file. Invalid documents: reject-and-preserve — never backed up, merged, written, normalized, or reserialized by the assist | No malformed active config; an invalid user document is never touched |
+| `.env` | Backup in the state root plus restore-on-failure; temp never promoted | YASB file intact |
+| PATH | The exact appended element is recorded and removed precisely on uninstall | No residual or corrupted PATH |
+| Source | Revert to the prior repository revision if release work is rejected | Must not introduce a portable ZIP, a dual JSON contract, automatic YASB lifecycle, or a broad config-edit fallback |
+
+## 9. File-and-test map and capability boundaries
+
+### 9.1 File map
+
+| Path | Change | Why |
+| --- | --- | --- |
+| `src/yasb_limitora/__init__.py` | `__version__ = "0.2.0"` | Single version source |
+| `pyproject.toml` | `dynamic = ["version"]` + attr mapping; scripts unchanged | Removes the duplicate version literal |
+| `src/yasb_limitora/setup_assist.py` | New private module: sentinel dispatch, independently derived temp request/result transport, PATH, `.env`, `config.json` two-gate transaction, cleanup | All mutation logic in testable Python; destructive cleanup can report after deleting state |
+| `src/yasb_limitora/discovery.py` | New read-only YASB discovery and process probe, including safe `YASB_CONFIG_HOME`/`%USERPROFILE%\.config\yasb` resolution | Three outcomes; absent `.env` is creatable after consent; install-independent |
+| `src/yasb_limitora/cli.py` | Add the assist sentinel dispatch after `freeze_support()`, before `_config_path` | Mirrors the existing helper sentinel; keeps argv closed |
+| `src/yasb_limitora/config.py` | No validation change; expose the whole-document validator and the owned-path and credential-pattern constants for assist reuse | The runtime contract is the assist's sole merge gate (§4.3) |
+| `packaging/pyinstaller/yasb-limitora.spec` | New onedir spec | Frozen bundle |
+| `packaging/pyinstaller/version_info.txt.in` | New version resource template | File properties match `0.2.0` |
+| `packaging/inno/yasb-limitora.iss` | New per-user script: identity, tasks, staged swap, assist invocation | Sole public artifact |
+| `scripts/build_frozen_bundle.py` | New | Build + `build-info.json` |
+| `scripts/build_setup.py` | New | ISCC with `/D` defines from `__version__` |
+| `scripts/make_release_manifest.py` | New | Immutable build identity/integrity manifest, hashes, SBOM binding; no acceptance status |
+| `scripts/make_release_acceptance.py` | New | Strict separately custodied `rc-acceptance.json` bound to build run, manifest digest, artifact hashes, and pre-publication evidence |
+| `scripts/smoke_frozen.py` | New | Frozen smoke driver |
+| `scripts/spacepath_spike.ps1` | New | Spike harness and evidence capture |
+| `.github/workflows/release-build.yml` | New | Immutable candidate build, manifest, hashes, SBOM, automated evidence |
+| `.github/workflows/release-acceptance.yml` | New | Post-candidate acceptance ledger in separate custody; never repacks candidate |
+| `.github/workflows/release-publish.yml` | New | Manifest/ledger/attestation verification, all-pass pre-publication enforcement, hash-equal promotion |
+| `.github/workflows/windows-proof.yml` | Extend scan coverage to release evidence when present | Keeps the existing safe-log discipline |
+| `docs/release/0.2.0/RELEASE_NOTES.md` | New | First-public + #137 + unsigned |
+| `docs/release/0.2.0/MIGRATION.md` | New | Migration guidance |
+| `docs/release/0.2.0/SMOKE-0.2.0.md` | New | Pre-publication matrix plus a distinctly labeled post-publication closeout section |
+| `docs/release/0.2.0/evidence/` | New | Redacted evidence with separate pre-publication and post-publication closeout paths |
+| `docs/roadmap.md` | R11 status and evidence pointers, respecting the Limitora-version guards | Roadmap accuracy |
+| `README.md` | Point to `setup.exe` installation; keep the editable-checkout section clearly labeled as development-only | No active path implies a placeholder version |
+| `examples/customwidget/*` | Untouched in S04a; eligible only in bounded S04c after G2a passes and selects a mechanism, with its test updated deliberately if adoption requires it | Pinned example cannot encode an expected, unproved mechanism; G2b later confirms the installed candidate |
+| `tests/test_windows_only_documentation_contract.py` | Updated only if a guarded document must mention the product version | Deliberate, recorded change |
+| `build/lib/yasb_limitora/__init__.py` | Removed from the working tree; not edited as source | Stale setuptools output still reporting placeholder `0.1.0`; must never be a build input |
+
+### 9.2 Test map
+
+| Test path | Proves |
+| --- | --- |
+| `tests/test_version_identity.py` (new) | `__version__ == "0.2.0"`; `pyproject` is dynamic and resolves to it; no active surface reports `0.1.0`; no `-rc` string in release metadata |
+| `tests/test_setup_assist_protocol.py` (new) | Sentinel inert without nonce; exact nonce grammar; both sides independently derive the Local-AppData temp transport; exclusive creation; 64 KiB limits; strict request/result schemas; operations/choices only and no supplied path; malformed/unknown/duplicate fields refused; non-regular or reparse components refused; discovery creates no state root; `state-cleanup` result survives outside deleted state; installer removes only literal files and empty nonce dir; stdout carries no contract |
+| `tests/test_setup_assist_path.py` (new) | Verbatim PATH append; no-op when already present; exact recorded-element removal; value type preserved; empty elements and `%VAR%` untouched; no System PATH access |
+| `tests/test_setup_assist_env_block.py` (new) | Marker-delimited region only; every emitted line commented; idempotent on repeat; unrelated bytes preserved; BOM/newlines preserved; safe resolved home; absent `.env` created only after consent with create rollback; existing-file backup/restore; undecodable or reparse target refused; credential-like content refused; YAML/CSS untouched |
+| `tests/test_setup_assist_config.py` (new) | Whole-document runtime-contract validation before any mutation; invalid existing config: reject-and-preserve with byte-identity of the original, no backup/temp/write/normalization/reserialization, bounded non-secret enumerated errors, and a nonfatal outcome code that lets the install continue; runtime-valid config: opt-in create, backup after the validation gate, ordered merge of explicit selections only, final whole-document validation before write, atomic replace, verify step, rollback on write and on validation failure; credential keys refused; no auto-create outside the wizard; single-writer lock |
+| `tests/test_provider_enabled_state.py` (new) | Enabled state written only from explicit selection; discovery outcome, secret presence, and prerequisite presence never change it; missing requirement produces a warning; explicit selection commits despite a missing requirement |
+| `tests/test_yasb_discovery.py` (new) | Safe non-empty `YASB_CONFIG_HOME` precedence; present empty/unsafe override is inconclusive with no fallback; absent override falls back to `%USERPROFILE%\.config\yasb`; `.env` never parsed for home discovery; present versus absent-creatable `.env`; unresolved/unsafe home remains distinct; `detected`/`absent`/`inconclusive`; read-only/bounded; no state, YAML, CSS, or lifecycle mutation |
+| `tests/test_yasb_running_probe.py` (new) | Exact-name process matching; snapshot failure reports inconclusive rather than "closed"; no termination API is reachable |
+| `tests/test_frozen_entry_order.py` (new) | Platform gate → `freeze_support()` → sentinel dispatch → argv validation; the assist and helper sentinels never reach `_config_path`; the public argv surface stays closed |
+| `tests/test_packaging_spec.py` (new) | onedir; `console=True`; entry is `cli:main`; pinned PyInstaller range; UPX disabled; `limitora` submodule collection present; no repository docs/examples/fixtures in datas |
+| `tests/test_inno_script.py` (new) | Textual invariants: `PrivilegesRequired=lowest`; stable identity/default path; PATH unchecked; no HKLM; lifecycle rollback; independently derived temp transport with no supplied target path; default-negative state cleanup followed by result read and exact transport removal; assist nonfatal post-commit; no YAML/CSS/termination call |
+| `tests/test_release_manifest.py` (new) | Immutable manifest schema/order; version/source/tool identity; artifact size/hash and SBOM/build-info digest correctness; no gate/approval/evidence/custody/post-publication fields; no absolute build paths or secrets |
+| `tests/test_release_acceptance.py` (new) | Ledger schema and exact gate IDs; build-run, manifest-digest, and artifact-hash binding; statuses limited to `pass`/`fail`/`unrun`; pass requires evidence refs/null reason while fail/unrun requires a reason; `yasb-spaced-path` pass requires candidate-bound G2b evidence plus its G2a trace and rejects G2a-only acceptance; post-publication closeout forbidden; publish refuses mismatch/fail/unrun without repacking candidate |
+| `tests/test_windows_native_proof.py` (extend) | Job containment, deadlines, and no-orphan behavior against the frozen bundle where the environment supports it |
+| `tests/test_customwidget_examples.py` (S04c only, after G2a) | If the G2a-selected mechanism requires a deliberate example change, it keeps a single literal path, `use_shell: false`, and no shell metacharacters; this test does not replace G2b candidate confirmation |
+
+All new tests run under `python -m pytest -q --strict-markers`; native-executable cases carry the
+existing `windows_native` marker.
+
+### 9.3 Six capability boundaries (<=400 lines each)
+
+These are capability boundaries for later task planning. They are not tasks, issue assignments,
+or PR topology.
+
+| # | Boundary | Primary files | Approximate size | Independence |
+| --- | --- | --- | --- | --- |
+| 1 | Release policy and version identity | `__init__.py`, `pyproject.toml`, `docs/release/0.2.0/RELEASE_NOTES.md`, `MIGRATION.md`, `README.md`, `docs/roadmap.md`, `tests/test_version_identity.py` | Small | Fully independent; unblocks 2, 3, 6 |
+| 2 | Frozen build and provenance | `packaging/pyinstaller/*`, `scripts/build_frozen_bundle.py`, `scripts/make_release_manifest.py`, `tests/test_packaging_spec.py`, `tests/test_release_manifest.py` | Medium | Depends on 1 for the version; independent of 3-5 |
+| 3 | Per-user installer lifecycle | `packaging/inno/yasb-limitora.iss`, `packaging/inno/SetupAssistant.isi`, `tests/test_inno_script.py` | Medium | Depends on 2 for the onedir input; the staged swap is testable as script invariants without 4 or 5; implementation is gated by the Inno staged-swap feasibility spike (§3.3, §10.2) |
+| 4 | Discovery, two-checkpoint real-YASB gate, PATH, manual close | **S04a:** discovery, PATH/manual-close code/tests, and spike harness only. **G2a:** disposable/prototype real-target feasibility and selection evidence. **S04c:** bounded adoption of exactly the selection, including a paired example/test change only when required. **G2b:** installed-candidate confirmation evidence | Medium-large across five ordered units including candidate construction | S04a follows S02's frozen target; G2a depends on S02 + S04a; S04c depends on G2a pass and the static installer path/identity contract when needed; later installer/build slices produce the retained integrated candidate; G2b depends on that exact candidate and only its pass closes overall G2 |
+| 5 | Configuration assistance | `src/yasb_limitora/setup_assist.py`, `cli.py` sentinel dispatch, `tests/test_setup_assist_protocol.py`, `_env_block.py`, `_config.py`, `test_provider_enabled_state.py`, `test_frozen_entry_order.py` | **Largest risk** | Depends on 1 only |
+| 6 | Runtime and release acceptance | release build/acceptance/publish workflows, `make_release_acceptance.py`, `windows-proof.yml` extension, `SMOKE-0.2.0.md`, separately classified evidence, manifest/acceptance tests, native-proof extension | Medium | Depends on 2 and 3 for artifacts; consumes candidate-bound G2b evidence with its G2a selection trace plus boundary 5 evidence; post-publication closeout remains outside its pre-publication ledger |
+
+Boundary 5 is the one most likely to exceed the budget. If it does, split it along the already
+separate test files: **5a** protocol and `.env` block, **5b** `config.json` transaction and
+enabled-state rules. That split follows a real seam (two different files, two different
+transaction models) rather than an arbitrary line count.
+
+## 10. Selected technical decisions and remaining gates
+
+### 10.1 Selected decisions
+
+| # | Decision | Rejected alternative | Key reason |
+| --- | --- | --- | --- |
+| D1 | Single version source: `__init__.__version__` with `pyproject` dynamic | Duplicate static version; tag-generated version; runtime `importlib.metadata` | The current duplicate is already a drift risk; frozen bundles lack reliable distribution metadata |
+| D2 | No `--version` CLI flag; identity proven via metadata, version resource, registry, and `build-info.json` | Adding a version flag | The public argv surface is closed and locked by tests; adding a flag reopens a fixed contract |
+| D3 | PyInstaller **onedir**, `console=True`, pinned `>=6,<7` | onefile; windowed build | The helper relaunches `sys.executable` and needs co-located dependencies; onefile failed the bounded frozen child path in recorded native evidence; YASB captures stdout |
+| D4 | Reproducible-enough inputs plus promotion of retained bytes | Byte-reproducible rebuild requirement | Specs require validated bytes to be published, not rebuild equality; reproducibility tooling cannot be validated in this budget |
+| D5 | Program root `%LOCALAPPDATA%\Programs\yasb-limitora`; state root `%LOCALAPPDATA%\yasb-limitora`; siblings, never nested | Program files inside the state root; machine-wide `Program Files` | Keeps the helper relaunch path out of mutable data and preserves the least-privilege per-user model |
+| D6 | `PrivilegesRequired=lowest`, no elevation override | An optional elevated mode | An elevation path would change the per-user ownership model the proposal requires |
+| D7 | **G1-proven:** pre-install evacuation moves the prior canonical directory to `.old` before Inno copies/registers against canonical, deletes `.old` only after success, and restores it on failure; the late failure hook uses the exact native new uninstaller as the smallest disposable harness correction before restoring `.old` and captured registry values/types | Post-install staged rename-swap; in-place overwrite; versioned side-by-side directories plus a pointer | The historical exact new `UninstallString` exited `0` but left the renamed canonical payload, disproving coherent Inno bookkeeping after the post-install rename; the fallback run proves native canonical bookkeeping and both uninstall paths |
+| D8 | No separate Repair entry; same-version reinstall is the repair path (`NoRepair=1`) | A distinct Inno repair flow | The proposal left repair open; a third lifecycle state needs its own locked-file and rollback evidence the budget cannot support, and reinstall already achieves the outcome |
+| D9 | Cleanup is an explicit default-negative `MB_YESNO`/`MB_DEFBUTTON2` confirmation at uninstall; only `YES` deletes | A custom checkbox page; an install-time pre-authorization | Inno has no uninstall checkbox page; pre-authorizing deletion of data that does not yet exist inverts the spec |
+| D10 | A private setup-assist sentinel inside the same frozen exe, guarded by a per-run nonce env value that is correlation and accidental-invocation protection rather than authorization, owns all user-data and environment mutation; Inno Pascal owns only consent UI, the program-file transaction, and registry identity | Implementing `.env`, `config.json`, and PATH logic in Inno Pascal; a second frozen executable; treating the nonce as a security boundary | Pascal is untestable here and unsafe for UTF-8 JSON and PATH string surgery; one exe means one artifact to hash and one bundle to prove; the real security boundary is same-user OS ownership plus fail-closed checks |
+| D11 | Assist transport is `%LOCALAPPDATA%\Temp\yasb-limitora-setup-assist\<nonce>\{request,result}.json`, independently derived from the Local AppData known folder plus fixed segments/validated nonce; requests contain operations/choices only; strict 64 KiB/schema/no-reparse rules apply; Inno removes it after reading | State-root transport; request-supplied target paths; argv; stdout; inherited-handle/pipe IPC | State-root transport self-destructs during cleanup and creates application state during discovery; the dedicated temp root survives state deletion while preserving the closed argv/stdout contracts and fail-closed path safety |
+| D12 | Reject-and-preserve for an invalid existing config: only the optional configuration operation is abandoned, the original bytes stay untouched, bounded validation errors are enumerated, and install/upgrade continues | Deleting or repairing unknown fields; loosening `_fields`; preserving-and-committing with a warning; failing the install on the optional operation | The corrected spec forbids mutating or committing a document the runtime contract rejects, and forbids making the optional operation fatal to the program-file transaction |
+| D13 | Whole-document runtime-contract validation is the single merge gate, applied to the existing document before any mutation and to the final merged document before the write | The former split design: an owned-projection gate with whole-document acceptance demoted to a warning | A split gate commits runtime-invalid documents successfully and gives the assist a second, weaker validator that can drift from `config.py` |
+| D14 | `.env` assistance is a fully commented, marker-delimited, byte-preserving, idempotent region with backups stored in our state root | Writing active (uncommented) entries; backing up inside the YASB directory | Commented lines cannot change YASB behavior; backups in YASB's directory would add foreign files to a YASB-owned location |
+| D15 | `enabled` comes only from explicit selection; readiness checks emit warnings and never change state | Deriving enabled state from discovery or prerequisite probing | Normative spec requirement: provider selection overrides prerequisite readiness warnings |
+| D16 | Prerequisite checks test key-name presence only and never read a value | Reading secret values to validate them | Any value read is a potential leak path into logs, results, or evidence |
+| D17 | Treat a present `YASB_CONFIG_HOME` as authoritative only when non-empty and safe; a present empty/unsafe value is inconclusive and never falls back. Only an absent variable selects `%USERPROFILE%\.config\yasb`; never parse `.env` for its home. A resolved home with absent `.env` is detected/creatable after consent | Assuming a Roaming-AppData config home; falling back after an explicit unsafe override; treating missing `.env` as inconclusive; using `.env` contents for discovery; failing install | Matches YASB's actual precedence while preventing assistance from writing to a directory YASB did not select |
+| D18 | Manual-close prompt offers only Retry and Cancel, re-probes on every Retry, and has no process-control API | Auto-continue after a timeout; closing YASB for the user | Auto-continue proceeds into a locked-file failure; any termination violates the no-lifecycle-ownership invariant |
+| D19 | Overall G2 has G2a feasibility/selection and G2b installed-candidate confirmation; only candidate-bound G2b pass closes the gate, and every counted M3/M6/M8 execution keeps PATH unchanged and `use_shell: false`; M7 is diagnostic only | One pre-adoption gate claiming installer guaranteeability; accepting `use_shell: true`; making PATH a prerequisite; per-user `SUBST`/DOS-device drive aliases (M9); App Paths (M10); reparse-point aliases (M11) | Separating selection from installed-candidate acceptance removes the S04↔G2 circularity while retaining the no-shell/no-PATH contract and the M9–M11 dispositions (§6) |
+| D20 | If the profile path contains a space and no alias mechanism passes, fail closed and block publication; the installer still installs, skips integration, informs the user, and reports that machine class as unproven | Shipping an example that only works on space-free machines | Honesty about the gate is a release requirement; silent environment dependence is a defect |
+| D21 | Boundary 4 is sequenced S02 + S04a → G2a selection → static installer path/identity contract when needed → S04c bounded adoption → later integrated candidate build → G2b candidate confirmation; only S04c may encode the selection or deliberately change the pinned example/test, and only G2b may accept it for publication | A single G2 pass before adoption; pre-G2a conditional adoption; silently switching mechanisms after G2b failure; letting the harness rewrite YAML | G2a can prove real-YASB feasibility without pretending the installer exists; G2b proves the actual retained candidate, and a different mechanism requires a new G2a/S04c/candidate identity cycle |
+| D22 | RC is CI state only: immutable retained candidate bundle, separate bound acceptance ledger, and protected publish approval; no tag, no `-rc` version | A `-rc` git tag/version; mutable acceptance fields in the build manifest | Product identity stays final-version and immutable while external acceptance can be custodied separately |
+| D23 | Promotion downloads candidate and acceptance artifacts by explicit run IDs, verifies manifest digest/artifact hash binding, and never builds or repacks | Rebuilding at publish time; trusting a mutable latest ledger; embedding acceptance into candidate bytes | Byte identity and acceptance custody are both mechanically verifiable without changing the validated candidate |
+| D24 | `rc-manifest.json` is immutable release-manifest/v1 identity/integrity metadata; `rc-acceptance.json` is separate release-acceptance/v1 pre-publication status/evidence; SHA256SUMS, bound CycloneDX SBOM, attestation, and build-info complete the evidence set | One mutable manifest containing gates; an ad-hoc evidence mix | Separates what was built from whether external gates accepted it and prevents evidence updates from changing candidate identity |
+| D25 | Fixed unsigned/SmartScreen disclosure wording in both release notes and the release body, with no implied assurance | Vague or omitted signing language | The spec requires disclosure without implying trust that is not present |
+| D26 | Evidence is retained only after secret scanning and redaction; screenshots cropped; `.env` recorded by hash and managed-block region only | Committing raw logs and screenshots | Credentials must not reach the repository or release artifacts |
+| D27 | Clean-machine execution of published bytes is a post-publication closeout check outside `rc-acceptance.json`; failure keeps R11 open and triggers incident/rollback decision-making without rewriting prior approval or identity | Calling it a publication gate or retroactively changing the acceptance ledger/manifest | Publication has already occurred; closeout must remain truthful without pretending it could have blocked the past event |
+
+### 10.2 Remaining external and spike gates
+
+These cannot be closed by design or by source-only work. Each is reported as `pass`, `fail`, or
+`unrun (external)`; none may be recorded as a pass without its evidence.
+
+| Gate | Type | Blocks |
+| --- | --- | --- |
+| **G2a — feasibility/selection:** after S02 + S04a, run M1-M8 against the real release-target YASB using disposable/prototype M3/M6/M8 arrangements as needed; retain full §6.2 evidence but make no candidate-acceptance or installer-guaranteeability claim | External manual, native | S04c adoption; fail/unrun also leaves publication blocked |
+| **G2b — installed-candidate confirmation / overall G2 closure:** after later installer/build slices retain an exact setup candidate, install those bytes and repeat the real-YASB spaced-path/no-PATH proof against the S04c-adopted behavior with manifest/setup identity binding | External manual, native | Publication; only pass closes overall G2 and permits `yasb-spaced-path: pass` |
+| Inno staged-swap feasibility spike: stage-to-`.new`, swap, induced step-6 failure, reverse-swap with quarantine, registry capture/restore, and a working uninstall after each — all under `PrivilegesRequired=lowest`, with the named pre-install-evacuation fallback if the post-install rename is disproven (§3.3) | Design-verification build spike, native | Boundary 3 implementation (§9.3) and publication while unresolved |
+| Clean Windows machine with no Python: install, CLI contract, helper, multiprocessing, Job, deadlines, no-orphans | External manual, native | Publication |
+| Installer lifecycle on a real machine: install, reinstall, upgrade, induced failure rollback, uninstall default and with cleanup | External manual, native | Publication |
+| YASB absent / undetected / running messaging and manual-close behavior | External manual, native | Publication |
+| No-YAML/CSS-edit proof by file hash on a real YASB installation | External manual, native | Publication |
+| Representative live supported-provider flow with secret-safe evidence | External manual, network + credentials | Publication |
+| Native Windows proof (`tests/test_windows_native_proof.py`) where the environment supports it | CI native | Publication where runnable; otherwise `unrun` |
+| Post-publication clean-machine closeout check on the published bytes | External manual, native | R11 closeout only; not publication or pre-publication ledger |
+| Availability of the required environments and their evidence retention locations | External planning | Recorded before execution begins |
+
+Named-provider live proof becomes mandatory only if this release changes that provider; 0.2.0 is
+a distribution change and does not change provider behavior, so a representative live flow plus
+existing supported-provider coverage satisfies the policy.
+
+## Checklist for the next phase
+
+- [ ] Every mechanism in §10.1 traces to a fixed spec requirement or to a proposal open question.
+- [ ] No product decision from §1.1 was reopened or restated as unresolved.
+- [ ] `setup.exe` is described as the artifact and Inno Setup only as the technology.
+- [ ] The setup-assist helper is private, nonce-guarded (correlation, not authorization), uses the
+      independently derived per-user temp transport with strict size/schema/no-reparse cleanup and
+      no second stdout contract, and can report after literal state-root deletion.
+- [ ] An invalid existing `config.json` is rejected-and-preserved with bounded enumerated
+  errors; no text claims an invalid document is merged or committed, with or without a warning.
+- [ ] Rollback after the swap is an executable reverse-swap with quarantine ordering and
+  registry capture/restore, and Inno feasibility is a named spike gate, not an assumption.
+- [ ] Config-assist failure is nonfatal and never rolls back the committed program transaction.
+- [ ] Every materially relevant no-PATH discovery mechanism — including `SUBST`/DOS-device
+  aliases and App Paths — carries an explicit disposition in §6, and the fail-closed rule with
+  no `use_shell: true` bypass is unchanged.
+- [ ] Provider selection overriding prerequisite readiness warnings is preserved in §4.4 and D15.
+- [ ] The spaced-path gate fails closed and never counts `use_shell: true`; after S02 + S04a,
+      G2a selects from disposable/prototype real-target evidence without claiming final acceptance or
+      installer guaranteeability; only then may S04c adopt exactly that mechanism.
+- [ ] G2b installs the exact retained candidate and repeats the real-YASB spaced-path/no-PATH proof;
+      only G2b pass closes overall G2, while fail/unrun blocks publication and any different mechanism
+      requires a new G2a/S04c/candidate identity cycle.
+- [ ] `rc-manifest.json` is immutable identity/integrity metadata; separately custodied
+      `rc-acceptance.json` binds pre-publication statuses to its digest and artifact hashes.
+- [ ] The post-publication clean-machine check is closeout-only and cannot rewrite publication
+      approval, acceptance status, or artifact identity.
+- [ ] Every new module and script has a named test in §9.2.
+- [ ] Six capability boundaries are each plausibly <=400 lines, with boundary 5's split identified.
+- [ ] External gates are listed as external, not assumed passed.
+
+## Next step
+
+Interactive mode stops after Design. Task planning consumes §9.3 as capability boundaries and
+§10.2 as explicit prerequisites; it must order work strict-TDD style (failing tests first) and
+must not treat any external gate as satisfied by design alone.
