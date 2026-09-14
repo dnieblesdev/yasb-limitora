@@ -1,10 +1,12 @@
 """Immutable, local-only configuration contracts for provider execution."""
 
+import json
 import math
 import ntpath
 import re
 from collections.abc import Mapping, MutableSet
 from dataclasses import dataclass
+from typing import cast
 
 from .model import ProviderKey
 
@@ -23,6 +25,41 @@ _CREDENTIAL_KEY = re.compile(
     r"(?:auth.?cookie|cookie|token|password|secret|credential|api.?key|authorization)",
     re.IGNORECASE,
 )
+
+
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ConfigError("duplicate configuration key")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(_value: str) -> None:
+    raise ConfigError("non-finite configuration number")
+
+
+def validate_config_document(
+    raw: bytes,
+    provider_errors: MutableSet[ProviderKey] | None = None,
+) -> "LocalConfig":
+    """Validate raw config bytes at the runtime's whole-document boundary."""
+    if not isinstance(raw, bytes):
+        raise ConfigError("invalid local configuration")
+    try:
+        value = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except ConfigError:
+        raise
+    except UnicodeDecodeError as error:
+        raise ConfigError("undecodable local configuration") from error
+    except (TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ConfigError("malformed local configuration") from error
+    return LocalConfig.from_mapping(value, provider_errors=provider_errors)
 
 
 def _reject_credential_keys(value: object) -> None:
@@ -49,7 +86,7 @@ def _timeout(value: object, maximum: float) -> float:
     if type(value) not in (int, float):
         raise ConfigError(_INVALID_TIMEOUT)
     try:
-        result = float(value)
+        result = float(cast(int | float, value))
     except (TypeError, ValueError, OverflowError):
         raise ConfigError(_INVALID_TIMEOUT) from None
     if not math.isfinite(result) or not 0 < result <= maximum:
@@ -101,7 +138,11 @@ class CodexConfig:
         _fields(fields, {"enabled", "runner", "timeout_seconds"})
         if "timeout_seconds" in fields:
             _timeout(fields["timeout_seconds"], MAX_CODEX_TIMEOUT_SECONDS)
-        return cls(**fields)
+        return cls(
+            enabled=cast(bool, fields.get("enabled", False)),
+            runner=cast(str | None, fields.get("runner")),
+            timeout_seconds=cast(float, fields.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)),
+        )
 
     def __repr__(self) -> str:
         return f"CodexConfig(enabled={self.enabled!r}, runner=<redacted>, timeout_seconds={self.timeout_seconds!r})"
@@ -122,7 +163,10 @@ class OpenCodeGoConfig:
         _fields(fields, {"enabled", "timeout_seconds"})
         if "timeout_seconds" in fields:
             _timeout(fields["timeout_seconds"], MAX_OPENCODE_TIMEOUT_SECONDS)
-        return cls(**fields)
+        return cls(
+            enabled=cast(bool, fields.get("enabled", False)),
+            timeout_seconds=cast(float, fields.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)),
+        )
 
     def __repr__(self) -> str:
         return f"OpenCodeGoConfig(enabled={self.enabled!r}, timeout_seconds={self.timeout_seconds!r})"
@@ -167,7 +211,7 @@ class LocalConfig:
         return cls(
             codex=codex,
             opencode_go=opencode_go,
-            deadline_seconds=fields.get("deadline_seconds", DEFAULT_DEADLINE_SECONDS),
+            deadline_seconds=cast(float, fields.get("deadline_seconds", DEFAULT_DEADLINE_SECONDS)),
         )
 
     def __repr__(self) -> str:

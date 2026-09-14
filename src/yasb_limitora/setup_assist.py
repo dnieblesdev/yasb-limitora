@@ -21,8 +21,9 @@ import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from . import _env_block, discovery
+from . import _env_block, _path_cleanup, config, discovery
 from .discovery import FsView, _canonical_local_dir, _components_safe
+from .path import MAX_CONFIG_BYTES
 
 _SETUP_ASSIST_FLAG = "--__yasb-limitora-setup-assist"
 _NONCE_ENV = "_YASB_SETUP_ASSIST_NONCE"
@@ -107,7 +108,7 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 def _reject_constant(value: str) -> None:
     raise ValueError("non-finite request number")
 
-def _validate_request(raw: bytes) -> tuple[tuple[tuple[str, bool], ...] | None, str | None]:
+def _validate_request(raw: bytes) -> tuple[tuple[tuple[str, object], ...] | None, str | None]:
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
@@ -125,7 +126,7 @@ def _validate_request(raw: bytes) -> tuple[tuple[tuple[str, bool], ...] | None, 
         return None, "schema-violation"
     if len(operations) > _MAX_OPERATIONS:
         return None, "too-many-operations"
-    names: list[tuple[str, bool]] = []
+    names: list[tuple[str, object]] = []
     for item in operations:
         if not isinstance(item, dict):
             return None, "schema-violation"
@@ -134,10 +135,18 @@ def _validate_request(raw: bytes) -> tuple[tuple[tuple[str, bool], ...] | None, 
         name = item.get("operation")
         if not isinstance(name, str):
             return None, "schema-violation"
-        consent = item.get("consent", True)
-        expected = {"operation", "consent"} if name == "env-block-apply" else {"operation"}
-        if set(item) != expected or type(consent) is not bool:
-            return None, "schema-violation"
+        if name == "env-block-apply":
+            if set(item) != {"operation", "consent"} or type(item.get("consent")) is not bool:
+                return None, "schema-violation"
+            consent: object = item["consent"]
+        elif name == "state-cleanup":
+            if set(item) != {"operation", "consent"} or item.get("consent") != "YES":
+                return None, "schema-violation"
+            consent = item["consent"]
+        else:
+            if set(item) != {"operation"}:
+                return None, "schema-violation"
+            consent = True
         if name not in _ALLOWED_OPERATIONS:
             return None, "unknown-operation"
         if any(prior == name for prior, _ in names):
@@ -166,6 +175,70 @@ def _read_request(path: str, fs: FsView) -> tuple[bytes | None, str | None]:
         return None, "request-unsafe"
     return (None, "request-oversize") if len(data) > _MAX_FILE_BYTES else (data, None)
 
+def _config_diagnostic(error: config.ConfigError) -> dict[str, str]:
+    """Project a config failure without retaining fields or values from user data."""
+    message = str(error)
+    if "duplicate" in message:
+        reason = "duplicate-key"
+    elif "non-finite" in message:
+        reason = "non-finite-number"
+    elif "undecodable" in message:
+        reason = "undecodable-input"
+    elif "malformed" in message:
+        reason = "malformed-json"
+    elif "credential-like" in message:
+        reason = "credential-like-key"
+    elif "unsupported" in message:
+        reason = "unknown-field"
+    else:
+        reason = "wrong-type"
+    return {"field": "config", "reason": reason}
+
+
+def _read_gate_one_config(path: Path) -> bytes:
+    """Read only the verified handle for the literal existing config path."""
+    if not _components_safe(str(path.parent), discovery.REAL_FS):
+        raise OSError("unsafe config parent")
+    fd = os.open(path, os.O_RDONLY | _O_BINARY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        entry = os.fstat(fd)
+        if not stat.S_ISREG(entry.st_mode) or entry.st_size > MAX_CONFIG_BYTES or getattr(entry, "st_file_attributes", 0) & _REPARSE:
+            raise OSError("unsafe config")
+        if not _fd_reached_path(fd, str(path)):
+            raise OSError("config path changed")
+        data = os.read(fd, MAX_CONFIG_BYTES + 1)
+        if len(data) > MAX_CONFIG_BYTES:
+            raise OSError("oversize config")
+        return data
+    finally:
+        os.close(fd)
+
+
+def _config_gate_one(local_appdata: str) -> dict[str, object]:
+    """Validate the existing config at runtime's acceptance boundary, without writing."""
+    path = Path(local_appdata) / "yasb-limitora" / "config.json"
+    try:
+        raw = _read_gate_one_config(path)
+    except FileNotFoundError:
+        if not os.path.lexists(path):
+            return {"operation": "config-apply", "status": "refused", "reason": "config-absent"}
+        raw = None
+    except OSError:
+        raw = None
+    if raw is None:
+        return {"operation": "config-apply", "status": "refused", "reason": "configuration-invalid", "diagnostics": [{"field": "config", "reason": "unreadable-input"}]}
+    provider_errors: set[config.ProviderKey] = set()
+    try:
+        config.validate_config_document(raw, provider_errors)
+    except config.ConfigError as error:
+        return {"operation": "config-apply", "status": "refused", "reason": "configuration-invalid", "diagnostics": [_config_diagnostic(error)]}
+    diagnostics = [{"provider": key.value, "reason": "provider-invalid"} for key in sorted(provider_errors, key=lambda item: item.value)]
+    result: dict[str, object] = {"operation": "config-apply", "status": "refused", "reason": "config-gate-2-unavailable"}
+    if diagnostics:
+        result["diagnostics"] = diagnostics
+    return result
+
+
 def _write_result(root: str, payload: Mapping[str, object], fs: FsView) -> bool:
     path, data = ntpath.join(root, "result.json"), json.dumps(payload, sort_keys=True).encode("utf-8")
     if fs.file_kind(path) != "missing" or len(data) > _MAX_FILE_BYTES:
@@ -184,7 +257,8 @@ def _write_result(root: str, payload: Mapping[str, object], fs: FsView) -> bool:
         return False
     return True
 
-def _execute(names: tuple[tuple[str, bool], ...], environment: Mapping[str, str], local_appdata: str) -> list[dict[str, object]]:
+def _execute(names: tuple[tuple[str, object], ...], environment: Mapping[str, str], local_appdata: str,
+             registry: _path_cleanup.UserPathRegistry | None = None) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
     for name, consent in names:
         if name == "discover":
@@ -202,14 +276,29 @@ def _execute(names: tuple[tuple[str, bool], ...], environment: Mapping[str, str]
             elif invocation.state != discovery.INVOCATION_RESOLVED or invocation.command is None:
                 records.append({"operation": name, "status": "refused", "reason": "env-invocation-unavailable"})
             else:
-                result = _env_block.apply(Path(home.path), Path(local_appdata) / "yasb-limitora", invocation.command)
+                result = _env_block.apply(Path(home.path), Path(local_appdata) / "yasb-limitora", invocation.command, consent=True)
                 records.append({"operation": name, "status": "ok"} if result.reason is None else {"operation": name, "status": "refused", "reason": result.reason})
-        else:  # semantics arrive in S07-S09; a bounded nonfatal refusal keeps the program transaction continuable
+        elif name in {"path-add", "path-remove"}:
+            path_registry = registry or _path_cleanup.WindowsUserPathRegistry()
+            result = _path_cleanup.append_user_path(path_registry, os.path.dirname(sys.executable)) if name == "path-add" else _path_cleanup.remove_recorded_user_path(path_registry)
+            records.append({"operation": name, "status": "ok"} if result.changed else {"operation": name, "status": "refused", "reason": result.reason or "path-unchanged"})
+        elif name == "state-cleanup":
+            if consent != "YES":
+                records.append({"operation": name, "status": "refused", "reason": "state-consent-required"})
+            else:
+                path_registry = registry or _path_cleanup.WindowsUserPathRegistry()
+                state_dir = ntpath.join(local_appdata, "yasb-limitora")
+                result = _path_cleanup.cleanup_literal_state(path_registry, state_dir)
+                records.append({"operation": name, "status": "ok"} if result.changed else {"operation": name, "status": "refused", "reason": result.reason or "state-unchanged"})
+        elif name == "config-apply":
+            records.append(_config_gate_one(local_appdata))
+        else:  # semantics arrive in S09+; a bounded nonfatal refusal keeps the program transaction continuable
             records.append({"operation": name, "status": "refused", "reason": "operation-unavailable"})
     return records
 
 def _run_setup_assist(environment: Mapping[str, str], *, local_appdata: str | None = None,
-                      fs: FsView = discovery.REAL_FS, appdata_resolver: Callable[[], str | None] = resolve_local_appdata) -> int:
+                      fs: FsView = discovery.REAL_FS, appdata_resolver: Callable[[], str | None] = resolve_local_appdata,
+                      registry: _path_cleanup.UserPathRegistry | None = None) -> int:
     if not _valid_nonce(environment.get(_NONCE_ENV, "")):
         return 1  # nonce grammar is validated before any filesystem access
     resolved = local_appdata if local_appdata is not None else appdata_resolver()
@@ -227,7 +316,7 @@ def _run_setup_assist(environment: Mapping[str, str], *, local_appdata: str | No
         refusal = {"schema": _RESULT_SCHEMA, "status": "refused", "operations": [{"operation": "request", "status": "refused", "reason": reason}]}
         _write_result(root, refusal, fs)
         return 1
-    records = _execute(names, environment, canonical)
+    records = _execute(names, environment, canonical, registry)
     status = "complete" if all(record["status"] == "ok" for record in records) else "partial"
     if not _write_result(root, {"schema": _RESULT_SCHEMA, "status": status, "operations": records}, fs):
         return 1
