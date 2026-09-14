@@ -2,13 +2,25 @@ schema: spec-driven
 
 project_context: |
   yasb-limitora is a Windows-only Python 3.10+ command and JSON boundary for the
-  YASB CustomWidget. It integrates the released Limitora 0.3.1 public API and
-  exposes the supported versioned JSON contract; provider selection,
-  authentication, transport, and provider-specific interpretation remain in
-  Limitora. The repository uses a src-layout package, pytest tests, and a
-  frozen JSON v1 document alongside the current JSON v2 contract. The current
-  change is issue #137: refactor JSON so the current contract is the single
-  supported output.
+  YASB CustomWidget. The current main baseline includes the completed R1-R10
+  roadmap work, the single supported JSON output from issue #137, and the
+  OpenCode Bearer API migration integrated through PR #159. Limitora 0.3.1 owns
+  provider selection, authentication, transport, and provider interpretation;
+  this repository owns configuration resolution, bounded execution, sanitized
+  projection, and the CLI/process boundary. The project uses a src-layout
+  package, pytest, a pinned Limitora dependency, and native Windows proof where
+  the environment supports it.
+
+  R11 is the next roadmap milestone: release and smoke-test 0.2.0. GitHub #62
+  is the planning anchor and is not yet approved. The R11 planning flow must
+  resolve release readiness, installer artifacts and commands, upgrade and
+  uninstall semantics, smoke coverage, and acceptance evidence without treating
+  any candidate solution as final before proposal approval. Exploration currently includes a Windows-only first release, possible PyInstaller onedir packaging,
+  and per-user installation/state considerations, but these remain hypotheses.
+  Mutable application state is expected to remain distinct from packaged
+  artifacts, and the existing no-PATH run_cmd risk in upstream/YASB space
+  requires a native spike; neither point authorizes an implementation decision.
+  R11 must not automatically edit YASB YAML, CSS, or credentials.
 
 strict_tdd: true
 
@@ -29,45 +41,74 @@ testing:
     - >-
       Preserve the Windows-only runtime boundary and sanitized JSON output
       invariants.
+    - >-
+      For R11 planning, identify executable smoke and acceptance evidence while
+      keeping unapproved installer and release choices explicitly unresolved.
 
 rules:
   proposal:
     - >-
-      State the problem, scope, non-goals, compatibility impact, and acceptance
-      evidence.
-    - Do not expand the change beyond issue #137 without explicit authorization.
+      Define the R11 release problem, scope, non-goals, compatibility impact,
+      unresolved decisions, and acceptance evidence for #62; do not assume the
+      planning anchor is approved.
+    - >-
+      Keep Windows-only 0.2.0 release exploration separate from final installer,
+      install-command, upgrade, uninstall, artifact, and smoke-matrix decisions.
+    - >-
+      Explicitly preserve the no-automatic-edit boundary for YASB YAML, CSS, and
+      credentials, and identify the native no-PATH run_cmd spike.
   specs:
-    - Use normative MUST language for the supported JSON contract.
     - >-
-      Treat the current contract as the single supported output; identify and
-      remove obsolete output paths in scope.
+      Use normative MUST language for the R11 requirements confirmed by the
+      approved proposal; do not reopen those product decisions or invent
+      unresolved implementation mechanisms.
     - >-
-      Include scenarios for success, unavailable/not-run, safe error, platform
-      boundary, and malformed or invalid data where applicable.
+      Cover installer artifacts, install/upgrade/uninstall behavior, mutable
+      state, PATH and YASB integration risks, smoke scenarios, and acceptance
+      evidence through externally observable, testable behavior.
+    - >-
+      Preserve the Windows-only runtime boundary, sole current JSON contract,
+      sanitized output, and Limitora ownership invariants.
   design:
     - >-
-      Preserve the one-way YASB CustomWidget -> yasb-limitora CLI/JSON ->
-      Limitora boundary.
+      Treat the approved proposal and specs as fixed product decisions. Compare
+      alternatives only for the technical mechanisms they deliberately leave
+      unresolved, then record the selected mechanism and its evidence needs.
     - >-
-      Prefer existing project conventions and keep provider logic out of this
-      repository.
+      Design the frozen build, per-user setup.exe, installer lifecycle, state
+      safety, artifact custody, rollback, security, and smoke architecture
+      without reopening the confirmed public artifact or lifecycle boundaries.
     - >-
-      Explain migration, compatibility, security, and test implications before
-      implementation.
+      Keep provider logic and credentials in Limitora, avoid automatic YASB
+      YAML/CSS/credential edits, and make the native no-PATH run_cmd spike an
+      explicit fail-closed design gate.
+    - >-
+      Explain the smoke matrix, external/manual gates, and Windows evidence
+      strategy before implementation.
   tasks:
     - >-
-      Order tasks strict-TDD style: failing tests, implementation, focused
-      verification, full verification, and cleanup.
+      Order any implementation tasks strict-TDD style: failing tests,
+      implementation, focused verification, full verification, and cleanup.
     - >-
-      Keep tasks independently verifiable and name the affected files or
-      symbols.
+      Keep planning tasks independently verifiable, name affected files or
+      symbols, and make unresolved release decisions explicit prerequisites.
   apply:
-    - Do not claim completion without test evidence.
     - >-
-      Keep changes within the approved issue scope and preserve sanitized,
-      fail-closed output behavior.
+      Do not claim completion without focused, full-suite, and applicable native
+      evidence.
+    - >-
+      Keep changes within the approved R11 scope; do not implement or document
+      unapproved installer, lifecycle, PATH, or YASB-edit behavior as settled.
+    - >-
+      Preserve the Windows-only boundary, sanitized fail-closed output, mutable
+      state safety, and no-automatic-edit invariant.
   verify:
     - Run focused pytest tests before the full pytest suite.
     - >-
       Run native Windows proof when the environment supports it; otherwise
-      report it as an unrun external verification.
+      report it as an unrun external verification and identify the remaining
+      smoke or
+      manual acceptance gates.
+    - >-
+      Verify release artifacts and install lifecycle only against approved R11
+      acceptance criteria; do not infer approval from exploratory results.
