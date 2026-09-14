@@ -80,7 +80,11 @@ roadmap work for this contract.
 
 ## Installation and configuration
 
-On native Windows 10/11:
+The supported end-user installation for the first public 0.2.0 release is the
+per-user `setup.exe` described in
+[`docs/release/0.2.0/MIGRATION.md`](docs/release/0.2.0/MIGRATION.md).
+
+The editable-checkout route below is development-only. On native Windows 10/11:
 
 ```powershell
 py -m pip install -e .
@@ -94,6 +98,8 @@ security, bounded errors, cache refresh, and manual YASB procedures.
 ## Documentation map
 
 - [`docs/roadmap.md`](docs/roadmap.md): official 0.2 R1-R11 order and gates.
+- [`docs/release/0.2.0/`](docs/release/0.2.0/): first-public 0.2.0 release
+  notes and migration guidance.
 - [`docs/architecture/README.md`](docs/architecture/README.md): ownership and
   boundary decisions.
 - [`docs/research/README.md`](docs/research/README.md): verified CustomWidget

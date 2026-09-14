@@ -309,7 +309,9 @@ and the full suite (598 passed, 4 skipped). Post-integration documentation gates
 then passed 599 tests with the same 4 platform-conditional skips. R11 is next,
 gated by the separate
 manual OpenCode acceptance in a real YASB installation and release/smoke-test
-#62. No R11 release claim is made here.
+#62. R11 release identity and user migration material is recorded under
+`docs/release/0.2.0/` (`RELEASE_NOTES.md`, `MIGRATION.md`). No R11 release
+claim is made here: no tag, installer artifact, or publication exists yet.
 
 ## Explicit exclusions for 0.2
 
