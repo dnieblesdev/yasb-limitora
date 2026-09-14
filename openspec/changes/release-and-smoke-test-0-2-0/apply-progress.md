@@ -336,3 +336,395 @@ Date: 2026-09-06 (local); same-day REFACTOR-only final-net remediation. Worker: 
 - Corrective-attempt delta vs begin tree `3d26ae80`: **165 changed lines** (tests 79 + script 33 + this section replacement 53), within the ≤200 native corrective cap.
 - Remediation verification: focused `python -m pytest -q --strict-markers tests/test_release_manifest.py` → **35 passed**; `python -m ruff check scripts/make_release_manifest.py tests/test_release_manifest.py` → clean. Independent full-suite and native verification are delegated separately by the parent.
 - Rollback boundary: delete the two S03 files and revert this section; all generated records live only in disposable tmp dirs. Remaining work per `tasks.md`: S04a → G2a → S04c, S05–S09, S11–S16, G2b; S12 consumes this generator.
+
+## S04a — Read-only YASB discovery and spike harness: COMPLETE
+> Redaction: `<user-home>` replaces the observed Windows profile root; evidence semantics are unchanged.
+
+- Strict TDD: post-timeout RED replay against reset `c6225c7d` produced **1 failed, 19 passed** (`test_existing_unsafe_components_are_rejected`); GREEN current candidate produced **20 passed**; TRIANGULATE substring-process mutant produced **1 failed, 19 passed** (`test_exact_names_only[entries0-running-pids0]`); REFACTOR consolidated the same config, metadata, evidence, exact-process, no-control, and harness cases without weakening their assertions. The replay is explicitly reconstruction evidence, not a claim that the timed-out worker returned its original RED result.
+- Verification: focused **20 passed**; Ruff clean; full suite **705 passed, 3 skipped**; native Windows proof **11 passed**; PowerShell parser and static M1–M8/§6.2 contract passed; protected examples unchanged; no attributable process remained.
+- Accounting: final pre-S04a baseline `c0204c6b` = **396/400** lines (182 discovery + 113 harness + 71 discovery tests + 30 process tests); remediation baseline `c6225c7d` = **462/650** diff lines. G2a remains truthfully `unrun (external)`; no invocation mechanism was selected/adopted and S04c was not started.
+
+## G2a — real release-target YASB feasibility/selection checkpoint: `unrun (external)` — INTERACTION REQUIRED
+
+Date: 2026-09-06 (local). Worker: delegated apply executor. Work unit: G2a external checkpoint only, explicitly authorized by the user to run now. Strict TDD: **N/A** — external verification gate. No production code, test, harness, shipped example, YASB YAML/CSS, PATH, or persisted environment variable was created, modified, or deleted. No process was installed, launched, terminated, suspended, restarted, or otherwise controlled. No commit, tag, build, installer, or PR action. **S04c and all later slices were NOT started.**
+
+### Verdict
+
+G2a = **`unrun (external)`**, truthfully. The design §6.2 mechanism executions (M1–M8) against the real release-target YASB did **not** occur, because they require a manual native YASB widget run and UI observation (exact test-YAML `run_cmd`/`use_shell` quote, cropped/redacted widget screenshot, real spawned-child `argv`/process ancestry, stdout/exit from a real YASB spawn). This delegated executor is prohibited from launching/controlling YASB, from editing its config to load a test widget, and from manual UI observation — the exact stop condition. No mechanism is selected. Per the fail-closed rule (design §6.3), G2a `unrun` blocks S04c and leaves publication blocked.
+
+### Environment discovery (read-only)
+
+- Produced with S04a `src/yasb_limitora/discovery.py` `discover(os.environ)` plus read-only registry/version/PATH inspection.
+- Outcome `detected`; install evidence `registry:HKLM:YASB Reborn@`, `directory:C:\Program Files\YASB`.
+- Release-target YASB version **`2.0.6`** (`yasb.exe` FileVersion `2.0.6.0`) at **`C:\Program Files\YASB`** (install path contains a space — the spaced-path machine class G2a must prove).
+- Config home `resolved`/safe: `<user-home>\.config\yasb` (`YASB_CONFIG_HOME` unset); `.env` `present`; `config.yaml` present.
+- YASB process status **`clear`** — no `yasb.exe`/`yasb-limitora.exe` running (a running YASB could only be observed read-only; none is running).
+
+### Integrity baseline (read-only; `before` half of §6.2 rule 8)
+
+- Frozen candidate (S02b target) `build/frozen/dist/yasb-limitora/yasb-limitora.exe` SHA-256 `93db5fbd58b92ea37e692ce738e508b50ffa1ccc69ea5bb7b5455b8f44a798b0`; `_internal/build-info.json` `f783582a…` (version `0.2.0`, PyInstaller `6.22.2`, Python `3.13.5`, source_commit `528313c9…`).
+- S04a harness `scripts/spacepath_spike.ps1` revision SHA-256 `3c24332abc75751ad63a38062acc666a491668df7033ec4c410d7f7a5fcef853` (unchanged).
+- YASB `yasb.exe` `28b5fe3d…`; `config.yaml` `728af2dc…`; `.env` `3bdaf891…` (hashed only; contents never read — secret-bearing; both unmodified).
+- Persisted PATH: Machine `REG_EXPAND_SZ` len 957, User `REG_EXPAND_SZ` len 1960, combined SHA-256 `29f76483d0601f0653cf6f06c25c68f19e25966430ab8b587a8ae0d4afca1a54`; candidate dir **not** on PATH (confirms the no-PATH requirement is real). No PATH change made.
+
+### Harness readiness and why it was not run as a substitute
+
+- The S04a harness is present/unmodified and is read-only/disposable by design; it records `yaml_quote`, `screenshot`, `child_cmdline`, and `process_ancestry` as `pending-manual`, so it **cannot** itself satisfy §6.2 rules 2/3/4/7. Its `Invoke-LaunchProbe` only emulates the `use_shell:false` first-token parse by directly spawning the candidate — **not** a real YASB widget spawn — and would not produce real child-argv/ancestry or widget-rendering evidence. Running it alone would not complete G2a and would risk being misread as partial completion, so it was not executed. Disposable/prototype M3/M6/M8 arrangements must be built by the external run outside the repository and YASB config; none were created here.
+
+### M1–M8 result summary
+
+- Every mechanism and every §6.2 field is `unrun` (no widget render, no child argv/ancestry, no stdout/exit from a real YASB run). M7 remains diagnostic-only and never selectable. Full table recorded in the evidence file.
+- Selected mechanism: **none** (selection requires complete execution evidence proving feasibility with PATH unchanged and `use_shell:false`).
+- Bounded machine-class behavior: **not established** (no execution). The resolved program dir may contain a space (`C:\Program Files\…`), so a space-free-only M3 result could not cover the spaced-path class.
+
+### Cleanup / process evidence
+
+- No disposable arrangement created (nothing to clean up); no process spawned/controlled; YASB probe after discovery `clear` (unchanged); PATH combined digest `29f76483…` unchanged; YASB `config.yaml`/`.env` bytes unmodified. Secret-scan: only path strings, versions, and SHA-256 digests are recorded; `.env` never read as text.
+
+### Interaction required — smallest exact user action
+
+A human operator with native GUI access must perform the external manual G2a run recorded in §10 of `docs/release/0.2.0/evidence/spacepath-spike.md`: (1) re-confirm target/version and the integrity/PATH baselines above; (2) build disposable/prototype M3/M6/M8 (and M4/M5/M7) arrangements outside the repository and YASB config, pointing at the frozen candidate; (3) load a disposable test widget (separate `YASB_CONFIG_HOME`, never the shipped config/CSS) invoking the candidate for M1–M8 with the exact §6.1 `run_cmd`/`use_shell`; (4) manually open YASB and capture every §6.2 field per mechanism (YAML quote, cropped/redacted screenshot, child argv with `argv[0]` = intended path and no extra tokens, ancestry with no `cmd`/`powershell`/`conhost` for a pass, selector-free JSON stdout with no root `version`, contract exit code, PATH unchanged before/after); (5) select exactly one feasible M3/M6/M8 only if complete evidence proves it, else record `fail`/`unrun` truthfully (M7 never selectable); (6) redact, retain, clean up all disposables, leave PATH/YASB config/shipped examples/production code/tests unmodified, and close YASB manually.
+
+### Files changed (evidence/state only)
+
+- `docs/release/0.2.0/evidence/spacepath-spike.md` (new G2a `unrun (external)` evidence record).
+- `openspec/changes/release-and-smoke-test-0-2-0/tasks.md` (G2a status note; checkbox remains unchecked).
+- `openspec/changes/release-and-smoke-test-0-2-0/apply-progress.md` (this section).
+
+### Remaining tasks
+
+- G2a remains `unrun (external)` pending the manual native run. S04c, S05–S16, and G2b remain blocked/not started per `tasks.md`. This unit does not start any later slice or adopt any mechanism.
+
+### Workload / PR boundary
+
+- One bounded external-gate evidence unit. Durable authored changes are limited to the evidence file, the tasks.md status note, and this cumulative progress entry; all remain well below the 400-line review budget. No adoption, candidate, or publication artifact was created.
+
+### G2a prep update (2026-09-07): disposable manual-test environment prepared; config schema truthfully blocked — still `unrun (external)`
+
+The user chose `Preparar prueba manual` and authorized preparing the disposable/prototype environment. A uniquely named root was created under `%TEMP%` only (`<user-home>\AppData\Local\Temp\yasb-g2a-20260907-020324-0e776d14`), outside the repository and the real YASB config home. No YASB process was launched/terminated/restarted/controlled; the real `config.yaml`, `.env`, CSS, PATH, shipped examples, production, tests, and installer were not read or modified. Only frozen-executable bytes were copied and read-only capture helpers created.
+
+- **Arrangements (full onedir, 70 files each; exe SHA-256 `93db5fbd…` byte-identical to source):** M3 space-free `arrangements\m3-spacefree\bundle`; M4/M5/M6 spaced `arrangements\m4 m5 m6 spaced bundle\bundle`; M8 space-free launcher `arrangements\m8-launcher-spacefree\bundle`. M1/M2 need no arrangement (bare name; candidate not on PATH → M2 expected fail). M7 reuses the spaced bundle with `use_shell:true` (diagnostic).
+- **M6 finding:** 8.3 short-name generation is enabled on the volume; the spaced bundle resolves to a space-free short path (`...\YASB-G~1\ARRANG~1\M4M5M6~1\bundle\YASB-L~1.EXE`, `spaced_short_has_space=false`), so M6 is prototypeable here (real-YASB spawn still must be re-observed). Recorded in `evidence\shortpath-and-path.json`.
+- **Read-only helpers (validated):** `capture\capture-path.ps1` (`f73183e2…`), `capture\capture-child.ps1` (`180d63d2…`; CIM ancestry/argv, dry-run reported `NO_TARGET_RUNNING`, never controls a process), `capture\probe-shortpath-and-path.ps1` (`ef3de4a5…`).
+- **PATH unchanged:** combined SHA-256 `3736ac1a…` identical `before-prep-complete` and `after-prep`; candidate not on PATH. Post-prep YASB `clear`, `yasb-limitora` process count `0`. (Canonical expanded/UTF-16 digest differs from the raw-registry UTF-8 `29f76483…` in §2; same unchanged PATH — manual run must compare like-for-like.)
+- **Truthful blocker:** the disposable `config-home\` is intentionally empty. A valid YASB 2.0.6 custom-widget `config.yaml` cannot be fabricated from allowed sources (real config/shipped example/tests protected from reading; YASB ships no loose schema — compiled into `library.zip`, pydantic-validated; design grants only `run_cmd`/`use_shell`). Guessing would risk an invalid config that YASB rejects (spoiling the run) and would violate design §6.1's "re-observe, don't assume" rule. Per the stop-truthfully instruction, this element is left unprepared. Smallest unblock: read-only access to the project's own `examples/customwidget/customwidget.yaml` (+ optionally `tests/test_customwidget_examples.py`) as the authoritative schema, or the human drops a valid disposable `config.yaml` into `config-home\`.
+- **Files changed (evidence/state only):** `docs/release/0.2.0/evidence/spacepath-spike.md` (§11 prep record), `tasks.md` (G2a prep note; checkbox unchecked), this section. No production/test/harness/example change; verdict stays `unrun (external)`; S04c and all later slices remain not started.
+- **Cleanup boundary:** delete `%TEMP%\yasb-g2a-20260907-020324-0e776d14` and marker `%TEMP%\yasb-g2a-20260907-020324-0e776d14.path` only; nothing written under the repo, real YASB config home, PATH, or any protected surface.
+
+### G2a evidence completion attempt (2026-09-07, second turn): manual run recorded, complementary direct runs executed — verdict `fail (selection evidence incomplete)`; checkbox remains unchecked
+
+The user performed the manual native YASB run and supplied the widget screenshot; this executor
+recorded it, ran the authorized complementary direct M3/M6/M8 executions, and assessed §6.2
+completeness. No YASB process was launched/stopped/restarted/controlled (a pre-existing session-2
+YASB, pid 6708, was observed read-only only). No adoption, no S04c, no tasks.md checkbox change.
+
+- **Screenshot retained:** `docs/release/0.2.0/evidence/spacepath-spike-widget.png` (copy of
+  `<user-home>\OneDrive\Documentos\ShareX\Screenshots\2026-09\explorer_nrak6Lxj9b.png`, mtime
+  16:50), SHA-256 `9aeb22b54a49996819f01039efcf92ace5aa1890c5004cfc415bab0fc05a5e3a`. Exact visual
+  interpretation recorded in spike §12.1: M1/M2/M3/M6/M8 `Quota not run`; M4 slot bare `Loading...`
+  (no prefix); M5 `Quota 89% remaining: state=available; freshness=fresh`; M7 prefix + literal
+  `{data[providers][0][compact_text]}`.
+- **Session facts:** session 1 (03:00:44–03:16:40) produced the CIM/child captures
+  (`capture\live-g2a-cim-poll.txt`, `capture\live-g2a-existing-helper-poll.txt`,
+  `capture\post-poll-state-and-hashes.txt`); session 2 (16:49:05→) produced the screenshot with **no
+  capture running** → render↔spawn simultaneity is absent (recorded caveat).
+- **Session-1 spawn evidence:** direct `yasb.exe`→child, no shell between YASB and child: M3 exe
+  (pids 38028/12452), M8 exe (37848/41008), quoted-spaced pair (29392/42668, **unattributable among
+  M4/M5/M7**), bare name → unrelated pyenv `yasb-limitora` (M1/M2 controls; wrong binary, not the
+  frozen candidate). Never observed: unquoted-spaced (M5) child, 8.3 short-path (M6) child,
+  `cmd.exe`-parented child (M7). M5 rendered a quota snapshot with no captured spawn (anomaly
+  recorded, unusable as rule-4 evidence).
+- **Complementary direct runs (authorized, labeled non-YASB):** harness
+  `capture\direct-run-m3m6m8.py` (SHA-256 `57e0324b…`), each of M3/M6/M8 `run_cmd` executed exactly
+  once, `argv=[exe]`, `shell=False`, 30 s bound: all exit 0, ~0.43 s, stdout SHA-256 `0ed3a41c…`
+  (2117 B), stderr empty, 0 redaction hits, JSON ok with root keys
+  `execution_error, execution_state, providers`, **no root `version`**, `providers[0].outcome=
+  snapshot`, `compact_text="Quota 89% remaining; state=available; freshness=fresh"`,
+  `execution_state=partial`; exe SHA-256 `93db5fbd…` before each run; no process residue.
+- **§6.2 completeness (spike §12.5):** M5 and M6 lack rule-4 child argv/ancestry; M4/M7 attribution
+  ambiguous; M4/M7 renders absent; M3/M8 strong but cross-session-bound. Selection evidence is
+  incomplete → per design §6.2/§6.3 **G2a = `fail (selection evidence incomplete)`**, not pass and
+  not unrun. **Selected mechanism: none.** Machine-class note: this machine's profile path is
+  space-free, so M3/M8 cover only the space-free class; the spaced class (target of
+  `yasb-spaced-path`) rests on the incomplete M4/M5/M6 records; §6.3 forbids M3-only selection as
+  spaced coverage, and M8 is not proven against the spaced-install class, so no preference-based
+  selection was made.
+- **Fail-closed consequences:** S04c never starts; no mechanism adopted; publication remains
+  blocked; `tasks.md` G2a checkbox **unchanged (unchecked)**; no installer/candidate/ledger claim.
+- **Single smallest manual rerun returned (spike §12.7):** one captured session — start both capture
+  helpers, launch YASB with the same disposable config (`e105cd7d…`), wait ≥2 widget cycles (~5 min)
+  with the bar visible, screenshot inside the capture window, exit from tray, stop captures. Yields
+  distinct M5/M6 child argv/ancestry (or bound proof-of-absence), M4-vs-M7 disambiguation
+  (`cmd.exe` ancestry presence/absence), and a simultaneous screenshot.
+- **Integrity/cleanup:** PATH canonical digest `3736ac1a…` identical pre/post (22:01:03Z/22:01:41Z),
+  `contains_yasb_limitora=False`; real `config.yaml` `728af2dc…` and `.env` `3bdaf891…` unchanged;
+  disposable config `e105cd7d…`/`styles.css` `a15c8375…` unchanged; frozen candidate `93db5fbd…`
+  unchanged; S04a harness `3c24332a…` unchanged; no `yasb-limitora` residue; new external files
+  confined to `capture\`; secret-scan 0 hits (`.env` hashed only).
+- **Files changed:** `docs/release/0.2.0/evidence/spacepath-spike-widget.png` (new binary),
+  `docs/release/0.2.0/evidence/spacepath-spike.md` (§12 + header verdict update), this file.
+  `tasks.md` untouched.
+- **Workload / PR boundary:** evidence-only unit; authored doc lines well under the 400-line budget;
+  no production/test/example/installer change; no commit made.
+
+## G2a remediation preparation (round 3) — BLOCKED: interaction_required (2026-09-07)
+
+- Authorized scope: prepare ONE new manual G2a session in the existing disposable root
+  `<user-home>\AppData\Local\Temp\yasb-g2a-20260907-020324-0e776d14` to remedy parent-supplied
+  evidence identity `sha256:0e4af39a…` (M1–M8 distinct prototype paths, disposable config with
+  `run_once:true` where possible, capture monitor, integrity helpers, static validation only;
+  no launch/stop/restart/control of YASB or any candidate).
+- Read-only process gate result at 2026-09-07T22:15:46Z: **YASB session 2 from spike §12.1 is still
+  running** — PID 6708, `C:\Program Files\YASB\yasb.exe`, parent 23008, started 16:49:05.
+  No `yasb-limitora.exe` process found.
+- Per the gate: preparation stopped before any mutation. No prototypes, onedir copies, disposable
+  config/CSS, capture monitor, or integrity helpers were created or modified; disposable
+  `config-home\`, `arrangements\`, `capture\` untouched. Only write under temp: read-only inspection
+  script `<root>\prep-r3\proccheck.ps1` (disposable exception surface). No real config/.env/CSS/PATH
+  read or mutated.
+- Files changed: `docs/release/0.2.0/evidence/spacepath-spike.md` (§13 blocked-preparation record,
+  +31 lines), this file. `tasks.md` untouched — G2a checkbox remains unchecked; verdict remains
+  `fail (selection evidence incomplete)`; S04c and publication remain blocked. No screenshot,
+  ancestry, or capture output claimed.
+- Human action required: manually close YASB (PID 6708, tray → exit), verify no YASB process remains,
+  then re-authorize the remediation preparation.
+- Workload / PR boundary: evidence-only record (~43 authored lines total); no production/test/
+  example/installer change; no commit made.
+
+## G2a remediation preparation (round 3) — PREPARED, awaiting one manual session (2026-09-07)
+
+- Process gate recheck: user manually closed YASB (PID 6708 gone); strict read-only CIM recheck
+  returned `NO_YASB_PROCESSES` (zero `yasb.exe` / `yasb-limitora*`) before any mutation.
+- Built inside the existing disposable root (round-2 evidence untouched):
+  - `arrangements-r3\`: six DISTINCT full onedir copies (70 files each; every exe = frozen
+    `93db5fbd…`; full-tree hash equality with source verified) — `m3-spacefree`, `m4 quoted spaced`,
+    `m5 unquoted spaced`, `m6 shortpath spaced`, `m7 shell spaced`, `m8-launcher-spacefree`;
+    executable basename `yasb-limitora.exe` everywhere. M4 vs M7 no longer share command/path; M5 has
+    its own spaced path; M6 uses verified unique space-free 8.3 short path
+    `…\YASB-G~1\ARRANG~2\M6SHOR~1\bundle\yasb-limitora.exe` (6/6 short paths distinct, round-trip
+    hash matches); M3/M8 separate space-free paths.
+  - `config-home-r3\config.yaml` (`bc43b5a9…`, 5796 B): eight identifiable widgets, exact M1–M8
+    semantics, `use_shell:false` except M7 `true`, `run_once:true` (monitor-first sees every initial
+    spawn), M1/M2 identical bare control labeled `…-PYENV-NEVERSELECT` (resolves to unrelated pyenv
+    shim/exe `76fb2532…`; never selectable). `styles.css` (`c829271b…`, 395 B): legible 11px labels,
+    bounded min/max widths and spacing.
+  - `capture\r3-monitor.ps1` (`d3c89989…`): read-only CIM `Win32_ProcessStartTrace`/`StopTrace`
+    events (stop carries ExitStatus) + 300 ms WQL polling backstop; records timestamp, PID, command
+    line, exe path, direct parent, ancestry snapshot, shell-intermediary flag, exit status per
+    distinct command; auto-exits after 10-min bounded horizon; runs integrity before/after
+    (screenshot-window binding); never signals/controls processes.
+  - `capture\r3-integrity.ps1` (`2ff2721d…`): PATH canonical digest + contains-flag, real
+    config/.env SHA-256 (hashes only, never read), disposable config/CSS hashes, six frozen-target
+    hashes + counts + M6 short-path round-trip, bare-control resolution, screenshot hash/mtime vs
+    monitor window, process residue. Dry-run verified: PATH `3736ac1a…` unchanged, real config
+    `728af2dc…`, `.env` `3bdaf891…`, residue 0 (`capture\r3\integrity-before.txt`).
+- Static validation without launching YASB/candidate: PowerShell `Parser::ParseFile` 0 errors on
+  both scripts; `yaml.safe_load` + semantic assertions (widget set/order, use_shell map, run_once,
+  label distinctness, M4≠M7, M5 unique spaced unquoted, M6 short-path uniqueness/collision checks,
+  M3/M8 space-free distinct, basename checks) and CSS brace/selector/width checks → 0 fails
+  (`evidence\r3-static-validation.json`).
+- Exact 5-step human procedure recorded in spike §14.4 (monitor first → launch YASB with
+  `YASB_CONFIG_HOME=<root>\config-home-r3` → screenshot to `capture\r3\screenshot-r3.png` when bar
+  settles → manual tray exit → wait for `MONITOR_COMPLETE`); expected outputs listed in §14.4.
+- Files changed: `docs/release/0.2.0/evidence/spacepath-spike.md` (§14, +96 lines), this file.
+  `tasks.md` untouched — G2a checkbox UNCHECKED; verdict remains
+  `fail (selection evidence incomplete)`; no screenshot/ancestry/capture claimed; S04c and
+  publication remain blocked until the manual rerun is recorded.
+- Workload / PR boundary: evidence-only unit (~135 authored lines this round); no production/test/
+  example/installer/PATH/config change; no commit made. Cleanup boundary: delete `<root>` + marker
+  `%TEMP%\yasb-g2a-20260907-020324-0e776d14.path` only.
+
+## G2a monitor defect correction (round 3, second bounded attempt) — PREPARED, awaiting one manual session (2026-09-07)
+
+- Scope honored: fixed ONLY the disposable capture monitor defect before any manual YASB run; no
+  YASB/candidate launch, stop, or control; edits confined to `<root>\capture\r3-monitor.ps1`,
+  `<root>\capture\r3\` (clearing failed partial + dry-run outputs only), `<root>\prep-r3\validate-r3b.ps1`
+  (new read-only validator), spike evidence §15, and this file. `<root>` =
+  `<user-home>\AppData\Local\Temp\yasb-g2a-20260907-020324-0e776d14`.
+- Defect: previous monitor revision `d3c89989…` failed before `MONITOR_ARMED` —
+  `Register-CimIndicationEvent` (Win32_ProcessStartTrace) returned WBEM_E_CALL_CANCELLED at ~22:38Z;
+  only partial r3 outputs existed (integrity-before block, unclosed monitor-window).
+- Correction: rewrote `r3-monitor.ps1` as pure bounded polling — SHA-256
+  `b4124958b5dfb2719b454ef8aa3d4ad922f2053b469f54ab61542c59c885396e`. No Register-*Event / WMI
+  indication subscription (scan: comment-only matches). Full-table `Get-CimInstance Win32_Process`
+  poll at default 200 ms (`-PollMs` 100–300), horizon ≤10 min (`-HorizonMinutes` 1–10), grace
+  15 s; detects YASB roots + any-depth descendants (self/own-ancestry excluded); retains first
+  observation per PID (`poll_new`: ts, PID/PPID/name, commandline, exe path, direct parent,
+  child→ancestor chain, shell-intermediary flag, is_yasb_root); disappearances as `poll_gone`
+  with `exit_status:null` + `exit_status_unavailable_from_polling`; early stop only after YASB
+  root observed then gone + grace; outer try/finally ALWAYS closes window, runs integrity-after,
+  and writes summary incl. failure state; `MONITOR_ARMED` only after setup + one successful probe
+  query; never signals/controls a process.
+- Validation without YASB/candidate: `Parser::ParseFile` 0 errors; read-only gate
+  `NO_YASB_PROCESSES`; bounded dry run `-HorizonMinutes 1` printed
+  `MONITOR_ARMED horizon_minutes=1 poll_ms=200 grace_seconds=15 out_dir=<root>\capture\r3` then
+  `MONITOR_COMPLETE` `status=completed` `failure=none`, closed window 22:49:44Z→22:50:44Z,
+  `poll_records=0`, `yasb_root_observed=False`, `early_exit=none (full bounded horizon)`,
+  `integrity_after=written`. Dry-run outputs + failed partials cleared: `capture\r3\` is EMPTY, so
+  the real run gets a clean uniquely identified capture set. §14.1/§14.2 arrangements,
+  `config-home-r3`, and `r3-integrity.ps1` (`2ff2721d…`) unchanged and statically valid.
+- Authoritative human procedure now spike §15.4 (monitor first → YASB with
+  `YASB_CONFIG_HOME=<root>\config-home-r3` → screenshot to `capture\r3\screenshot-r3.png` → manual
+  tray exit → early-exit ~15 s after YASB gone or 10-min horizon). Expected outputs:
+  monitor-window.txt, monitor-poll.jsonl, monitor-summary.txt, integrity-before/after.txt,
+  screenshot-r3.png; NO monitor-events-*.jsonl; exit statuses NOT claimed from polling.
+- Files changed: `docs/release/0.2.0/evidence/spacepath-spike.md` (§15 + superseded notes on
+  §14.3/§14.4, ~75 authored lines), this file, external `<root>\capture\r3-monitor.ps1`,
+  `<root>\prep-r3\validate-r3b.ps1`. `tasks.md` untouched — G2a checkbox UNCHECKED; verdict
+  remains `fail (selection evidence incomplete)`; S04c and publication remain blocked until the
+  manual rerun is recorded and evaluated.
+- Workload / PR boundary: evidence-only unit within the remaining round-3 budget; no
+  production/test/example/installer/PATH/config change; no commit made. Cleanup boundary
+  unchanged: delete `<root>` + marker `%TEMP%\yasb-g2a-20260907-020324-0e776d14.path` only.
+
+## G2a captured remediation session — verdict `pass (feasibility/selection only)`, M6 selected (2026-09-07)
+
+- Human ran the §15.4 procedure once; executor performed read-only inspection, interpretation,
+  and durable recording only. No process was run, stopped, or controlled by the executor; no
+  temp/config/PATH/example/code/test/installer surface was altered.
+- Capture set (evidence revision candidate `g2a-evidence-rev-r3-session-1`): monitor
+  `b4124958…` summary `status=completed failure=none`, window 22:58:39.9611646Z–23:01:26.0009352Z,
+  `poll_records=120` (60 poll_new/60 poll_gone), `distinct_related_pids=56`,
+  `yasb_root_observed=True`, early exit after YASB gone + 15 s grace; poll log SHA-256
+  `6705793c0e9c9072457122de71766e721ef61a4bad1f356e28e807f57e8be72c`; screenshot SHA-256
+  `baa7e2f8a405353b052aefb1765a6efd5982cad19de8e53bbbb497b0155a2744` (96766 B, mtime
+  23:00:57Z, `inside_monitor_window=True`), copied byte-identical to
+  `docs/release/0.2.0/evidence/spacepath-spike-widget-r3.png` (earlier cross-session screenshot
+  untouched); integrity before/after: PATH `3736ac1a…` equal + `contains_yasb_limitora=False`,
+  real config `728af2dc…`/.env `3bdaf891…` unchanged, disposable config `bc43b5a9…` exact
+  binding, six frozen exes `93db5fbd…` + M6 short-path round-trip True, residue 0 after;
+  S04a harness `3c24332a…` re-verified unchanged; secret scan 0 hits.
+- §6.2 table (spike §16.2): M1/M2 bare controls → unrelated pyenv exe `76fb2532…`, never
+  selectable (M1 snapshot render, M2 not_run); M3 spawned (21452/36592) snapshot render,
+  feasible space-free class; M4 quoted spaced → NO spawn, widget `Loading…` (fail as expected);
+  M5 unquoted spaced → spawned with quoted single-token argv (15056/33060), recorded, not
+  selectable, contradicts naive split(" ") model; M6 short path → spawned (23596/34176) exact
+  single-token argv, shell-free `yasb-limitora.exe ← yasb.exe` segment, widget rendered live
+  parsed JSON (`Quota not run` = designed guard-lease `not_run` under the 16-spawn burst, not
+  empty/error); M7 shell → NO spawn and `cmd.exe` count 0, raw template render, diagnostic fail;
+  M8 spawned (13484/25796) feasible, not selected. All direct children of YASB PID 2480 carry
+  exactly one argv token; `--multiprocessing-fork` grandchildren are internal PyInstaller
+  respawns, excluded from rule 4. Every `poll_gone` has `exit_status:null` +
+  `exit_status_unavailable_from_polling`; no exit code invented; rule-5/6 stdout/exit evidence
+  from authorized §12 direct runs (`0ed3a41c…`, contract keys, no root version, exit 0).
+- Selection: exactly one — **M6** (8.3 short-path alias, `use_shell:false`, no PATH), bounded
+  machine-class: SF + SP-83 proven; SP-no83 unproven → installer §6.3(a)–(d) skip+inform and
+  G2b block. M3 excluded by §6.3 spaced-coverage rule; M8 not selected (no guaranteed space-free
+  writable dir, extra launcher custody).
+- Verdict: G2a `pass (feasibility/selection only)`; `tasks.md` G2a checkbox CHECKED with status
+  note; §12 simultaneity gap identity `sha256:0e4af39a58c510dd073b40a4a4dbf9462647633e825efc7b7bfcf7c96e3a7cc1`
+  named remediated failed evidence. Non-claims preserved (no installer guaranteeability, no S04c
+  adoption, no retained-candidate inclusion, no ledger acceptance, no publication pass); S04c
+  stays sequenced after S10 static installer path/identity contract; overall G2 closes only via
+  G2b against the exact retained candidate.
+- Files changed: `docs/release/0.2.0/evidence/spacepath-spike.md` (§16 ~95 lines + header
+  verdict), `docs/release/0.2.0/evidence/spacepath-spike-widget-r3.png` (new binary copy),
+  `openspec/changes/release-and-smoke-test-0-2-0/tasks.md` (G2a checkbox + status note), this
+  file. External: read-only analysis helpers `prep-r3\analyze-poll.py`, `prep-r3\zoom-r3.ps1`,
+  `prep-r3\zoom2-r3.ps1` + zoom crops (disposable).
+- Workload / PR boundary: evidence-only unit (~140 authored doc lines); no production/test/
+  example/installer/PATH/config change; no commit made. Cleanup boundary unchanged: delete
+  `<root>` + marker `%TEMP%\yasb-g2a-20260907-020324-0e776d14.path` only.
+
+## G2a bounded exact-M6 evidence remediation — direct run of the EXACT r3 command; verdict stays `pass (feasibility/selection only)`, M6 selected (2026-09-07)
+
+- Maintainer-authorized reset; remediated failed verification
+  `sha256:8ad2c24fdab0a9dc9fda638596ce556ada9c1a7b825eacdb1f7ebc261ddf796a`. Rejection cause: §16's
+  M6 rule-5/6 evidence cited the §12 complementary direct runs, whose M6 command was the round-2
+  short path (`…\ARRANG~1\M4M5M6~1\bundle\YASB-L~1.EXE`), not the exact r3 command the live session
+  spawned (`…\ARRANG~2\M6SHOR~1\bundle\yasb-limitora.exe`). Strict TDD: **N/A** — external evidence
+  remediation only; no production/test/harness/example/installer/PATH/real-config change; S04c not
+  started; YASB never launched/stopped/controlled (pre- and post-run CIM gates: no
+  `yasb.exe`/`yasb-limitora.exe`).
+- Executed the exact r3 M6 `run_cmd` quoted from `config-home-r3\config.yaml` (`bc43b5a9…`
+  unchanged) **once**, directly: `subprocess.run([exe], shell=False)`, single-token argv, bounded
+  30 s timeout, cwd = capture dir, environment inherited unmodified. Ancestry
+  `yasb-limitora.exe ← python.exe 3.10.5 ← harness shell` — a direct harness run, **not** a YASB
+  spawn; no YASB stdout interception claimed. New external files confined to
+  `<root>\capture\exact-m6-r3\`: runner `run-exact-m6.py` (`ce4b5ca8…`), record `exact-m6-r3.json`
+  (`e01fa6c2…`), raw/redacted stdout/stderr.
+- Captured: exit code **0**; stdout 2124 B `fe609c77cc4ec86a149baa4b8583dc91a6e4b9f0852ee0df0b0b84f46bc8843c`
+  (JSON ok; root keys exactly `execution_error/execution_state/providers`; no root `version`;
+  0 selector placeholders; `execution_state=partial`; `providers[0]` `outcome=snapshot`,
+  `compact_text="Quota 66% remaining; state=available; freshness=fresh"`); stderr empty
+  `e3b0c442…`; timestamps `2026-09-07T23:27:11.694248Z`→`23:27:14.091050Z` (2.407 s, no timeout);
+  path resolution `GetLongPathNameW(short)` = the exact M6 bundle long path, short path space-free;
+  exe identity via short AND long path `93db5fbd…` = frozen S02b candidate (recomputed at source);
+  complete onedir binding: 70 files, `_internal\build-info.json` `f783582a…`; PATH canonical digest
+  `3736ac1a…` identical before/after, `contains_yasb_limitora=False`; real config `728af2dc…`/`.env`
+  `3bdaf891…` hash-checked unchanged (never read); secret scan 0 hits (redaction verified no-op);
+  process cleanup: 0 candidate processes before/after, no residue.
+- Acceptance evidence now composes **two separate executions, explicitly distinct**: (a) retained r3
+  live-window evidence (§16: real YASB spawned the exact M6 command shell-free, single-token
+  argv[0], widget rendered live-parsed JSON — rules 1–4/7/8/9) and (b) this §17 exact-command direct
+  run (rules 5–6 + identity/path/immutability binding). Neither half claims the other's process.
+- Verdict: G2a `pass (feasibility/selection only)` meets design §6.2 for the selected mechanism;
+  `tasks.md` G2a checkbox remains **checked** (status note updated). Exactly one M6 selection kept;
+  SF + SP-83 proven; SP-no83 unproven (§6.3(a)–(d) skip+inform, blocks G2b for that class);
+  §12 superseded for M6 only. New distinct evidence revision candidate:
+  **`g2a-evidence-rev-r3-session-1-exactm6-1`** (§16 bindings + §17 record). Non-claims preserved:
+  no installer guaranteeability, no S04c adoption, no retained-candidate inclusion, no ledger
+  acceptance, no publication pass; overall G2 closes only via G2b.
+- Aggregate manifest `g2a-aggregate-manifest.json` (`08655ec0…`) and validation receipt bind the
+  exact M6 evidence, failed lineage `aeb474c0…`, and 70-file tree digest `866cde15…`.
+  Contract clarification was exactly 32 diff lines: cumulative correction is **192/200**.
+  No commit or S04c start; cleanup remains `<root>` plus its marker only.
+
+## S10 native-review `review-a2c398942b30e071` — bounded correction 2/2: COMPLETE (2026-09-07)
+
+- Findings R4-001 (manual-close gate precedes capture/evacuation) and R3 (bounded rollback cleanup wait): corrected in round 1 — RED 6 failed / 20 passed, GREEN 26 passed, five one-token mutations each killed one guard test, then byte-restored; REFACTOR: none needed after restoration. Their guards re-verified GREEN this round (`tests/test_inno_script.py` → 26 passed).
+- Finding R4-002: independent verification `sha256:b5e35a1b…8c47a2` proved handler-only `Exit` in `CurStepChanged(ssPostInstall)` returns from the handler without failing setup. RED: strengthened `test_post_install_cleanup_is_checked_and_failure_preserves_recovery_state` to reject `Exit;` and require fatal `RaiseException` before any snapshot deletion/state clearing → 1 failed (exact assertion observed). GREEN: `Exit` → `RaiseException` in the cleanup-failure branch; `PriorRegistrySnapshot`/`EvacuatedOldDir` preserved for the `DeinitializeSetup` rollback → 26 passed. TRIANGULATE: one-token mutation `RaiseException(…)` → `Exit;` killed the focused test; byte-identical restore hash-verified (`5c7aa4aa…`), 26 passed again.
+    - ISCC compile: `Successful compile` → disposable `build/iscc-check/out/yasb-limitora-0.2.0-setup.exe` (never executed; no publication). Accounting: correction 2 = 16 diff lines (iss 5 + tests 5 + record 6); correction 3 = 5 (1 snapshot-preservation test assertion + 4 in-place record rewrites retaining round-1 TDD facts); cumulative 159 + 16 + 5 = 180 ≤ 180. No commit, publication, YASB/process control, or unrelated edit.
+
+## S04c — Bounded post-G2a adoption of the exact-M6 mechanism: COMPLETE (independently verified)
+
+Date: 2026-09-08 (local). Worker: delegated apply executor; final state independently verified.
+Delivery: single S04c review unit. No commit, tag, PR, installer execution, publication, or
+delivery action occurred. This record does NOT advance S05/S06/S11 or G2b.
+
+### Adoption scope (mechanism M6 only)
+
+- Encodes exactly the G2a-selected **M6** mechanism: 8.3 short-path alias of the spaced install
+  path, one literal single-token command, `use_shell:false`; no PATH mutation, no shell, no
+  environment-variable/substitution, and no fallback mechanism silently substituted.
+- Machine-class semantics: **SF** (space-free) and **SP-83** (spaced, 8.3 alias available)
+  resolve to the exact command. **SP-no83** (spaced, no 8.3 alias) is a nonfatal no-command
+  outcome: skip writing the integration command and inform the user (skip-and-inform, per G2a
+  §6.3(a)–(d)); this contract is recorded for later setup-assist consumption, and that class
+  remains unproven pending G2b.
+- Shipped example `examples/customwidget/customwidget.yaml` and
+  `tests/test_customwidget_examples.py` unchanged (protected example diff verified clean).
+
+### Strict TDD chronology
+
+1. Initial M6 API: RED 16 failed / 15 passed (missing API) → GREEN 31 passed.
+2. Path safety: RED 3 failed / 31 deselected → GREEN 34 passed.
+3. Alias leaf: RED 3 failed → GREEN focused 6 passed and discovery suite 37 passed.
+4. Canonical/existing-ancestor: RED 6 failed → GREEN discovery suite 44 passed.
+- TRIANGULATE: prior positive cases, security (unsafe/reparse/traversal) cases, and short-path
+  mismatch cases exercised. REFACTOR: none/minimal helper reuse only; focused suites stayed green.
+- Honesty note: the historical RED outputs above were retained/reported by the executing workers
+  and their numerical chain is coherent; they were NOT independently reproduced here. The final
+  GREEN state below WAS independently reproduced.
+
+### Final independent verification
+
+- Focused discovery suite: **44 passed**. Full suite `python -m pytest -q --strict-markers`:
+  **741 passed, 3 skipped**. Ruff on touched targets: clean. Protected example diff: clean.
+- No candidate-caused blockers found in independent verification.
+- Marker technical scope before this concise evidence addition: **201/400** authored lines.
+- Final evidence digest:
+  `sha256:fa411e3f74de61f968b9566bc3f58e063ab5ee5772f9988689ccf3d172da350c`.
+
+### Gate and delivery state
+
+- Overall **G2 remains blocked**: it closes only via a later candidate-bound **G2b** run against
+  the exact retained S04c-integrated setup bytes with immutable `rc-manifest.json` identity.
+  No delivery, publication, acceptance ledger, or retained-candidate promotion occurred.
+
+### Workload / PR boundary
+
+- `tasks.md`: S04c checkbox only (+1/−1); S05/S06/S11/G2b untouched. The documentation unit
+  added 54 lines and replaced 1 checkbox line (**55 changed lines**), so authoritative S04c
+  accounting is **201 technical + 55 documentation = 256/400**. Rollback: revert only the M6
+  integration guidance and this record; no fallback mechanism is substituted.
