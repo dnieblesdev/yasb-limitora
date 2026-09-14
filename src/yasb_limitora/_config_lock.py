@@ -1,14 +1,18 @@
-"""D01a1/a2a — Guard domain, deadline, and marker codec.
+"""D01a1/a2a/D01a2b — Guard domain, marker codec, and Win32 process identity.
 
 Context-managed Guard lease keyed by the exact fixed config.json path,
 retrying under one 5-second DeadlineContext; bounded release/close cleanup.
 Canonical UTF-8 JSON marker with sorted keys, no whitespace, and strict
-schema validation (D01a2a).  Win32 process identity is a separate sub-unit.
+schema validation (D01a2a).  Win32 process-identity token via
+OpenProcess/GetProcessTimes/CloseHandle with fail-closed semantics (D01a2b).
 """
 from __future__ import annotations
 
+import contextlib
+import ctypes
 import json
 import ntpath
+import os
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -135,3 +139,108 @@ def decode_marker(data: bytes) -> tuple[int, str, int]:
     if data != encode_marker(pid, token):
         raise MarkerValidationError()
     return pid, token, version
+
+
+# ── D01a2b — Win32 process identity ──────────────────────────────────
+_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+
+class ProcessTokenMissing(ValueError):
+    """OpenProcess error 87 — the only valid 'process not found' refusal."""
+
+    def __init__(self) -> None:
+        super().__init__("process-token-missing")
+
+
+class ProcessTokenUnprovable(RuntimeError):
+    """OpenProcess succeeded but query/close failed — token unprovable."""
+
+    def __init__(self) -> None:
+        super().__init__("process-token-unprovable")
+
+
+def _default_win32_api() -> Any:
+    """Return the real kernel32 API wrapper or None on non-Windows."""
+    if os.name != "nt":
+        return None
+
+    class _Kernel32Api:
+        def __init__(self) -> None:
+            self._k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            self._k32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+            self._k32.OpenProcess.restype = ctypes.c_void_p
+            _ft = ctypes.POINTER(_Filetime)
+            self._k32.GetProcessTimes.argtypes = [ctypes.c_void_p, _ft, _ft, _ft, _ft]
+            self._k32.GetProcessTimes.restype = ctypes.c_int
+            self._k32.CloseHandle.argtypes = [ctypes.c_void_p]
+            self._k32.CloseHandle.restype = ctypes.c_int
+
+        def OpenProcess(self, access: int, inherit: int, pid: int) -> int:
+            return self._k32.OpenProcess(access, inherit, pid) or 0
+
+        def GetProcessTimes(self, handle: int) -> int | None:
+            creation = _Filetime()
+            exit_ft = _Filetime()
+            kernel_ft = _Filetime()
+            user_ft = _Filetime()
+            if not self._k32.GetProcessTimes(handle, creation, exit_ft, kernel_ft, user_ft):
+                return None
+            return (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+
+        def CloseHandle(self, handle: int) -> bool:
+            return bool(self._k32.CloseHandle(handle))
+
+        def get_last_error(self) -> int:
+            return ctypes.get_last_error()
+
+    return _Kernel32Api()
+
+
+class _Filetime(ctypes.Structure):
+    _fields_ = (("dwLowDateTime", ctypes.c_uint32), ("dwHighDateTime", ctypes.c_uint32))
+
+
+def creation_token(pid: object, *, api: Any = None) -> str:
+    """Return unpadded lowercase hex FILETIME creation token for *pid*.
+
+    Raises ProcessTokenMissing only for OpenProcess error 87.
+    Raises ProcessTokenUnprovable for all other failures.
+    """
+    if not isinstance(pid, int) or isinstance(pid, bool) or not 1 <= pid <= 4294967295:
+        raise ProcessTokenUnprovable()
+    if api is None:
+        api = _default_win32_api()
+    if api is None:
+        raise ProcessTokenUnprovable()
+    for n in ("OpenProcess", "GetProcessTimes", "CloseHandle"):
+        if not callable(getattr(api, n, None)):
+            raise ProcessTokenUnprovable()
+    try:
+        handle = api.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, 0, pid)
+    except Exception:  # noqa: BLE001
+        raise ProcessTokenUnprovable() from None
+    if not handle:
+        try:
+            err = api.get_last_error()
+        except Exception:  # noqa: BLE001
+            raise ProcessTokenUnprovable() from None
+        raise ProcessTokenMissing() if err == 87 else ProcessTokenUnprovable()
+    creation: int | None = None
+    failed = False
+    closed = False
+    try:
+        try:
+            r = api.GetProcessTimes(handle)
+        except Exception:  # noqa: BLE001
+            failed = True
+        else:
+            if isinstance(r, int) and not isinstance(r, bool) and r >= 0:
+                creation = r
+            else:
+                failed = True
+    finally:
+        with contextlib.suppress(Exception):
+            closed = bool(api.CloseHandle(handle))
+    if failed or creation is None or not closed:
+        raise ProcessTokenUnprovable()
+    return f"{creation:x}"
