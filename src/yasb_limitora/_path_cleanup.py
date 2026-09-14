@@ -1,12 +1,13 @@
-"""HKCU PATH surgery for the private setup assist.
+"""HKCU PATH surgery and literal-state cleanup for the private setup assist.
 
-Only the owned-user-PATH transaction surface: record, append, remove.
-No literal state cleanup, no native delete integration, no consent wiring.
+Owned-user-PATH transaction surface: record, append, remove.
+Literal-state cleanup: native handle-bound delete with registry ownership proof.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -154,4 +155,22 @@ def remove_recorded_user_path(registry: UserPathRegistry) -> Outcome:
             return Outcome(False, "path-bookkeeping-rollback-failed")
         return Outcome(False, "path-bookkeeping-failed")
     registry.notify_environment_changed()
+    return Outcome(True)
+
+
+def cleanup_literal_state(registry: UserPathRegistry, state_dir: str) -> Outcome:
+    """Delete only owned literal state through the native primitive; refuses without registry proof."""
+    from . import _native_state_cleanup
+
+    if not os.path.isabs(state_dir):
+        return Outcome(False, "state-path-unsafe")
+    owned = _owned(registry.read_recorded_element() or "")
+    if owned is None:
+        return Outcome(False, "state-record-missing")
+    if not _native_state_cleanup.delete_directory(state_dir):
+        return Outcome(False, "state-delete-failed")
+    try:
+        registry.clear_recorded_element()
+    except OSError:
+        return Outcome(False, "state-bookkeeping-failed")
     return Outcome(True)
