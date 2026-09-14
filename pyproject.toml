@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "yasb-limitora"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Windows-only command and JSON boundary for the YASB CustomWidget and Limitora providers."
 readme = "README.md"
 license = {text = "MIT"}
@@ -32,6 +32,9 @@ markers = [
 
 [project.scripts]
 yasb-limitora = "yasb_limitora.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "yasb_limitora.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
