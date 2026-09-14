@@ -907,6 +907,8 @@ lines and one rollback boundary.
 > depends on D01a3b. The CREATE_NEW decision is preserved. No passing evidence is
 > inherited by D01a3a1 or D01a3a2. Tasks remain unchecked. No source, tests, progress,
 > or delivery.
+>
+> **D01a3a1 completion.** Premature candidate `sha256:528e6d1e3d9acb183520a4a3d604e41476a86b9b85a823cf0ddd56683db375b2` was rejected for parent sharing, incomplete identity/final-path enforcement, and cleanup defects. Candidate `sha256:f1110be2ba907c2682ce71c752f455c6870596b47949ec84685af8c42e2f72aa` passed independent verification but RDD found that the verified parent handle was closed before marker creation. Final candidate `sha256:7d2e010b55fd2df41300b1ff36d8938101048ad2a47d4e0fd848c92b1ef99fcd` retains a typed `ParentHold` across `CREATE_NEW`: exactly 280/280 source+test lines; focused 35, native 11, full 888+4 skipped, Ruff clean, and real Windows rename-denial/create/identity/final/close/no-residue proof. RDD lineage `review-5177142dc314fb64` approved corrected target `sha256:ddbd3974475f32b30b1695d00404313a58c6b33ef37780b47ffa379cb19f0377`. D01a3a1 is complete; later tasks remain unchecked.
 
 **D01a3b — Fallback policy and integration.**
 
