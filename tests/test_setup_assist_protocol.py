@@ -136,12 +136,41 @@ def test_schema_violations_refuse_and_preserve_request_bytes(tmp_path, raw, reas
     result = result_of(root)
     assert set(result) == {"schema", "status", "operations"} and result["status"] == "refused" and result["operations"][0]["reason"] == reason
 
-def test_unimplemented_operation_is_bounded_nonfatal_refusal(tmp_path):
+def test_path_operation_uses_explicit_fake_and_never_constructs_real_registry(tmp_path, monkeypatch):
+    class FakeRegistry:
+        value, recorded, notifications = "A", None, 0
+
+        def read_user_path(self):
+            return self.value, 2
+
+        def write_user_path(self, value, value_type):
+            self.value = value
+
+        def compare_and_write_user_path(self, expected, value, value_type):
+            if self.read_user_path() != expected:
+                return False
+            self.write_user_path(value, value_type)
+            return True
+
+        def read_recorded_element(self):
+            return self.recorded
+
+        def write_recorded_element(self, element):
+            self.recorded = element
+
+        def clear_recorded_element(self):
+            self.recorded = None
+
+        def notify_environment_changed(self):
+            self.notifications += 1
+
+    fake = FakeRegistry()
+    monkeypatch.setattr(sa._path_cleanup, "WindowsUserPathRegistry", lambda: (_ for _ in ()).throw(AssertionError("real registry")))
     la, root = transport(tmp_path, request_bytes([{"operation": "path-add"}, {"operation": "discover"}]))
-    assert run(la, {"USERPROFILE": str(tmp_path)}) == 1
+    assert run(la, {"USERPROFILE": str(tmp_path)}, registry=fake) == 0
     result = result_of(root)
-    assert result["status"] == "partial" and result["operations"][1]["status"] == "ok"
-    assert result["operations"][0] == {"operation": "path-add", "status": "refused", "reason": "operation-unavailable"}
+    assert result["status"] == "complete" and result["operations"][0] == {"operation": "path-add", "status": "ok"}
+    assert fake.notifications == 1 and fake.recorded is not None
 
 def test_env_block_choice_requires_explicit_true_consent(tmp_path):
     raw = request_bytes([{"operation": "env-block-apply", "consent": False}])
@@ -153,6 +182,108 @@ def test_preexisting_result_is_never_overwritten(tmp_path):
     la, root = transport(tmp_path, request_bytes([{"operation": "discover"}]))
     (root / "result.json").write_bytes(b"SENTINEL")
     assert run(la, {"USERPROFILE": str(tmp_path)}) == 1 and (root / "result.json").read_bytes() == b"SENTINEL"
+
+# --- S07-C2: state-cleanup consent schema and injected-registry protocol guard ---
+
+def test_state_cleanup_requires_string_yes_consent_not_boolean(tmp_path):
+    raw = request_bytes([{"operation": "state-cleanup", "consent": True}])
+    la, root = transport(tmp_path, raw)
+    assert run(la) == 1
+    assert result_of(root)["operations"][0]["reason"] == "schema-violation"
+
+def test_state_cleanup_without_consent_is_schema_violation(tmp_path):
+    raw = request_bytes([{"operation": "state-cleanup"}])
+    la, root = transport(tmp_path, raw)
+    assert run(la) == 1
+    assert result_of(root)["operations"][0]["reason"] == "schema-violation"
+
+def test_state_cleanup_wrong_consent_string_is_schema_violation(tmp_path):
+    raw = request_bytes([{"operation": "state-cleanup", "consent": "NO"}])
+    la, root = transport(tmp_path, raw)
+    assert run(la) == 1
+    assert result_of(root)["operations"][0]["reason"] == "schema-violation"
+
+def test_state_cleanup_with_yes_consent_uses_injected_registry_and_transports_result(tmp_path, monkeypatch):
+    import yasb_limitora._native_state_cleanup as nsc
+    cleanup_mod = __import__("yasb_limitora._path_cleanup", fromlist=["_path_cleanup"])
+
+    class FakeRegistry:
+        value, recorded, notifications = "A", None, 0
+
+        def read_user_path(self):
+            return self.value, 2
+
+        def write_user_path(self, v, t):
+            self.value = v
+
+        def compare_and_write_user_path(self, expected, v, t):
+            if self.read_user_path() != expected:
+                return False
+            self.write_user_path(v, t)
+            return True
+
+        def read_recorded_element(self):
+            return self.recorded
+
+        def write_recorded_element(self, e):
+            self.recorded = e
+
+        def clear_recorded_element(self):
+            self.recorded = None
+
+        def notify_environment_changed(self):
+            self.notifications += 1
+
+    fake = FakeRegistry()
+    cleanup_mod.append_user_path(fake, r"C:\bin")  # create a recorded element
+    deleted: list[str] = []
+    monkeypatch.setattr(nsc, "delete_directory", lambda p: (deleted.append(p), True)[1])
+    la, root = transport(tmp_path, request_bytes([{"operation": "state-cleanup", "consent": "YES"}]))
+    assert run(la, registry=fake) == 0
+    result = result_of(root)
+    assert result["status"] == "complete"
+    assert result["operations"] == [{"operation": "state-cleanup", "status": "ok"}]
+    assert deleted == [ntpath.join(str(la), "yasb-limitora")]
+    assert fake.recorded is None  # record cleared after successful cleanup
+
+def test_state_cleanup_refused_when_native_delete_fails(tmp_path, monkeypatch):
+    import yasb_limitora._native_state_cleanup as nsc
+    cleanup_mod = __import__("yasb_limitora._path_cleanup", fromlist=["_path_cleanup"])
+
+    class FakeRegistry:
+        value, recorded, notifications = "A", None, 0
+
+        def read_user_path(self):
+            return self.value, 2
+
+        def write_user_path(self, v, t):
+            self.value = v
+
+        def compare_and_write_user_path(self, expected, v, t):
+            if self.read_user_path() != expected:
+                return False
+            self.write_user_path(v, t)
+            return True
+
+        def read_recorded_element(self):
+            return self.recorded
+
+        def write_recorded_element(self, e):
+            self.recorded = e
+
+        def clear_recorded_element(self):
+            self.recorded = None
+
+        def notify_environment_changed(self):
+            self.notifications += 1
+
+    fake = FakeRegistry()
+    cleanup_mod.append_user_path(fake, r"C:\bin")
+    monkeypatch.setattr(nsc, "delete_directory", lambda p: False)
+    la, root = transport(tmp_path, request_bytes([{"operation": "state-cleanup", "consent": "YES"}]))
+    assert run(la, registry=fake) == 1
+    result = result_of(root)
+    assert result["operations"] == [{"operation": "state-cleanup", "status": "refused", "reason": "state-delete-failed"}]
 
 # --- TOCTOU: nonce directory substituted by a junction after validation, before each I/O boundary ---
 
