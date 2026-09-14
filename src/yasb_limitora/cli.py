@@ -36,6 +36,7 @@ from .projection import (
     project_failure_bytes,
     project_not_run_bytes,
 )
+from .setup_assist import _SETUP_ASSIST_FLAG, _has_setup_assist_nonce, _run_setup_assist
 from .worker import ExecutionOrchestrator
 
 _SECRET = re.compile(r"auth.?cookie|cookie|token|password|secret|credential|api.?key|authorization", re.IGNORECASE)
@@ -197,6 +198,9 @@ def main(
     if args == (_INTERNAL_HELPER_FLAG,) and _has_internal_helper_environment():
         return _run_internal_helper()
     effective_environment = os.environ if environment is None else environment
+    # Private assist sentinel: dispatched before argv validation; inert without the nonce value.
+    if args == (_SETUP_ASSIST_FLAG,) and _has_setup_assist_nonce(effective_environment):
+        return _run_setup_assist(effective_environment)
     t0_ns = time.monotonic_ns()
     # The current contract is the only runtime path; args remain untouched so
     # removed selectors are rejected by ordinary invocation validation.
