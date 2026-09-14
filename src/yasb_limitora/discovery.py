@@ -178,3 +178,110 @@ def discover(env: Mapping[str, str] | None = None, *, fs: FsView = REAL_FS,
     elif env_state == ENV_UNSAFE: outcome, _ = OUTCOME_INCONCLUSIVE, reasons.append("env-file-unsafe-unreadable")
     else: outcome = OUTCOME_DETECTED
     return DiscoveryReport(outcome, evidence, home.state, home.path, env_state, probe.status, tuple(reasons))
+
+
+# S04c: bounded adoption of the G2a-selected M6 mechanism (8.3 short-path alias).
+# Read-only resolution only: no PATH lookup, no shell, no M3/M8 substitution, no YAML write.
+# SP-no83 is nonfatal integration unavailability for the later installer: install proceeds,
+# no command is written, and the machine class is reported unproven (design.md §6.3(a)-(d)).
+INVOCATION_RESOLVED, INVOCATION_INVALID, INVOCATION_NO83 = "resolved", "invalid-input", "sp-no83"
+MECHANISM_M6 = "M6"
+CLASS_SF, CLASS_SP_83, CLASS_SP_NO83 = "SF", "SP-83", "SP-no83"
+EXE_BASENAME = "yasb-limitora.exe"
+ShortPathFn = Callable[[str], str | None]
+IdentityFn = Callable[[str], object]
+class InvocationResolution(NamedTuple):
+    state: str
+    command: str | None
+    machine_class: str | None
+    mechanism: str | None
+    use_shell: bool
+    reason: str | None
+
+
+def get_short_path_name(path: str) -> str | None:
+    if os.name != "nt":
+        return None
+    try:
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.GetShortPathNameW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
+        kernel.GetShortPathNameW.restype = ctypes.c_uint32
+        buffer = ctypes.create_unicode_buffer(512)
+        length = kernel.GetShortPathNameW(path, buffer, len(buffer))
+    except OSError:
+        return None
+    return buffer.value if 0 < length < len(buffer) else None
+
+
+def file_identity(path: str) -> tuple[int, int] | None:
+    try:
+        entry = os.lstat(path)
+    except OSError:
+        return None
+    return (entry.st_dev, entry.st_ino)
+
+
+def _invocation_invalid(reason: str) -> InvocationResolution:
+    return InvocationResolution(INVOCATION_INVALID, None, None, None, False, reason)
+
+
+def _invocation_no83(reason: str) -> InvocationResolution:
+    return InvocationResolution(INVOCATION_NO83, None, CLASS_SP_NO83, MECHANISM_M6, False, reason)
+
+
+def _is_canonical_spelling(path: str) -> bool:
+    """True only when path equals its own canonical local Windows lexical spelling."""
+    if "/" in path:
+        return False
+    drive, tail = ntpath.splitdrive(path)
+    if len(drive) != 2 or drive[1] != ":" or not drive[0].isalpha() or not tail.startswith("\\"):
+        return False
+    return all(part not in {"", ".", ".."} for part in tail[1:].split("\\"))
+
+
+def _components_dirs(path: str, fs: FsView) -> bool:
+    """Strict invocation-only variant: every ancestor below the drive root must
+    exist as a safe dir (is_dir and not is_reparse); missing is never tolerated."""
+    drive, tail = ntpath.splitdrive(path)
+    prefix = drive + "\\"
+    for part in filter(None, tail.split("\\")):
+        prefix += part
+        if not (fs.is_dir(prefix) and not fs.is_reparse(prefix)):
+            return False
+        prefix += "\\"
+    return True
+
+
+def resolve_installed_invocation(exe_path: str, *, expected_basename: str = EXE_BASENAME,
+                                 fs: FsView = REAL_FS, short_path: ShortPathFn = get_short_path_name,
+                                 identity: IdentityFn = file_identity) -> InvocationResolution:
+    basename = ntpath.basename(exe_path)
+    parent = ntpath.dirname(exe_path)
+    if not _is_canonical_spelling(exe_path) or _canonical_local_dir(parent) is None or not _components_dirs(parent, fs):
+        return _invocation_invalid("path-unsafe")
+    if basename.casefold() != expected_basename.casefold():
+        return _invocation_invalid("basename-mismatch")
+    kind = fs.file_kind(exe_path)
+    if kind == "missing":
+        return _invocation_invalid("exe-missing")
+    if kind != "file":
+        return _invocation_invalid("exe-unsafe")
+    if " " not in exe_path:
+        return InvocationResolution(INVOCATION_RESOLVED, exe_path, CLASS_SF, MECHANISM_M6, False, None)
+    try:
+        alias = short_path(exe_path)
+    except Exception:  # noqa: BLE001 - any short-path failure must fail closed, never fall back
+        alias = None
+    if not alias:
+        return _invocation_no83("short-name-unavailable")
+    if " " in alias:
+        return _invocation_no83("alias-contains-space")
+    alias_parent = ntpath.dirname(alias)
+    if not _is_canonical_spelling(alias) or _canonical_local_dir(alias_parent) is None or not _components_dirs(alias_parent, fs):
+        return _invocation_no83("alias-unsafe")
+    if fs.file_kind(alias) != "file":
+        return _invocation_no83("alias-unsafe")
+    target = identity(exe_path)
+    if target is None or identity(alias) != target:
+        return _invocation_no83("alias-identity-mismatch")
+    return InvocationResolution(INVOCATION_RESOLVED, alias, CLASS_SP_83, MECHANISM_M6, False, None)
