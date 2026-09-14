@@ -907,6 +907,8 @@ lines and one rollback boundary.
 > depends on D01a3b. The CREATE_NEW decision is preserved. No passing evidence is
 > inherited by D01a3a1 or D01a3a2. Tasks remain unchecked. No source, tests, progress,
 > or delivery.
+>
+> **D01a3a1 completion.** The D01a3a1 premature candidate (`sha256:528e6d1e3d9acb183520a4a3d604e41476a86b9b85a823cf0ddd56683db375b2`) was rejected with no passing evidence. Four defects: parent `FILE_SHARE_DELETE` omitted, volume parameter omitted, fixed final leaf path not enforced after create, and exception-path cleanup leak. The corrected independent candidate (`sha256:f1110be2ba907c2682ce71c752f455c6870596b47949ec84685af8c42e2f72aa`) passes: 278/280 lines, focused 36, native 11, full 889+4 skipped, Ruff clean — real production Windows create/identity/final/close/no-residue probe. D01a3a1 is complete. Scoped residual for D01a3a2: unexpected injected parent-API exceptions are still raw but close is attempted; low-level sanitized-error closure belongs to D01a3a2. D01a3a2 and all later tasks remain unchecked. No source, tests, apply-progress, verify-report, or delivery.
 
 **D01a3b — Fallback policy and integration.**
 

@@ -15,8 +15,9 @@ import ntpath
 import os
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, NamedTuple
 
+from ._native_state_cleanup import _INFO
 from .deadline import DeadlineContext
 from .guard import Guard, GuardError, GuardLease
 
@@ -244,3 +245,125 @@ def creation_token(pid: object, *, api: Any = None) -> str:
     if failed or creation is None or not closed:
         raise ProcessTokenUnprovable()
     return f"{creation:x}"
+
+
+# ── D01a3a1 — Safe marker create and identity ────────────────────────
+_MARKER_FILE = "yasb-limitora.lock"
+_DEL, _GR, _GW = 0x10000, 0x80000000, 0x40000000
+_RA, _WA = 0x80, 0x100
+_CNEW, _OEXIST, _ANORM = 1, 3, 0x80
+_FREPARSE, _FBACKUP = 0x200000, 0x2000000
+_AREPARSE, _ADIR = 0x400, 0x10
+
+
+class MarkerPrimitiveError(OSError):
+    """Sanitized low-level marker failure — one stable code, no cause leakage."""
+
+    def __init__(self, code: str = "marker-primitive") -> None:
+        super().__init__(code)
+
+
+def _real_api() -> Any:
+    """Return real kernel32 marker API or None off-Windows."""
+    if os.name != "nt":
+        return None
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    H, PI = ctypes.c_void_p, ctypes.POINTER(_INFO)
+    k.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, H]
+    k.CreateFileW.restype = H
+    k.GetFileInformationByHandle.argtypes = [H, PI]
+    k.GetFileInformationByHandle.restype = ctypes.c_int
+    k.GetFinalPathNameByHandleW.argtypes = [H, ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32]
+    k.GetFinalPathNameByHandleW.restype = ctypes.c_uint32
+    k.CloseHandle.argtypes = [H]
+    k.CloseHandle.restype = ctypes.c_int
+
+    class _Api:
+        def create_file(self, path, access, share, disp, attrs):
+            return k.CreateFileW(path, access, share, None, disp, attrs, None) or 0
+
+        def query_info(self, handle):
+            info = _INFO()
+            if not k.GetFileInformationByHandle(handle, ctypes.byref(info)):
+                return None
+            return info.Attributes, info.Volume, info.IndexHigh, info.IndexLow
+
+        def final_path(self, handle):
+            n = k.GetFinalPathNameByHandleW(handle, None, 0, 0)
+            if not n:
+                return None
+            buf = ctypes.create_unicode_buffer(n + 1)
+            if not k.GetFinalPathNameByHandleW(handle, buf, len(buf), 0):
+                return None
+            return os.path.normcase(buf.value.removeprefix("\\\\?\\"))
+
+        def close(self, handle):
+            return bool(k.CloseHandle(handle))
+
+    return _Api()
+
+
+def safe_close(handle: int, api: Any) -> None:
+    """Close handle, suppressing all errors."""
+    with contextlib.suppress(Exception):
+        api.close(handle)
+
+
+class ParentHold(NamedTuple):
+    path: str
+    handle: int
+    identity: tuple[int, int, int]
+
+
+def verify_parent(path: str, *, api: Any) -> ParentHold:
+    """Verify and retain a parent handle that denies delete sharing."""
+    h = api.create_file(path, _GR | _RA, 3, _OEXIST, _FREPARSE | _FBACKUP)
+    if not h or h == -1:
+        raise MarkerPrimitiveError()
+    try:
+        q = api.query_info(h)
+        if q is None:
+            raise MarkerPrimitiveError()
+        attr, vol, ih, il = q
+        fp = api.final_path(h)
+        expected = os.path.normcase(os.path.abspath(path))
+        if attr & _AREPARSE or not (attr & _ADIR) or fp != expected:
+            raise MarkerPrimitiveError()
+        return ParentHold(fp, h, (vol, ih, il))
+    except MarkerPrimitiveError:
+        safe_close(h, api)
+        raise
+    except Exception:  # noqa: BLE001
+        safe_close(h, api)
+        raise MarkerPrimitiveError() from None
+
+
+def create_exclusive(parent: ParentHold, *, api: Any) -> tuple[int, str, tuple[int, int, int]]:
+    """CREATE_NEW for fixed marker leaf; compare final_path to expected canonical."""
+    for n in ("create_file", "query_info", "final_path", "close"):
+        if not callable(getattr(api, n, None)):
+            raise MarkerPrimitiveError()
+    mp = ntpath.join(parent.path, _MARKER_FILE)
+    access = _DEL | _GR | _GW | _RA | _WA
+    h = api.create_file(mp, access, 7, _CNEW, _ANORM)
+    if not h or h == -1:
+        raise MarkerPrimitiveError()
+    try:
+        q = api.query_info(h)
+        if q is None:
+            raise MarkerPrimitiveError()
+        attr, vol, ih, il = q
+        if attr & _AREPARSE or (attr & _ADIR):
+            raise MarkerPrimitiveError()
+        fp = api.final_path(h)
+        if fp is None:
+            raise MarkerPrimitiveError()
+        if fp != os.path.normcase(os.path.abspath(mp)):
+            raise MarkerPrimitiveError()
+        return h, fp, (vol, ih, il)
+    except MarkerPrimitiveError:
+        safe_close(h, api)
+        raise
+    except Exception:  # noqa: BLE001
+        safe_close(h, api)
+        raise MarkerPrimitiveError() from None

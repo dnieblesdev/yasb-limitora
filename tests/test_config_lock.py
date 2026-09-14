@@ -1,20 +1,27 @@
-"""D01a1/a2a/D01a2b — Guard domain, marker codec, and process identity tests."""
+"""D01a1/a2a/D01a2b/D01a3a1 — Guard, marker codec, process identity, safe create."""
 from __future__ import annotations
 
 import json
 import os
+import tempfile
 
 import pytest
 
 from yasb_limitora._config_lock import (
+    MarkerPrimitiveError,
     MarkerValidationError,
+    ParentHold,
     ProcessTokenMissing,
     ProcessTokenUnprovable,
     _fixed_config_path,
+    _real_api,
     config_lease,
+    create_exclusive,
     creation_token,
     decode_marker,
     encode_marker,
+    safe_close,
+    verify_parent,
 )
 from yasb_limitora.guard import WAIT_OBJECT_0, WAIT_TIMEOUT, Guard, GuardError
 
@@ -420,3 +427,149 @@ def test_real_current_pid_differential():
     t1 = creation_token(os.getpid())
     assert t1 == creation_token(os.getpid())
     assert t1 == f"{int(t1, 16):x}"
+
+
+# ── D01a3a1 safe-marker-create-and-identity tests ────────────────────
+
+
+class _MFake:
+    """Semantic fake — simulates Win32 handle/file semantics, not API redefinition."""
+
+    def __init__(self):
+        self._h, self._n, self._files = 500, 1, {}
+        self._pa, self._pi, self.create_calls = {}, {}, []
+        self.closed, self._fq, self._ff = [], set(), set()
+
+    def create_file(self, path, access, share, disp, attrs):
+        self.create_calls.append((path, access, share, disp, attrs))
+        norm = os.path.normcase(os.path.abspath(path))
+        if disp == 1:
+            if norm in self._pi or norm in self._pa:
+                return 0
+            h, self._h = self._h, self._h + 1
+            self._files[h] = {"p": norm, "a": attrs or 0x80, "i": (0, self._n)}
+            self._n += 1
+            return h
+        if disp == 3 and (norm in self._pi or (norm in self._pa and norm not in self._pi)):
+            h, self._h = self._h, self._h + 1
+            self._files[h] = {"p": norm, "a": self._pa.get(norm, 0x80), "i": self._pi.get(norm, (0, 0))}
+            return h
+        return 0
+
+    def query_info(self, handle):
+        if handle not in self._files or handle in self._fq:
+            return None
+        f = self._files[handle]
+        return f["a"], 0, f["i"][0], f["i"][1]
+
+    def final_path(self, handle):
+        if handle not in self._files or handle in self._ff:
+            return None
+        return os.path.normcase(os.path.abspath(self._files[handle]["p"]))
+
+    def close(self, handle):
+        self.closed.append(handle)
+        self._files.pop(handle, None)
+        return True
+
+
+def test_verify_parent_returns_live_hold(tmp_path):
+    api = _MFake()
+    parent = str(tmp_path)
+    norm = os.path.normcase(os.path.abspath(parent))
+    api._pa[norm] = 0x10
+    hold = verify_parent(parent, api=api)
+    assert hold.path == norm and len(hold.identity) == 3
+    assert hold.handle not in api.closed
+    assert api.create_calls[0][2] == 3  # deny FILE_SHARE_DELETE
+    safe_close(hold.handle, api)
+    assert hold.handle in api.closed
+
+
+def test_verify_parent_rejects_invalid_parents(tmp_path):
+    api = _MFake()
+    norm = os.path.normcase(os.path.abspath(str(tmp_path)))
+    api._pa[norm] = 0x10 | 0x400  # Reparse
+    with pytest.raises(MarkerPrimitiveError):
+        verify_parent(str(tmp_path), api=api)
+    api._pa[norm] = 0x80  # Non-directory
+    with pytest.raises(MarkerPrimitiveError):
+        verify_parent(str(tmp_path), api=api)
+    with pytest.raises(MarkerPrimitiveError):
+        verify_parent("/nonexistent_path_zzz", api=_MFake())
+
+
+def _parent_hold(path):
+    return ParentHold(os.path.normcase(os.path.abspath(path)), 99, (0, 0, 0))
+
+
+def test_create_exclusive_create_new_with_delete_rw_attrs_share_null():
+    api = _MFake()
+    parent = os.path.join(tempfile.gettempdir(), "t_d01a3a1_cr")
+    expected = os.path.normcase(os.path.abspath(os.path.join(parent, "yasb-limitora.lock")))
+    h, fp, ident = create_exclusive(_parent_hold(parent), api=api)
+    try:
+        c = api.create_calls[0]
+        assert c[3] == 1  # CREATE_NEW
+        assert c[1] & 0xC0010180 == 0xC0010180  # DELETE|RW|attributes
+        assert c[2] == 7  # FILE_SHARE_READ|WRITE|DELETE
+        assert c[4] == 0x80  # FILE_ATTRIBUTE_NORMAL
+        assert fp == expected
+        assert isinstance(ident, tuple) and len(ident) == 3
+    finally:
+        safe_close(h, api=api)
+
+
+@pytest.mark.parametrize("bad_attr", [0x80 | 0x400, 0x10])
+def test_create_exclusive_rejects_reparse_or_directory(bad_attr):
+    api = _MFake()
+    parent = os.path.join(tempfile.gettempdir(), f"t_d01a3a1_{bad_attr:x}")
+    h_val = api._h
+    orig = api.create_file
+
+    def _patched(path, access, share, disp, attrs):
+        h = orig(path, access, share, disp, attrs)
+        if h and h in api._files:
+            api._files[h]["a"] = bad_attr
+        return h
+
+    api.create_file = _patched
+    with pytest.raises(MarkerPrimitiveError):
+        create_exclusive(_parent_hold(parent), api=api)
+    assert h_val in api.closed
+
+
+@pytest.mark.parametrize("fail_set", ["_fq", "_ff"])
+def test_create_exclusive_closes_on_query_or_final_failure(fail_set):
+    api = _MFake()
+    parent = os.path.join(tempfile.gettempdir(), f"t_d01a3a1_{fail_set}")
+    h_val = api._h
+    getattr(api, fail_set).add(h_val)
+    with pytest.raises(MarkerPrimitiveError):
+        create_exclusive(_parent_hold(parent), api=api)
+    assert h_val in api.closed
+
+
+def test_real_windows_create_close_no_residue(tmp_path):
+    if os.name != "nt":
+        pytest.skip("Windows only")
+    api = _real_api()
+    assert api is not None
+    parent = str(tmp_path)
+    hold = verify_parent(parent, api=api)
+    assert len(hold.identity) == 3  # (Volume, IndexHigh, IndexLow)
+    with pytest.raises(PermissionError):
+        os.rename(parent, parent + ".moved")
+    mp = os.path.join(parent, "yasb-limitora.lock")
+    try:
+        h, mfp, mid = create_exclusive(hold, api=api)
+        try:
+            assert mfp == os.path.normcase(os.path.abspath(mp))
+            assert os.path.isfile(mp) and os.path.getsize(mp) == 0
+            assert len(mid) == 3
+        finally:
+            safe_close(h, api=api)
+    finally:
+        safe_close(hold.handle, api=api)
+    os.unlink(mp)
+    assert not os.path.exists(mp)
