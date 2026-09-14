@@ -113,11 +113,14 @@ def test_manual_close_retry_cancel_has_no_process_control() -> None:
 
 def test_exec_is_reserved_for_rollback_uninstaller_and_registry_snapshot() -> None:
     code = code_section(script_text())
-    assert code.count("Exec(") == 3
-    assert code.count("ewWaitUntilTerminated, ResultCode") == 3
+    assert code.count("Exec(") == 4
+    assert code.count("ewWaitUntilTerminated, ResultCode") == 4
     exec_lines = " ".join(line for line in code.splitlines() if "Exec(" in line)
     assert "NewUninstallString" in exec_lines
     assert exec_lines.count("'reg.exe'") == 2
+    # the single added Exec is the read-only running-probe redirect via {cmd}
+    assert exec_lines.count("ExpandConstant('{cmd}')") == 1
+    assert "tasklist /FO CSV /NH" in exec_lines
     assert "VERYSILENT" in code
     # every reg.exe Exec is fail-closed on both the launch flag and the exit code
     assert "(not SnapshotOk) or (ResultCode <> 0)" in code
@@ -224,6 +227,85 @@ def test_foreign_install_root_is_never_evacuated_without_ownership_evidence() ->
     assert "PriorInstallLocation" in gate_body and "PriorUninstallString" in gate_body
 
 
+def test_rollback_waits_bounded_for_uninstaller_cleanup_before_quarantine() -> None:
+    text = script_text()
+    assert '#define G1UninstallCleanupBudgetMs 30000' in text
+    assert '#define G1UninstallCleanupPollMs 250' in text
+    restore = restore_procedure(code_section(text))
+    uninstaller = restore.index("Exec(RemoveQuotes(NewUninstallString)")
+    wait = restore.index("WaitedMs := 0")
+    step2 = restore.index("{ Step 2:")
+    quarantine = restore.index("RenameFile(AppDir, FailedDir)")
+    assert uninstaller < wait < step2 < quarantine
+    # the wait runs only when the checked uninstaller returned cleanly
+    assert "if UninstallerRan and (ResultCode = 0) then" in restore[uninstaller:wait]
+    wait_block = restore[wait:step2]
+    assert "while DirExists(AppDir) and (WaitedMs < {#G1UninstallCleanupBudgetMs}) do" in wait_block
+    assert "Sleep({#G1UninstallCleanupPollMs})" in wait_block
+    assert "WaitedMs := WaitedMs + {#G1UninstallCleanupPollMs}" in wait_block
+    # fail closed: exhausted budget aborts before any quarantine or restoration
+    assert "did not complete within the bounded wait" in wait_block
+    assert "prior payload recoverable at " in wait_block
+    assert "prior registry not re-advertised" in wait_block
+    assert "Exit;" in wait_block
+    assert "RenameFile" not in wait_block and "DelTree" not in wait_block
+
+
+def test_manual_close_gate_precedes_registry_capture_and_evacuation() -> None:
+    prepare = prepare_procedure(code_section(script_text()))
+    gate = prepare.index("if not ManualCloseGate(YasbDetectedRunning) then")
+    assert gate < prepare.index("RegQueryStringValue(HKCU, G1UninstallKey, 'DisplayVersion'")
+    assert gate < prepare.index("Exec('reg.exe', 'export")
+    assert gate < prepare.index("RenameFile(AppDir, OldDir)")
+    abort = prepare[gate:prepare.index("RegQueryStringValue")]
+    assert "aborting with the prior install intact" in abort and "Exit;" in abort
+
+
+def test_manual_close_gate_wires_uninstall_and_retry_reprobes() -> None:
+    code = code_section(script_text())
+    assert "function YasbDetectedRunning: Boolean; forward;" in code
+    assert "function ManualCloseGate(DetectedRunning: Boolean): Boolean; forward;" in code
+    uninstall = code.split("function InitializeUninstall: Boolean;", 1)[1].split("\nend;", 1)[0]
+    gate = uninstall.index("if not ManualCloseGate(YasbDetectedRunning) then")
+    consent = uninstall.index("CleanupConsent := ConfirmStateCleanup")
+    assert gate < consent
+    assert "Result := False" in uninstall[gate:consent] and "Exit;" in uninstall[gate:consent]
+    body = code.rsplit("function ManualCloseGate(DetectedRunning: Boolean): Boolean;", 1)[1].split("\nend;", 1)[0]
+    assert "while DetectedRunning do" in body
+    assert "DetectedRunning := YasbDetectedRunning" in body
+    assert "Result := False" in body
+
+
+def test_running_probe_is_read_only_exact_name_and_fail_closed() -> None:
+    code = code_section(script_text())
+    probe = code.rsplit("function YasbDetectedRunning: Boolean;", 1)[1].split("\nend;", 1)[0]
+    assert "tasklist /FO CSV /NH" in probe
+    assert "'\"yasb.exe\"'" in probe and "'\"yasb-limitora.exe\"'" in probe
+    assert "Lowercase(" in probe
+    # fail closed: an inconclusive probe reports running so the gate asks the user
+    assert probe.index("Result := True") < probe.index("Result := (Pos(")
+    lowered = probe.lower()
+    for forbidden in ("taskkill", "terminateprocess", "closemainwindow", "/kill"):
+        assert forbidden not in lowered
+
+
+def test_post_install_cleanup_is_checked_and_failure_preserves_recovery_state() -> None:
+    code = code_section(script_text())
+    commit = code.split("procedure CurStepChanged(CurStep: TSetupStep);", 1)[1].split("procedure DeinitializeSetup", 1)[0]
+    deltree = commit.index("if not DelTree(EvacuatedOldDir, True, True, True) then")
+    log = commit.index("Log('G1 commit:")
+    snapshot_delete = commit.index("DeleteFile(PriorRegistrySnapshot)")
+    clear = commit.index("EvacuatedOldDir := ''")
+    assert deltree < log < snapshot_delete < clear
+    failure = commit[deltree:snapshot_delete]
+    # handler-only Exit cannot fail setup (verified sha256:b5e35a1b…); the fatal
+    # RaiseException must precede any snapshot deletion or state clearing.
+    assert "Exit;" not in failure and "preserved" in failure
+    assert deltree + failure.index("RaiseException(") < snapshot_delete
+    assert "PriorRegistrySnapshot := ''" not in failure
+    assert "EvacuatedOldDir := ''" not in failure and "DeleteFile" not in failure
+
+
 def test_rollback_does_not_ignore_new_uninstaller_result() -> None:
     restore = restore_procedure(code_section(script_text()))
     exec_line = next(line for line in restore.splitlines() if "Exec(" in line)
@@ -248,6 +330,44 @@ def test_rollback_restores_payload_before_registry_and_never_mixes_identities() 
     quarantine_failure = restore[quarantine:payload_back]
     assert "Exit;" in quarantine_failure and "Log(" in quarantine_failure
     assert "RenameFile(EvacuatedOldDir" not in quarantine_failure
+
+
+def test_stale_failed_payload_is_detected_and_preserved_before_transaction() -> None:
+    prepare = prepare_procedure(code_section(script_text()))
+    assert "FailedDir := AppDir + '{#G1FailedPayloadSuffix}'" in prepare
+    stale_gate = prepare.index("if DirExists(FailedDir) then")
+    export = prepare.index("Exec('reg.exe', 'export")
+    rename = prepare.index("RenameFile(AppDir, OldDir)")
+    # Fail-closed: the stale-.failed abort precedes any snapshot export or evacuation.
+    assert stale_gate < export < rename
+    abort = prepare[stale_gate:export]
+    assert "interrupted recovery" in abort
+    assert "aborting with the prior install intact" in abort
+    assert "Exit;" in abort
+    # Detect-and-preserve: preparation never deletes or renames a .failed sibling.
+    assert "DelTree" not in prepare
+    assert "DeleteFile(FailedDir" not in prepare
+    assert "RenameFile(FailedDir" not in prepare
+
+
+def test_rollback_failed_quarantine_is_owned_by_the_current_transaction() -> None:
+    code = code_section(script_text())
+    assert re.search(r"\bFailedQuarantineOwned\s*:\s*Boolean", code)
+    restore = restore_procedure(code)
+    # The single .failed deletion is guarded by current-transaction ownership.
+    assert restore.count("DelTree(FailedDir") == 1
+    deltree = restore.index("DelTree(FailedDir")
+    deltree_guard = restore.rindex("if", 0, deltree)
+    assert "FailedQuarantineOwned" in restore[deltree_guard:deltree]
+    # Ownership is claimed only after this transaction's quarantine rename succeeds,
+    # so the current-transaction rollback still quarantines the failed new tree.
+    assert restore.index("FailedQuarantineOwned := True") > restore.index(
+        "RenameFile(AppDir, FailedDir)"
+    )
+    # The step-3 rename-back of the quarantined payload uses the same ownership guard.
+    back = restore.index("RenameFile(FailedDir, AppDir)")
+    back_guard = restore.rindex("if", 0, back)
+    assert "FailedQuarantineOwned" in restore[back_guard:back]
 
 
 def test_s10_does_not_add_assistance_transport_or_forbidden_payloads() -> None:
