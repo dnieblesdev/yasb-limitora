@@ -1,14 +1,18 @@
-"""D01a1/a2a — Guard domain, deadline, and marker codec tests."""
+"""D01a1/a2a/D01a2b — Guard domain, marker codec, and process identity tests."""
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
 from yasb_limitora._config_lock import (
     MarkerValidationError,
+    ProcessTokenMissing,
+    ProcessTokenUnprovable,
     _fixed_config_path,
     config_lease,
+    creation_token,
     decode_marker,
     encode_marker,
 )
@@ -259,3 +263,160 @@ def test_decode_rejects_escape_spellings():
     escaped_colon = b'{"pid"\\u003a42,"token":"cafebabe00","version":1}'
     with pytest.raises(MarkerValidationError):
         decode_marker(escaped_colon)
+
+
+# ── D01a2b process-identity tests ────────────────────────────────────
+
+
+class _FakeKernel32:
+    """Minimal Win32 kernel32 stub for creation_token injection tests."""
+
+    def __init__(
+        self,
+        *,
+        open_handle=200,
+        open_error=0,
+        times_ok=True,
+        close_ok=True,
+    ):
+        self.open_handle = open_handle
+        self.open_error = open_error
+        self.times_ok = times_ok
+        self.close_ok = close_ok
+        self.opened: list[int] = []
+        self.closed: list[int] = []
+        self.creation_value: object = 0x01D9A3B2C4E6F800
+
+    def OpenProcess(self, _access, _inherit, pid):
+        if self.open_error:
+            return 0
+        self.opened.append(pid)
+        return self.open_handle
+
+    def GetProcessTimes(self, handle):
+        if not self.times_ok:
+            return None
+        return self.creation_value
+
+    def CloseHandle(self, handle):
+        self.closed.append(handle)
+        return self.close_ok
+
+    def get_last_error(self):
+        return self.open_error
+
+
+def test_real_current_pid_returns_lowercase_hex_token():
+    """Real current PID produces a lowercase hex FILETIME token."""
+    if os.name != "nt":
+        pytest.skip("Windows only")
+    token = creation_token(os.getpid())
+    assert isinstance(token, str)
+    assert 1 <= len(token) <= 16
+    assert all(c in "0123456789abcdef" for c in token)
+
+
+def test_invalid_pid_raises_unprovable():
+    """Invalid/out-of-range/non-integer PID raises ProcessTokenUnprovable."""
+    for bad in (0, -1, 4294967296, "42", 3.14, True, None):
+        with pytest.raises(ProcessTokenUnprovable):
+            creation_token(bad)
+
+
+def test_openprocess_error_87_raises_missing():
+    """OpenProcess NULL with last-error 87 raises ProcessTokenMissing."""
+    fake = _FakeKernel32(open_handle=0, open_error=87)
+    with pytest.raises(ProcessTokenMissing):
+        creation_token(1234, api=fake)
+
+
+def test_openprocess_non87_error_raises_unprovable():
+    """OpenProcess NULL with non-87 error (access denied, other) → Unprovable."""
+    for err in (5, 1234):
+        fake = _FakeKernel32(open_handle=0, open_error=err)
+        with pytest.raises(ProcessTokenUnprovable):
+            creation_token(1234, api=fake)
+
+
+def test_query_and_close_failures_raise_unprovable():
+    """GetProcessTimes None or CloseHandle False → Unprovable; handle always closed."""
+    fake_t = _FakeKernel32(times_ok=False)
+    with pytest.raises(ProcessTokenUnprovable):
+        creation_token(1234, api=fake_t)
+    assert fake_t.open_handle in fake_t.closed
+    fake_c = _FakeKernel32(close_ok=False)
+    with pytest.raises(ProcessTokenUnprovable):
+        creation_token(1234, api=fake_c)
+    assert fake_c.open_handle in fake_c.closed
+
+
+def test_missing_noncallable_and_raising_api():
+    """Missing, non-callable, or raising API methods → ProcessTokenUnprovable."""
+    class _Empty:
+        pass
+    class _Noncallable:
+        OpenProcess = 42
+        GetProcessTimes = 0
+        CloseHandle = 0
+    for api in (_Empty(), _Noncallable()):
+        with pytest.raises(ProcessTokenUnprovable):
+            creation_token(1234, api=api)
+    class _OpenRaises:
+        def OpenProcess(self, *_a): raise OSError
+        def GetProcessTimes(self, *_a): return 0
+        def CloseHandle(self, *_a): return True
+        def get_last_error(self): return 0
+    class _TimesRaises:
+        def OpenProcess(self, *_a): return 200
+        def GetProcessTimes(self, *_a): raise OSError
+        def CloseHandle(self, *_a): return True
+        def get_last_error(self): return 0
+    class _CloseRaises:
+        def OpenProcess(self, *_a): return 200
+        def GetProcessTimes(self, *_a): return 0x100
+        def CloseHandle(self, *_a): raise OSError
+        def get_last_error(self): return 0
+    for api in (_OpenRaises(), _TimesRaises(), _CloseRaises()):
+        with pytest.raises(ProcessTokenUnprovable):
+            creation_token(1234, api=api)
+
+
+def test_invalid_filetime_and_missing_last_error():
+    """Invalid FILETIME values and missing get_last_error → Unprovable."""
+    for bad in (-1, True, None):
+        fake = _FakeKernel32()
+        fake.creation_value = bad
+        with pytest.raises(ProcessTokenUnprovable):
+            creation_token(1234, api=fake)
+        assert fake.open_handle in fake.closed
+    class _NoLastError:
+        def OpenProcess(self, *_a): return 0
+        def GetProcessTimes(self, *_a): return 0
+        def CloseHandle(self, *_a): return True
+    with pytest.raises(ProcessTokenUnprovable):
+        creation_token(1234, api=_NoLastError())
+
+
+def test_token_is_unpadded_lowercase_hex():
+    """Token matches cache.py format: unpadded lowercase f\"{value:x}\"."""
+    fake = _FakeKernel32()
+    fake.creation_value = 0x0123456789ABCDEF
+    assert creation_token(1234, api=fake) == f"{0x0123456789ABCDEF:x}"
+
+
+def test_closehandle_always_called_after_open():
+    """CloseHandle always attempted after successful OpenProcess."""
+    import contextlib
+    for ok in (True, False):
+        fake = _FakeKernel32(times_ok=ok)
+        with contextlib.suppress(ProcessTokenMissing, ProcessTokenUnprovable):
+            creation_token(1234, api=fake)
+        assert fake.open_handle in fake.closed
+
+def test_real_current_pid_differential():
+    """Real PID token is stable and matches unpadded hex format."""
+    if os.name != "nt":
+        pytest.skip("Windows only")
+    t1 = creation_token(os.getpid())
+    assert t1 == creation_token(os.getpid())
+    assert t1 == f"{int(t1, 16):x}"
