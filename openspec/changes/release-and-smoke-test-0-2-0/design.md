@@ -731,8 +731,12 @@ Gate 2 is split into implementation boundaries: **D01a1** establishes the contex
 primary Guard lease keyed by the exact fixed config.json path with the real 5-second deadline;
 **D01a2a** defines the bounded canonical marker codec with exact schema/size and strict
 validation; **D01a2b** defines the Win32 process-identity token; **D01a3a** implements safe
-marker primitives — fixed parent hold/non-reparse/final identity, O_EXCL marker create then
-verify, handle-derived identity, bounded handle read, write+flush+fsync, handle-bound
+marker primitives — fixed parent hold/non-reparse/final identity, Win32 CreateFileW
+CREATE_NEW exclusive create with explicit DELETE+read/write+attributes access and
+FILE_SHARE_DELETE compatibility so the same verified handle can be disposition-deleted
+safely, verify leaf final path/reparse/regular/identity, reuse repo-validated
+FILETIME/BY_HANDLE_FILE_INFORMATION/native helpers, at least one real Windows test,
+handle-derived identity, bounded handle read, write+flush+fsync, handle-bound
 identity-checked delete never successor, and low-level sanitized errors, with no
 Guard/reclaim/deadline policy; **D01a3b** implements fallback policy and integration — typed
 ConfigLease, one shared DeadlineContext, fallback only on `guard_acquisition_failed`,
@@ -842,11 +846,17 @@ Target ≤280 changed lines and one rollback boundary.
 
 **D01a3a — Safe marker primitives.**
 
-Depends on D01a2b. Fixed parent hold/non-reparse/final identity; fixed `O_EXCL` marker
-create then verify; handle-derived identity; bounded handle read; write, flush, and
-fsync through the same acquired handle; handle-bound identity-checked delete never
-removes a successor; low-level sanitized errors. No Guard, reclaim, or deadline policy
-in this sub-unit. Target ≤280 changed lines and one rollback boundary.
+Depends on D01a2b. Fixed parent hold/non-reparse/final identity; Win32 `CreateFileW`
+with `CREATE_NEW` disposition (the OS-native exclusive-create equivalent of
+`O_CREAT|O_EXCL`) requesting explicit `DELETE` + read/write + attributes access and
+`FILE_SHARE_DELETE` compatibility so the same verified handle can be disposition-deleted
+safely; verify leaf final path, reparse status, regular-file status, and handle identity;
+reuse and cross-check repo-validated `FILETIME`/`BY_HANDLE_FILE_INFORMATION`/native
+helpers from `_native_state_cleanup.py` — fakes cannot redefine API semantics; at least
+one real Windows test is required; handle-derived identity; bounded handle read; write,
+flush, and fsync through the same acquired handle; handle-bound identity-checked delete
+never removes a successor; low-level sanitized errors. No Guard, reclaim, or deadline
+policy in this sub-unit. Target ≤280 changed lines and one rollback boundary.
 
 > **Failed evidence (D01a3).** The D01a3 candidate
 > `sha256:cdfae75a600fc33e170ed1e6d2b5f90b5cacec6e0fc9b99cce071913618e824d`
@@ -855,6 +865,25 @@ in this sub-unit. Target ≤280 changed lines and one rollback boundary.
 > split D01a3 into D01a3a (safe marker primitives, ≤280 lines) and D01a3b (fallback
 > policy and integration, ≤280 lines, depends D01a3a). No passing evidence is inherited
 > by D01a3a or D01a3b.
+>
+> **Failed evidence (D01a3a) and correction.** The D01a3a candidate
+> `sha256:d9ad0c388c0603cbd6e1548e01c63e2b82b64d89654ae1e2304d44c86299213c`
+> was rejected with no passing evidence. The maintainer corrects the exclusive-create
+> mechanism: the CRT `O_CREAT|O_EXCL` create-then-verify approach is replaced with
+> Win32 `CreateFileW` `CREATE_NEW` as the OS-native exclusive-create equivalent,
+> requesting explicit `DELETE` + read/write + attributes access and `FILE_SHARE_DELETE`
+> compatibility so the same verified handle can be disposition-deleted safely. Held
+> verified parent and final-path/regular/non-reparse/identity verification are preserved.
+> The implementation must reuse and cross-check repo-validated
+> `FILETIME`/`BY_HANDLE_FILE_INFORMATION`/native helpers from `_native_state_cleanup.py`
+> and include at least one real Windows test; fakes cannot redefine API semantics.
+> Rejected defects recorded: malformed 56-byte ABI `BY_HANDLE_FILE_INFORMATION` struct,
+> `hTemplateFile` misuse (non-NULL template on create), missing `DELETE` access or
+> `FILE_SHARE_DELETE` incompatibility preventing safe disposition-delete through the
+> verified handle, no final-path comparison after create, partial writes without
+> flush+fsync, handle leaks on error paths, and no real Windows test. D01a3a budget
+> remains ≤280 lines; D01a3b is unchanged; tasks remain unchecked. No source, tests,
+> progress, or delivery.
 
 **D01a3b — Fallback policy and integration.**
 
@@ -901,8 +930,15 @@ non-reparse parent directory; D01 invents no caller-supplied path.
                              unprovable; no acquisition/reclaim/unlink in this sub-unit
                   fallback:  [D01a3a/D01a3b] permitted ONLY for `guard_acquisition_failed`
                              (native mutex unavailable); [D01a3a] fixed parent hold/
-                             non-reparse/final identity; fixed O_EXCL marker create
-                             then verify; handle-derived identity; bounded handle read;
+                             non-reparse/final identity; Win32 CreateFileW CREATE_NEW
+                             exclusive create with explicit DELETE+read/write+attributes
+                             access and FILE_SHARE_DELETE compatibility so the same
+                             verified handle can be disposition-deleted safely; verify
+                             leaf final path, reparse status, regular-file status, and
+                             handle identity; reuse repo-validated
+                             FILETIME/BY_HANDLE_FILE_INFORMATION/native helpers from
+                             _native_state_cleanup.py; at least one real Windows test;
+                             handle-derived identity; bounded handle read;
                              write+flush+fsync through same acquired handle; handle-bound
                              identity-checked delete never removes successor; low-level
                              sanitized errors; fixed literal name `yasb-limitora.lock`
