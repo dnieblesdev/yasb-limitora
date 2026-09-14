@@ -6,7 +6,7 @@ import os
 import stat
 import tempfile
 import uuid
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import NamedTuple
 
@@ -44,24 +44,61 @@ def _safe(path: Path) -> bool:
         return False
 
 
+def _raw_handle_final_path(handle: int) -> str | None:
+    try:
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = ctypes.WinDLL("kernel32", use_last_error=True).GetFinalPathNameByHandleW(
+            ctypes.c_void_p(handle), buffer, len(buffer), 0
+        )
+        return buffer.value if 0 < length < len(buffer) else None
+    except OSError:
+        return None
+
+
 def _handle_final_path(fd: int) -> str | None:
     if os.name != "nt":
         return str(Path(os.readlink(f"/proc/self/fd/{fd}"))) if os.path.exists(f"/proc/self/fd/{fd}") else None
     try:
         import msvcrt
-        buffer = ctypes.create_unicode_buffer(32768)
-        length = ctypes.WinDLL("kernel32", use_last_error=True).GetFinalPathNameByHandleW(
-            ctypes.c_void_p(msvcrt.get_osfhandle(fd)), buffer, len(buffer), 0
-        )
-        return buffer.value if 0 < length < len(buffer) else None
+        return _raw_handle_final_path(msvcrt.get_osfhandle(fd))
     except (ImportError, OSError, ValueError):
         return None
 
 
+def _final_matches(final: str | None, path: Path) -> bool:
+    return final is not None and final.casefold() == ("\\\\?\\" + str(path.absolute())).casefold()
+
+
 def _opened_at(fd: int, path: Path) -> bool:
-    final = _handle_final_path(fd)
-    expected = str(path.absolute())
-    return final is not None and final.casefold() == ("\\\\?\\" + expected).casefold()
+    return _final_matches(_handle_final_path(fd), path)
+
+
+@contextmanager
+def _held_destination_directory(path: Path):
+    """Keep the verified Windows destination directory unrenamable through replace/rollback."""
+    if not _safe(path) or not path.is_dir():
+        raise OSError("unsafe destination directory")
+    if os.name != "nt":
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+        try:
+            if not _opened_at(fd, path):
+                raise OSError("unsafe destination directory")
+            yield
+        finally:
+            os.close(fd)
+        return
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.restype = ctypes.c_void_p
+    handle = create_file(str(path), 0x80000000, 0x3, None, 3, 0x02000000, None)
+    if handle == ctypes.c_void_p(-1).value or not _final_matches(_raw_handle_final_path(handle), path):
+        if handle != ctypes.c_void_p(-1).value:
+            kernel32.CloseHandle(ctypes.c_void_p(handle))
+        raise OSError("unsafe destination directory")
+    try:
+        yield
+    finally:
+        kernel32.CloseHandle(ctypes.c_void_p(handle))
 
 
 def _checked_read(path: Path) -> bytes:
@@ -189,36 +226,40 @@ def apply(home: Path, state_root: Path, invocation: str, *, consent: bool = Fals
             backup = _checked_backup(backups, raw)
         if not _safe(home) or not _safe(state_root):
             raise OSError("unsafe temp parent")
-        fd, temporary = tempfile.mkstemp(prefix=".env.yasb-limitora.tmp-", dir=home)
-        with os.fdopen(fd, "wb") as stream:
-            if not _safe(Path(temporary)) or not _opened_at(fd, Path(temporary)):
-                raise OSError("unsafe temp")
-            stream.write(replacement or b"")
-            stream.flush()
-            os.fsync(stream.fileno())
-        if not _safe(home) or not _safe(target) or not _safe(state_root):
-            raise OSError("unsafe replace")
-        os.replace(temporary, target)
-        if _checked_read(target) != replacement:
-            raise RuntimeError("verify")
-        return Result(None)
-    except RuntimeError:
-        reason = "env-verify-failed"
+        with _held_destination_directory(home):
+            try:
+                fd, temporary = tempfile.mkstemp(prefix=".env.yasb-limitora.tmp-", dir=home)
+                with os.fdopen(fd, "wb") as stream:
+                    if not _safe(Path(temporary)) or not _opened_at(fd, Path(temporary)):
+                        raise OSError("unsafe temp")
+                    stream.write(replacement or b"")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                if not _safe(home) or not _safe(target) or not _safe(state_root):
+                    raise OSError("unsafe replace")
+                os.replace(temporary, target)
+                if _checked_read(target) != replacement:
+                    raise RuntimeError("verify")
+                return Result(None)
+            except RuntimeError:
+                reason = "env-verify-failed"
+            except OSError:
+                reason = _failure_reason(existed)
+            try:
+                if not _safe(home) or not _safe(state_root) or (backup is not None and not _safe(backup)):
+                    raise OSError("unsafe rollback")
+                if backup is not None:
+                    _restore(backup, target)
+                elif target.exists() and _safe(target):
+                    target.unlink()
+                if created_home and _safe(home) and not any(home.iterdir()):
+                    home.rmdir()
+            except OSError:
+                return Result("env-rollback-failed")
+            return Result(reason)
     except OSError:
-        reason = _failure_reason(existed)
+        return Result(_failure_reason(existed))
     finally:
         if temporary is not None:
             with suppress(OSError):
                 Path(temporary).unlink()
-    try:
-        if not _safe(home) or not _safe(state_root) or (backup is not None and not _safe(backup)):
-            raise OSError("unsafe rollback")
-        if backup is not None:
-            _restore(backup, target)
-        elif target.exists() and _safe(target):
-            target.unlink()
-        if created_home and _safe(home) and not any(home.iterdir()):
-            home.rmdir()
-    except OSError:
-        return Result("env-rollback-failed")
-    return Result(reason)
