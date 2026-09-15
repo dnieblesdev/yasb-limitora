@@ -1,6 +1,7 @@
 """D01a1/a2a/D01a2b/D01a3a1 — Guard, marker codec, process identity, safe create."""
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
@@ -20,8 +21,10 @@ from yasb_limitora._config_lock import (
     creation_token,
     decode_marker,
     encode_marker,
+    read_marker,
     safe_close,
     verify_parent,
+    write_marker,
 )
 from yasb_limitora.guard import WAIT_OBJECT_0, WAIT_TIMEOUT, Guard, GuardError
 
@@ -573,3 +576,168 @@ def test_real_windows_create_close_no_residue(tmp_path):
         safe_close(hold.handle, api=api)
     os.unlink(mp)
     assert not os.path.exists(mp)
+
+
+# ── D01a3a2a — Durable marker IO tests ───────────────────────────────
+
+
+class _IOFake:
+    def __init__(self):
+        self._h, self._n, self._files = 500, 1, {}
+        self._pa, self._pi, self.create_calls = {}, {}, []
+        self.closed, self._fq, self._ff = [], set(), set()
+        self._markers = {}
+        self.flush_count, self.flush_fails, self.write_fails, self.read_fails = 0, False, False, False
+        self._partial = 1024
+
+    def create_file(self, path, access, share, disp, attrs):
+        self.create_calls.append((path, access, share, disp, attrs))
+        norm = os.path.normcase(os.path.abspath(path))
+        if disp == 1:
+            if norm in self._pi or norm in self._pa or norm in self._markers:
+                return 0
+            h, self._h = self._h, self._h + 1
+            identity = (0, self._n, 0)
+            self._n += 1
+            self._files[h] = {"p": norm, "a": attrs or 0x80, "i": identity}
+            self._markers[norm] = {"identity": identity, "content": b"", "attrs": attrs or 0x80}
+            return h
+        if disp == 3:
+            if norm in self._markers:
+                h, self._h = self._h, self._h + 1
+                m = self._markers[norm]
+                self._files[h] = {"p": norm, "a": m["attrs"], "i": m["identity"]}
+                return h
+            if norm in self._pi or norm in self._pa:
+                h, self._h = self._h, self._h + 1
+                self._files[h] = {"p": norm, "a": self._pa.get(norm, 0x80), "i": self._pi.get(norm, (0, 0, 0))}
+                return h
+            return 0
+        return 0
+
+    def query_info(self, handle):
+        if handle not in self._files or handle in self._fq:
+            return None
+        f = self._files[handle]
+        return f["a"], f["i"][0], f["i"][1], f["i"][2]
+
+    def final_path(self, handle):
+        if handle not in self._files or handle in self._ff:
+            return None
+        return os.path.normcase(os.path.abspath(self._files[handle]["p"]))
+
+    def close(self, handle):
+        self.closed.append(handle)
+        self._files.pop(handle, None)
+        return True
+
+    def read_file(self, handle, max_bytes):
+        if self.read_fails or handle not in self._files:
+            return None
+        return self._markers.get(self._files[handle]["p"], {}).get("content", b"")[: max_bytes + 1]
+
+    def write_file(self, handle, data):
+        if self.write_fails or handle not in self._files:
+            return 0
+        norm = self._files[handle]["p"]
+        if norm in self._markers:
+            n = min(len(data), self._partial)
+            self._markers[norm]["content"] += data[:n]
+            return n
+        return 0
+
+    def set_file_pointer(self, handle, _offset, _origin=0):
+        if handle not in self._files:
+            return None
+        return 0
+
+    def flush(self, handle):
+        if self.flush_fails or handle not in self._files:
+            return False
+        self.flush_count += 1
+        return True
+
+
+@contextlib.contextmanager
+def _fh():
+    a = _IOFake()
+    p = os.path.join(tempfile.gettempdir(), f"t_{id(a)}")
+    a._pa[os.path.normcase(os.path.abspath(p))] = 0x10
+    hold = verify_parent(p, api=a)
+    h, _fp, _ident = create_exclusive(hold, api=a)
+    try:
+        yield a, p, hold, h
+    finally:
+        safe_close(h, api=a)
+        safe_close(hold.handle, api=a)
+
+
+def test_read_write_marker_basic():
+    with _fh() as (a, p, _hold, h):
+        marker = encode_marker(42, "cafebabe00")
+        assert write_marker(h, marker, api=a) is True
+        mp = os.path.join(p, "yasb-limitora.lock")
+        assert a._markers[os.path.normcase(os.path.abspath(mp))]["content"] == marker
+        assert a.flush_count == 1
+        assert read_marker(h, api=a) == marker
+
+
+def test_read_marker_oversize_and_seek_failure():
+    with _fh() as (a, p, _hold, h):
+        mp = os.path.join(p, "yasb-limitora.lock")
+        a._markers[os.path.normcase(os.path.abspath(mp))]["content"] = b"x" * 257
+        with pytest.raises(MarkerPrimitiveError):
+            read_marker(h, api=a)
+        a._markers[os.path.normcase(os.path.abspath(mp))]["content"] = b"ok"
+        orig = a.set_file_pointer
+        a.set_file_pointer = lambda *_: None  # type: ignore[assignment]
+        with pytest.raises(MarkerPrimitiveError):
+            read_marker(h, api=a)
+        a.set_file_pointer = orig
+
+
+@pytest.mark.parametrize("fail_attr", ["read_fails", "write_fails", "flush_fails"])
+def test_io_fails_closed_on_error(fail_attr):
+    with _fh() as (api, _parent, _hold, h):
+        setattr(api, fail_attr, True)
+        marker = encode_marker(1, "a")
+        if fail_attr == "read_fails":
+            with pytest.raises(MarkerPrimitiveError):
+                read_marker(h, api=api)
+        else:
+            with pytest.raises(MarkerPrimitiveError):
+                write_marker(h, marker, api=api)
+
+
+def test_write_marker_validation_and_looping():
+    with _fh() as (api, parent, _hold, h):
+        for bad in (b"", b"x" * 257, "str", 42, None):
+            with pytest.raises(MarkerPrimitiveError):
+                write_marker(h, bad, api=api)  # type: ignore[arg-type]
+        api._partial = 0
+        with pytest.raises(MarkerPrimitiveError):
+            write_marker(h, encode_marker(1, "a"), api=api)
+        api._partial = 5
+        api.write_fails = False
+        marker = encode_marker(42, "cafebabe00")
+        assert write_marker(h, marker, api=api) is True
+        mp = os.path.join(parent, "yasb-limitora.lock")
+        assert api._markers[os.path.normcase(os.path.abspath(mp))]["content"] == marker
+
+
+def test_real_windows_same_handle_write_read(tmp_path):
+    if os.name != "nt":
+        pytest.skip("Windows only")
+    api = _real_api()
+    hold = verify_parent(str(tmp_path), api=api)
+    h, _mfp, _mid = create_exclusive(hold, api=api)
+    try:
+        marker = encode_marker(5678, "fedcba9876543210")
+        write_marker(h, marker, api=api)
+        assert read_marker(h, api=api) == marker
+    finally:
+        safe_close(h, api=api)
+        safe_close(hold.handle, api=api)
+        mp = os.path.join(str(tmp_path), "yasb-limitora.lock")
+        if os.path.exists(mp):
+            os.unlink(mp)
