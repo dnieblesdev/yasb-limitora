@@ -277,6 +277,14 @@ def _real_api() -> Any:
     k.GetFinalPathNameByHandleW.restype = ctypes.c_uint32
     k.CloseHandle.argtypes = [H]
     k.CloseHandle.restype = ctypes.c_int
+    k.ReadFile.argtypes = [H, ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), H]
+    k.ReadFile.restype = ctypes.c_int
+    k.WriteFile.argtypes = [H, ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), H]
+    k.WriteFile.restype = ctypes.c_int
+    k.SetFilePointerEx.argtypes = [H, ctypes.c_longlong, ctypes.POINTER(ctypes.c_longlong), ctypes.c_uint32]
+    k.SetFilePointerEx.restype = ctypes.c_int
+    k.FlushFileBuffers.argtypes = [H]
+    k.FlushFileBuffers.restype = ctypes.c_int
 
     class _Api:
         def create_file(self, path, access, share, disp, attrs):
@@ -299,6 +307,28 @@ def _real_api() -> Any:
 
         def close(self, handle):
             return bool(k.CloseHandle(handle))
+
+        def read_file(self, handle, max_bytes):
+            buf = ctypes.create_string_buffer(max_bytes + 1)
+            n = ctypes.c_uint32()
+            if not k.ReadFile(handle, buf, max_bytes + 1, ctypes.byref(n), None):
+                return None
+            return buf.raw[: n.value]
+
+        def write_file(self, handle, data):
+            n = ctypes.c_uint32()
+            if not k.WriteFile(handle, data, len(data), ctypes.byref(n), None):
+                return 0
+            return n.value
+
+        def set_file_pointer(self, handle, offset, origin=0):
+            prev = ctypes.c_longlong()
+            if not k.SetFilePointerEx(handle, ctypes.c_longlong(offset), ctypes.byref(prev), origin):
+                return None
+            return prev.value
+
+        def flush(self, handle):
+            return bool(k.FlushFileBuffers(handle))
 
     return _Api()
 
@@ -367,3 +397,38 @@ def create_exclusive(parent: ParentHold, *, api: Any) -> tuple[int, str, tuple[i
     except Exception:  # noqa: BLE001
         safe_close(h, api)
         raise MarkerPrimitiveError() from None
+
+
+# ── D01a3a2a — Durable marker IO ─────────────────────────────────────
+
+
+def read_marker(handle: int, *, api: Any) -> bytes:
+    if not callable(getattr(api, "read_file", None)):
+        raise MarkerPrimitiveError()
+    if not callable(getattr(api, "set_file_pointer", None)):
+        raise MarkerPrimitiveError()
+    if api.set_file_pointer(handle, 0, 0) is None:
+        raise MarkerPrimitiveError()
+    data = api.read_file(handle, _MARKER_MAX_BYTES)
+    if data is None or len(data) > _MARKER_MAX_BYTES:
+        raise MarkerPrimitiveError()
+    return data
+
+
+def write_marker(handle: int, data: bytes, *, api: Any) -> bool:
+    if not isinstance(data, bytes) or not data or len(data) > _MARKER_MAX_BYTES:
+        raise MarkerPrimitiveError()
+    if not callable(getattr(api, "write_file", None)):
+        raise MarkerPrimitiveError()
+    if not callable(getattr(api, "flush", None)):
+        raise MarkerPrimitiveError()
+    remaining, offset = len(data), 0
+    while remaining > 0:
+        n = api.write_file(handle, data[offset:])
+        if not isinstance(n, int) or isinstance(n, bool) or n <= 0 or n > remaining:
+            raise MarkerPrimitiveError()
+        offset += n
+        remaining -= n
+    if not api.flush(handle):
+        raise MarkerPrimitiveError()
+    return True
