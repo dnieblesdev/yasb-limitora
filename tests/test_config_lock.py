@@ -5,6 +5,7 @@ import contextlib
 import json
 import os
 import tempfile
+from typing import Any, cast
 
 import pytest
 
@@ -12,6 +13,7 @@ from yasb_limitora._config_lock import (
     MarkerPrimitiveError,
     MarkerValidationError,
     ParentHold,
+    ProbeWitness,
     ProcessTokenMissing,
     ProcessTokenUnprovable,
     _fixed_config_path,
@@ -20,7 +22,9 @@ from yasb_limitora._config_lock import (
     create_exclusive,
     creation_token,
     decode_marker,
+    disposition_delete,
     encode_marker,
+    identity_reopen,
     read_marker,
     safe_close,
     verify_parent,
@@ -423,6 +427,7 @@ def test_closehandle_always_called_after_open():
             creation_token(1234, api=fake)
         assert fake.open_handle in fake.closed
 
+
 def test_real_current_pid_differential():
     """Real PID token is stable and matches unpadded hex format."""
     if os.name != "nt":
@@ -430,7 +435,6 @@ def test_real_current_pid_differential():
     t1 = creation_token(os.getpid())
     assert t1 == creation_token(os.getpid())
     assert t1 == f"{int(t1, 16):x}"
-
 
 # ── D01a3a1 safe-marker-create-and-identity tests ────────────────────
 
@@ -657,6 +661,15 @@ class _IOFake:
         self.flush_count += 1
         return True
 
+    def set_disposition(self, handle):
+        if handle not in self._files:
+            return False
+        norm = self._files[handle]["p"]
+        if norm in self._markers:
+            self._markers[norm]["_deleted"] = True
+            return True
+        return False
+
 
 @contextlib.contextmanager
 def _fh():
@@ -741,3 +754,198 @@ def test_real_windows_same_handle_write_read(tmp_path):
         mp = os.path.join(str(tmp_path), "yasb-limitora.lock")
         if os.path.exists(mp):
             os.unlink(mp)
+
+
+# ── D01a3a2b — Identity re-open and disposition delete tests ─────────
+
+
+def test_identity_reopen_open_existing_with_identity_check():
+    """identity_reopen uses OPEN_EXISTING and verifies volume/file identity."""
+    with _fh() as (api, parent, hold, h):
+        mp = os.path.join(parent, "yasb-limitora.lock")
+        orig_ident = api._markers[os.path.normcase(os.path.abspath(mp))]["identity"]
+        w = identity_reopen(mp, parent=hold, expected=orig_ident, original=h, api=api)
+        assert isinstance(w, ProbeWitness) and w._handle == h and w._identity == orig_ident
+        assert api.create_calls[-1][3] == 3  # OPEN_EXISTING
+
+
+def test_identity_reopen_rejects_alias_path():
+    """identity_reopen refuses when final path doesn't match expected leaf."""
+    with _fh() as (api, _parent, hold, h):
+        # Create a second marker in a different parent
+        other_path = os.path.join(tempfile.gettempdir(), "t_d01a3a2b_alias")
+        api._pa[os.path.normcase(os.path.abspath(other_path))] = 0x10
+        other_hold = verify_parent(other_path, api=api)
+        other_h, _, _ = create_exclusive(other_hold, api=api)
+        safe_close(other_h, api=api)
+        other_mp = os.path.join(other_path, "yasb-limitora.lock")
+        # Reopen with wrong parent must fail (path mismatch)
+        with pytest.raises(MarkerPrimitiveError):
+            identity_reopen(other_mp, parent=hold, expected=(0, 0, 0), original=h, api=api)
+        safe_close(other_hold.handle, api=api)
+
+
+def test_identity_reopen_rejects_reparse():
+    """identity_reopen refuses reparse-point markers."""
+    with _fh() as (api, parent, hold, h):
+        mp = os.path.join(parent, "yasb-limitora.lock")
+        norm = os.path.normcase(os.path.abspath(mp))
+        api._markers[norm]["attrs"] = 0x80 | 0x400  # reparse
+        with pytest.raises(MarkerPrimitiveError):
+            identity_reopen(mp, parent=hold, expected=(0, 0, 0), original=h, api=api)
+
+
+def test_disposition_delete_on_original_handle():
+    """disposition_delete calls SetFileInformationByHandle(FileDispositionInfo)."""
+    with _fh() as (api, parent, hold, h):
+        mp = os.path.join(parent, "yasb-limitora.lock")
+        norm = os.path.normcase(os.path.abspath(mp))
+        orig = api._markers[norm]["identity"]
+        w = identity_reopen(mp, parent=hold, expected=orig, original=h, api=api)
+        assert disposition_delete(h, witness=w, api=api) is True
+        assert api._markers[norm].get("_deleted") is True
+
+
+def test_real_windows_identity_reopen_and_disposition_delete(tmp_path):
+    """Real Windows: OPEN_EXISTING, identity match, disposition delete, no residue."""
+    if os.name != "nt":
+        pytest.skip("Windows only")
+    api = _real_api()
+    hold = verify_parent(str(tmp_path), api=api)
+    mp = os.path.join(str(tmp_path), "yasb-limitora.lock")
+    h, _mfp, mid = create_exclusive(hold, api=api)
+    try:
+        marker = encode_marker(7777, "abcdef0123456789")
+        write_marker(h, marker, api=api)
+        # Identity re-open
+        w = identity_reopen(mp, parent=hold, expected=mid, original=h, api=api)
+        assert isinstance(w, ProbeWitness) and w._handle == h
+        assert read_marker(h, api=api) == marker
+        # Disposition delete
+        disposition_delete(h, witness=w, api=api)
+    finally:
+        safe_close(h, api=api)
+        safe_close(hold.handle, api=api)
+    assert not os.path.exists(mp)
+
+
+def test_real_windows_disposition_delete_never_removes_successor(tmp_path):
+    """Real Windows: disposition delete of handle 1 never removes successor handle 2."""
+    if os.name != "nt":
+        pytest.skip("Windows only")
+    api = _real_api()
+    hold = verify_parent(str(tmp_path), api=api)
+    mp = os.path.join(str(tmp_path), "yasb-limitora.lock")
+    h1, _fp1, mid1 = create_exclusive(hold, api=api)
+    write_marker(h1, encode_marker(1, "aaaa"), api=api)
+    w1 = identity_reopen(mp, parent=hold, expected=mid1, original=h1, api=api)
+    disposition_delete(h1, witness=w1, api=api)
+    safe_close(h1, api=api)
+    assert not os.path.exists(mp)
+    # Create successor
+    h2, _fp2, mid2 = create_exclusive(hold, api=api)
+    marker2 = encode_marker(2, "bbbb")
+    write_marker(h2, marker2, api=api)
+    assert os.path.exists(mp)
+    # Identity re-open must match successor, not predecessor
+    w2 = identity_reopen(mp, parent=hold, expected=mid2, original=h2, api=api)
+    assert w2._identity == mid2 and w2._identity != mid1
+    assert read_marker(h2, api=api) == marker2
+    safe_close(h2, api=api)
+    safe_close(hold.handle, api=api)
+    os.unlink(mp)
+
+
+# ── D01a3a2b corrective — mandatory verification inputs + ABI ────────
+
+
+def test_real_api_set_disposition_uses_one_byte_boolean():
+    """FILE_DISPOSITION_INFO is a 1-byte BOOLEAN per Win32 ABI."""
+    if os.name != "nt":
+        pytest.skip("Windows only")
+    import ctypes as _ct
+
+    from yasb_limitora._config_lock import _FileDispositionInfo
+
+    info = _FileDispositionInfo()
+    assert _ct.sizeof(info) == 1, f"FILE_DISPOSITION_INFO must be 1 byte, got {_ct.sizeof(info)}"
+
+
+def test_identity_reopen_requires_parent_and_expected():
+    """parent, expected and original are mandatory; omission must be refused."""
+    with _fh() as (api, parent, hold, h):
+        mp = os.path.join(parent, "yasb-limitora.lock")
+        orig_ident = api._markers[os.path.normcase(os.path.abspath(mp))]["identity"]
+        reopen = cast(Any, identity_reopen)
+        with pytest.raises((MarkerPrimitiveError, TypeError)):
+            reopen(mp, api=api)
+        with pytest.raises((MarkerPrimitiveError, TypeError)):
+            reopen(mp, parent=hold, original=h, api=api)
+        with pytest.raises((MarkerPrimitiveError, TypeError)):
+            reopen(mp, expected=orig_ident, original=h, api=api)
+        with pytest.raises((MarkerPrimitiveError, TypeError)):
+            reopen(mp, parent=hold, expected=orig_ident, api=api)
+
+
+def test_identity_reopen_closes_probe_on_failure():
+    """Every probe handle is closed on success and failure."""
+    with _fh() as (api, parent, hold, h):
+        mp = os.path.join(parent, "yasb-limitora.lock")
+        closed_before = len(api.closed)
+        with pytest.raises(MarkerPrimitiveError):
+            identity_reopen(mp, parent=hold, expected=(999, 999, 0), original=h, api=api)
+        assert len(api.closed) > closed_before
+
+
+def test_forged_witness_refused():
+    """Forged ProbeWitness (invalid handle or zero identity) is refused."""
+    for bad_h in (0, -1):
+        with pytest.raises(MarkerPrimitiveError):
+            ProbeWitness(bad_h, (0, 0, 0))
+    with _fh() as (api, _parent, _hold, h):
+        fake_w = ProbeWitness(h, (0, 0, 0))
+        with pytest.raises(MarkerPrimitiveError):
+            disposition_delete(h, witness=fake_w, api=api)
+
+def test_stale_witness_recycled_handle_refused_successor_survives():
+    """Stale witness from deleted predecessor cannot delete successor."""
+    with _fh() as (api, parent, hold, h1):
+        mp = os.path.join(parent, "yasb-limitora.lock")
+        norm = os.path.normcase(os.path.abspath(mp))
+        ident1 = api._markers[norm]["identity"]
+        w1 = identity_reopen(mp, parent=hold, expected=ident1, original=h1, api=api)
+        disposition_delete(h1, witness=w1, api=api)
+        safe_close(h1, api=api)
+        del api._markers[norm]
+        api._h = h1
+        h2, _, ident2 = create_exclusive(hold, api=api)
+        assert h2 == h1 and ident2 != ident1
+        with pytest.raises(MarkerPrimitiveError):
+            disposition_delete(h2, witness=w1, api=api)
+        assert not api._markers[norm].get("_deleted")
+
+def test_identity_reopen_close_failure_no_witness():
+    """Probe close failure returns no witness and raises sanitized error."""
+    with _fh() as (api, parent, hold, h):
+        mp = os.path.join(parent, "yasb-limitora.lock")
+        orig_ident = api._markers[os.path.normcase(os.path.abspath(mp))]["identity"]
+        orig_close = api.close
+        try:
+            api.close = lambda _h: False  # type: ignore[assignment]
+            with pytest.raises(MarkerPrimitiveError):
+                identity_reopen(mp, parent=hold, expected=orig_ident, original=h, api=api)
+        finally:
+            api.close = orig_close  # type: ignore[assignment]
+
+def test_set_disposition_exception_sanitized_no_message_leak():
+    """set_disposition exception is wrapped; no raw message leaks."""
+    with _fh() as (api, parent, hold, h):
+        mp = os.path.join(parent, "yasb-limitora.lock")
+        orig_ident = api._markers[os.path.normcase(os.path.abspath(mp))]["identity"]
+        w = identity_reopen(mp, parent=hold, expected=orig_ident, original=h, api=api)
+        def _raising(_h):
+            raise OSError("SECRET-LEAK-12345")
+        api.set_disposition = _raising  # type: ignore[assignment]
+        with pytest.raises(MarkerPrimitiveError) as exc_info:
+            disposition_delete(h, witness=w, api=api)
+        assert "SECRET-LEAK-12345" not in str(exc_info.value)
