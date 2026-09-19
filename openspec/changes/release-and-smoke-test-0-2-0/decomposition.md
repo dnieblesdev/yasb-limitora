@@ -4,15 +4,17 @@
 
 ## Decision
 
-R11 remains the roadmap-level release outcome. It is no longer treated as one implementation-sized SDD change.
+R11 remains the roadmap-level release outcome. It is no longer treated as one implementation-sized change.
 
 The remaining work uses three routes:
 
-1. **Small SDD → TDD implementation → RDD** when product, architecture, authority, or evidence design is still ambiguous.
+1. **Design-first → TDD implementation → RDD** when product, architecture, authority, or evidence design is still ambiguous: resolve the open decision through scoped exploration first, then implement with TDD under RDD review.
 2. **Direct TDD implementation → RDD** when the existing R11 proposal, specs, and design already define the behavior and rollback boundary.
 3. **Verification-only evidence gate** when the work proves an exact candidate but does not implement product behavior.
 
 This document is a routing and decomposition record. It does not authorize implementation, enable RDD, modify GitHub policy, create a tag, or publish a release.
+
+All R11 work under this change is executed with the harness's ODD workflow; SDD phases are not used. Ambiguous decisions are resolved through scoped exploration and explicit human decisions before implementation, substantial implementation is tracked as work-unit tasks, and each unit closes with its tests and docs on the feature branch.
 
 ## Preserved baseline
 
@@ -36,13 +38,13 @@ Use the smallest route that preserves correctness.
 
 | Question | Route |
 | --- | --- |
-| Is a product, architecture, authority, or evidence decision unresolved? | Small SDD |
+| Is a product, architecture, authority, or evidence decision unresolved? | Design-first |
 | Are behavior, acceptance scenarios, rollback, and owned surfaces already explicit? | Direct TDD + RDD |
 | Does the unit only execute a native/manual/external proof? | Verification-only |
-| Did a direct unit discover a genuine decision gap? | Stop and promote that gap to a small SDD |
+| Did a direct unit discover a genuine decision gap? | Stop and resolve that decision before implementing |
 | Does a unit contain independent invariants or rollback boundaries? | Split before implementation |
 
-Complexity and risk alone do not select SDD. RDD is candidate-bound review evidence; it does not replace planning, implementation, tests, native proof, or human release authority.
+Complexity and risk alone do not select the design-first route. RDD is candidate-bound review evidence; it does not replace planning, implementation, tests, native proof, or human release authority.
 
 ### Work-unit size
 
@@ -50,13 +52,13 @@ Complexity and risk alone do not select SDD. RDD is candidate-bound review evide
 - Treat 400 additions plus deletions as a hard review boundary, not a target.
 - Keep production behavior and its tests in the same unit.
 - Give each unit one primary invariant, one rollback boundary, and an independently reviewable result.
-- Do not create ceremonial SDDs for individual files, helpers, warnings, or documentation lines.
+- Do not create ceremonial planning units for individual files, helpers, warnings, or documentation lines.
 
-## Small SDD route
+## Design-first route
 
-Three small SDDs are initially justified by the current evidence. No fourth SDD is planned unless a direct unit exposes a concrete unresolved product, architecture, authority, or evidence decision.
+Three design-first units are initially justified by the current evidence. No fourth design-first unit is planned unless a direct unit exposes a concrete unresolved product, architecture, authority, or evidence decision.
 
-### SDD-C1 — Candidate build and custody
+### C1 — Candidate build and custody
 
 **Outcome:** define the CI architecture that builds one exact final-version candidate and retains it under an explicit immutable identity.
 
@@ -69,7 +71,7 @@ Three small SDDs are initially justified by the current evidence. No fourth SDD 
 - Promotion must consume the retained bytes without rebuild or repack.
 - A public RC tag or version is forbidden.
 
-**The SDD must specify:**
+**The design-first unit must specify:**
 
 - Workflow inputs and exact commit validation.
 - Job ordering and failure boundaries.
@@ -83,7 +85,7 @@ Three small SDDs are initially justified by the current evidence. No fourth SDD 
 
 **Out of scope:** acceptance status, public tags, GitHub Release creation, and publication.
 
-### SDD-C2 — Candidate integrity and attestation
+### C2 — Candidate integrity and attestation
 
 **Outcome:** define reproducible SBOM generation and attestations that bind the exact installer and release manifest without mixing identity with acceptance.
 
@@ -97,7 +99,7 @@ Three small SDDs are initially justified by the current evidence. No fourth SDD 
 - Bind auxiliary artifacts through SHA-256 entries in the manifest instead of attesting every attachment independently.
 - Keep `rc-manifest.json` free of gate, approval, acceptance, and post-publication state.
 
-**The SDD must specify:**
+**The design-first unit must specify:**
 
 - The reproducible CycloneDX command and normalized inputs.
 - Official publisher/version validation for CycloneDX and `actions/attest@v4`, followed by immutable full-commit-SHA pins for the workflow implementation.
@@ -109,7 +111,7 @@ Three small SDDs are initially justified by the current evidence. No fourth SDD 
 
 **Out of scope:** reopening S03, generating `rc-acceptance.json`, or granting publication authority.
 
-### SDD-C3 — Release promotion authority
+### C3 — Release promotion authority
 
 **Outcome:** define who may promote an accepted candidate and how a protected workflow creates the final tag and GitHub Release exactly once.
 
@@ -123,7 +125,7 @@ Three small SDDs are initially justified by the current evidence. No fourth SDD 
 - Publish only the exact accepted candidate bytes.
 - Never rebuild or repack during promotion.
 
-**The SDD must specify:**
+**The design-first unit must specify:**
 
 - Authorized trigger and actor boundaries.
 - Exact tag name and commit/tag validation.
@@ -138,7 +140,7 @@ Three small SDDs are initially justified by the current evidence. No fourth SDD 
 
 ## Direct TDD + RDD route
 
-These units are already specified by the parent R11 artifacts or become direct after one of the three small SDDs resolves its contract.
+These units are already specified by the parent R11 artifacts or become direct after one of the three design-first units resolves its contract.
 
 ### Configuration completion
 
@@ -198,9 +200,9 @@ Together these replace oversized S11. G1 and M6 are fixed inputs, not new design
 
 | ID | Small unit | Primary invariant | Dependency |
 | --- | --- | --- | --- |
-| D10 | Candidate build workflow | Build the exact commit and retain one complete candidate | SDD-C1, D05–D09 |
+| D10 | Candidate build workflow | Build the exact commit and retain one complete candidate | C1, D05–D09 |
 | D11 | Candidate CI verification and secret scan | Reject candidates without required source, full, native, and secret checks | D10 |
-| D12 | SBOM and attestation implementation | Materialize the exact integrity contract without changing candidate bytes | SDD-C2, D10 |
+| D12 | SBOM and attestation implementation | Materialize the exact integrity contract without changing candidate bytes | C2, D10 |
 | D13 | Candidate custody validation | Prove explicit artifact identity, retention, and no-rebuild consumption | D10–D12 |
 
 These replace the implementation portion of oversized S12.
@@ -222,7 +224,7 @@ D14 extracts the structural portion of S13. D15–D18 replace S14 and the accept
 | ID | Small unit | Primary invariant | Dependency |
 | --- | --- | --- | --- |
 | D19 | Publish input verification | Recompute and verify all candidate, manifest, SBOM, attestation, and ledger bindings | D18 |
-| D20 | Protected promotion workflow | Create the final tag/release and attach exact accepted bytes once | SDD-C3, D19 |
+| D20 | Protected promotion workflow | Create the final tag/release and attach exact accepted bytes once | C3, D19 |
 
 D19 and D20 replace the publication half of S15. They may be implemented and tested with fixtures before release readiness passes. Executing D20 against GitHub remains blocked until V05 passes and a separate human-controlled delivery decision authorizes promotion.
 
@@ -259,13 +261,13 @@ Installer:
   {D07, D08} → D09
 
 Candidate:
-  {SDD-C1, SDD-C2, D05–D09} → D10 → D11 → D12 → D13
+  {C1, C2, D05–D09} → D10 → D11 → D12 → D13
 
 Acceptance code and workflow definitions:
   parent R11 design §8.1 → D14 → D15 → D16 → D17 → D18
 
 Publication code and workflow definitions:
-  {SDD-C3, D18} → D19 → D20
+  {C3, D18} → D19 → D20
 ```
 
 ### Release-admission path
@@ -300,14 +302,14 @@ D13 exact retained candidate
                    V06
 ```
 
-The three SDDs may be planned before their implementation dependencies are ready. Code and workflows may be implemented with fixtures according to the construction path, while real acceptance and publication remain blocked by the release-admission path.
+The three design-first units may be planned before their implementation dependencies are ready. Code and workflows may be implemented with fixtures according to the construction path, while real acceptance and publication remain blocked by the release-admission path.
 
 ## Parent-change migration rules
 
 Before implementation begins:
 
 1. Keep the existing proposal, specs, design, progress, and evidence history.
-2. Add links from the parent change to the three child SDDs when those changes are created.
+2. Add links from the parent change to the three child design units (C1, C2, C3) when those changes are created.
 3. Replace each pending parent task only with an explicit route/mapping reference; do not mark moved work complete.
 4. Never duplicate the explicit completed baseline listed above into child apply scopes.
 5. Keep parent R11 open as the aggregate tracker until D20 and V06 finish.
@@ -325,4 +327,4 @@ Before implementation begins:
 
 ## Next gated action
 
-Stabilize the completed R11 baseline through the approved feature-branch PR chain, then update the parent task map without changing completed work. The first dependency-ready future implementation unit is **D01a1 — Guard domain and real deadline**; planning-only work may instead begin with **SDD-C1 — Candidate build and custody** if explicitly selected in a later session. Do not create every child artifact at once; later SDDs should incorporate evidence learned from earlier units without changing the preserved R11 outcome.
+Stabilize the completed R11 baseline through the approved feature-branch PR chain, then update the parent task map without changing completed work. The first dependency-ready future implementation unit is **D01a1 — Guard domain and real deadline**; planning-only work may instead begin with **C1 — Candidate build and custody** if explicitly selected in a later session. Do not create every child artifact at once; later design-first units should incorporate evidence learned from earlier units without changing the preserved R11 outcome.
