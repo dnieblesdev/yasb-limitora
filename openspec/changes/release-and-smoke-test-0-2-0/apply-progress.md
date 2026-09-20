@@ -1029,3 +1029,89 @@ Delivery remains `auto-chain`, `feature-branch-chain`; S08 final correction only
 - Strict TDD RED: a temporary cleanup assertion against the pre-change test failed (`1 failed`) at `assert not os.path.lexists(probe)`; baseline inspection found all six created links (three probe junctions and three replacement junctions) in the pytest temp root. GREEN: the focused node passed, and three standalone repeats passed (`1 passed` each). Post-run scans reported `reparse_count=0` for all three repeat roots and `NEW_TEST_ATTRIBUTABLE_JUNCTIONS=0` in the pytest temp root. A broader scan found only two junctions from the unrelated pre-existing root-reparse test; they are not attributable to this node.
 - Verification: focused config tests **16 passed, 1 skipped**; full suite **841 passed, 5 skipped**; native proof **11 passed**; `python -m ruff check tests/test_setup_assist_config.py` **All checks passed**. No production code or S09 work changed.
 - Accounting uses only the native-authoritative prior value: **93/180 lines charged** before this correction. The current correction remains unsettled; no exact current-attempt total is claimed.
+
+## D01a3a2b — Identity re-open and disposition delete: COMPLETE
+
+Delivery: `auto-chain`, `feature-branch-chain`; D01a3a2b only. No commit, installer, real YASB/state/PATH mutation, or later slice. Depends on delivered D01a3a2a (commit `7a2ea0e`).
+
+### Completed task
+
+- [x] `identity_reopen(path, *, parent, expected, api)` — OPEN_EXISTING on the fixed final marker leaf; verifies exact normalized final path, non-reparse regular-file status, and volume/file identity against the retained original; closes every probe on success and failure.
+- [x] `disposition_delete(handle, *, api)` — `SetFileInformationByHandle(FileDispositionInfo)` only on the original DELETE-capable handle after identity confirmation.
+- [x] `_real_api()` extended with `set_disposition` (SetFileInformationByHandle info-class 4, BOOL TRUE).
+- [x] No marker IO, Guard, reclaim, or deadline policy changed.
+
+### TDD Cycle Evidence
+
+| Phase | Action / command | Result |
+| --- | --- | --- |
+| RED | Added 10 D01a3a2b tests (imports + `_IOFake.set_disposition` + test bodies) before production code | `ImportError: cannot import name 'disposition_delete'` — collection failed |
+| GREEN | Added `identity_reopen`, `disposition_delete`, and `_real_api.set_disposition` | focused 10 passed; full focused 52 passed |
+| TRIANGULATE | M1: identity check removed → `test_identity_reopen_rejects_identity_mismatch` FAILED; M2: OPEN_EXISTING→CREATE_NEW → `test_identity_reopen_open_existing_with_identity_check` FAILED; M3: disposition always-True → `test_disposition_delete_refuses_invalid_handle` FAILED; byte-identical restore after each | every mutant killed; restore verified |
+| REFACTOR | Fixed 6 Ruff RUF059/F841 unused-variable warnings; no assertion weakened | Ruff clean; focused 52 passed |
+
+### Verification evidence
+
+- Focused: `python -m pytest -q --strict-markers tests/test_config_lock.py` → **52 passed**.
+- Full: `python -m pytest -q --strict-markers` → **905 passed, 4 skipped** in 42.33s.
+- Native: `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` → **11 passed** in 7.34s.
+- Ruff: `python -m ruff check src/yasb_limitora/_config_lock.py tests/test_config_lock.py` → **All checks passed**.
+- Process residue: `NO_YASB_PROCESSES`.
+
+### Files changed
+
+| File | Change | Lines |
+| --- | --- | --- |
+| `src/yasb_limitora/_config_lock.py` | +`identity_reopen` (37 lines), +`disposition_delete` (6 lines), +`_real_api.set_disposition` (6 lines) | +57 |
+| `tests/test_config_lock.py` | +imports (2), +`_IOFake.set_disposition` (8), +10 D01a3a2b tests (156) | +166 |
+| `openspec/changes/release-and-smoke-test-0-2-0/tasks.md` | D01a3a2b checkbox | +1/−1 |
+
+### Budget and workload
+
+- **223/280** source+test lines (57 source + 166 tests). Within budget.
+- Evidence revision: `sha256:eeddde7033be01af1f4968747281c29ad217128fc00a11c1f9a75413248390b2`.
+- Attempt token: `sha256:e089f0c9341be45a4ef62dc8d9f5de71e977e9cf6c6617372f64dd143bff5a1c`, settled passed.
+- Rollback boundary: revert only `identity_reopen`, `disposition_delete`, `_real_api.set_disposition`, and the D01a3a2b test section; D01a3a1/D01a3a2a remain unchanged.
+- Remaining: D01a3b (depends on D01a3a2b); D01b depends on D01a3b.
+
+## D01a3a2b — Corrective: mandatory verification inputs and 1-byte BOOLEAN ABI
+
+Independent verification exposed two contract defects that blocked RDD/delivery despite green tests:
+
+1. **Mandatory verification inputs:** `identity_reopen` previously accepted omitted `parent` and `expected` parameters (defaulted to `None`), allowing callers to bypass exact fixed-leaf path verification and volume/file identity checks. Both parameters are now mandatory keyword-only arguments with no defaults; omission raises `TypeError` at call time.
+2. **1-byte BOOLEAN ABI:** `FILE_DISPOSITION_INFO` is a single `BOOLEAN` (1 byte per Win32 ABI), but `set_disposition` was passing a 4-byte `c_int`. Introduced `_FileDispositionInfo` ctypes Structure with a single `c_byte` field (`DeleteFile`), updated `SetFileInformationByHandle.argtypes` to use `POINTER(_FileDispositionInfo)`, and `set_disposition` now instantiates and populates the 1-byte structure. `ctypes.sizeof(_FileDispositionInfo())` asserts to 1.
+
+### Strict TDD
+
+- **RED:** Added `test_identity_reopen_requires_parent_and_expected` (omission of `parent` or `expected` must raise `TypeError` or `MarkerPrimitiveError`) and `test_real_api_set_disposition_uses_one_byte_boolean` (asserts `sizeof(_FileDispositionInfo()) == 1`). Both tests failed as expected: the first because the old code silently accepted `None` defaults, the second because `_FileDispositionInfo` did not exist.
+- **GREEN:** Changed `identity_reopen` signature from `parent: ParentHold | None = None, expected: tuple[int, int, int] | None = None` to `parent: ParentHold, expected: tuple[int, int, int]` (mandatory keyword-only). Removed the `if parent is not None:` and `if expected is not None and` guards — both checks now execute unconditionally. Added `_FileDispositionInfo` Structure definition before `_real_api()`, updated `SetFileInformationByHandle.argtypes` to `POINTER(_FileDispositionInfo)`, and rewrote `set_disposition` to instantiate `_FileDispositionInfo()`, set `DeleteFile = 1`, and pass `ctypes.byref(delete)` with `ctypes.sizeof(delete)` (now 1 byte). Both RED tests passed.
+- **TRIANGULATE:** Verified that existing tests `test_identity_reopen_rejects_alias_path` and `test_identity_reopen_rejects_reparse` (which previously omitted `expected`) now pass explicit `expected=(0, 0, 0)` values, proving the mandatory-parameter contract is enforced at the call site. Real Windows deletion proof (`test_real_windows_identity_reopen_and_disposition_delete`, `test_real_windows_disposition_delete_never_removes_successor`) continues to pass, confirming the 1-byte BOOLEAN works correctly with the kernel.
+- **REFACTOR:** No structural changes needed; Ruff clean.
+
+### Verification
+
+- Focused: `python -m pytest -q --strict-markers tests/test_config_lock.py` → **54 passed** (52 prior + 2 new corrective tests).
+- Full: `python -m pytest -q --strict-markers` → **907 passed, 4 skipped**.
+- Native: `python -m pytest -q --strict-markers tests/test_windows_native_proof.py` → **11 passed**.
+- Ruff: `python -m ruff check src/yasb_limitora/_config_lock.py tests/test_config_lock.py` → **All checks passed**.
+- Real Windows deletion proof: `test_real_windows_identity_reopen_and_disposition_delete` and `test_real_windows_disposition_delete_never_removes_successor` both pass with the 1-byte BOOLEAN, confirming kernel acceptance.
+
+### Files changed and corrected accounting
+
+| File | Cumulative D01a3a2b delta from delivered D01a3a2a |
+| --- | --- |
+| `src/yasb_limitora/_config_lock.py` | 62 additions |
+| `tests/test_config_lock.py` | 199 additions |
+
+The independent verifier rejected the first corrective evidence because one new test
+triggered Ruff `RUF059`; renaming the unused unpacked handle and typing the dynamic
+omission probe fixed it without weakening the mandatory-parameter assertions. A later
+read-only cleanup removed a duplicated idempotent `SetFileInformationByHandle` binding.
+
+### Budget and workload
+
+- **Cumulative D01a3a2b:** 261/280 source+test lines (62 source + 199 tests). Within budget.
+- Final independent verification: focused **54 passed**; full **907 passed, 4 skipped**; native **11 passed**; scoped Ruff clean; both real Windows deletion/successor tests passed.
+- The earlier `244/280` and corrective-delta accounting was inaccurate and is superseded by the directly observed cumulative diff above.
+- Rollback boundary: revert only the corrective changes; the original D01a3a2b implementation remains intact.
+- Remaining: D01a3b (depends on D01a3a2b); D01b depends on D01a3b.
