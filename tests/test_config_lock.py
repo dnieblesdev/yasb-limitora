@@ -964,6 +964,16 @@ def _fallback_api(tmp_path):
     api._pa[os.path.normcase(os.path.abspath(str(parent)))] = 0x10
     return api
 
+def test_fallback_lease_owned_is_false_after_context_release(tmp_path):
+    api = _fallback_api(tmp_path)
+    lease = config_lease(str(tmp_path), guard=_FailedGuard(), marker_api=api,
+                         pid_provider=lambda: 123, token_provider=lambda _pid: "abc")
+    with lease as acquired:
+        assert acquired.owned
+    assert not acquired.owned
+
+
+
 @pytest.mark.parametrize("disposition_ok", [True, False])
 def test_guard_failure_falls_back_to_owned_marker(tmp_path, disposition_ok):
     api = _fallback_api(tmp_path)

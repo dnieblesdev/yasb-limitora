@@ -46,10 +46,15 @@ class ConfigLease:
     marker_api: Any = None
     name: str = ""
     identity: tuple[int, int, int] | None = None
+    _marker_owned: bool = False
+
+    def __post_init__(self) -> None:
+        if self.guard is None:
+            self._marker_owned = self.marker_handle is not None
 
     @property
     def owned(self) -> bool:
-        return self.guard.owned if self.guard is not None else self.marker_handle is not None
+        return self.guard.owned if self.guard is not None else self._marker_owned
 
     def close(self) -> bool:
         if self.guard is not None:
@@ -67,6 +72,8 @@ class ConfigLease:
                 closed = bool(self.marker_api.close(handle)) and closed
             except Exception:  # noqa: BLE001
                 closed = False
+        if closed:
+            self._marker_owned = False
         return deleted and closed
 
 
@@ -129,12 +136,15 @@ def _fallback_lease(parent_path: str, *, api: Any, context: DeadlineContext, pid
                     raise _busy()
                 witness = identity_reopen(marker_path, parent=parent, expected=identity, original=handle, api=api)
                 disposition_delete(handle, witness=witness, api=api)
-            except Exception as error:
+            except GuardError:
                 if handle is not None:
                     safe_close(handle, api)
                 safe_close(parent.handle, api)
-                if isinstance(error, GuardError):
-                    raise
+                raise
+            except Exception:  # noqa: BLE001
+                if handle is not None:
+                    safe_close(handle, api)
+                safe_close(parent.handle, api)
                 raise _busy() from None
             try:
                 closed = handle is not None and bool(api.close(handle))

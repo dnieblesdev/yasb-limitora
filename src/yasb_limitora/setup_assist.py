@@ -20,8 +20,9 @@ import stat
 import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Any
 
-from . import _env_block, _path_cleanup, config, discovery
+from . import _config_lock, _env_block, _path_cleanup, config, discovery
 from .discovery import FsView, _canonical_local_dir, _components_safe
 from .path import MAX_CONFIG_BYTES
 
@@ -214,29 +215,70 @@ def _read_gate_one_config(path: Path) -> bytes:
         os.close(fd)
 
 
-def _config_gate_one(local_appdata: str) -> dict[str, object]:
-    """Validate the existing config at runtime's acceptance boundary, without writing."""
-    path = Path(local_appdata) / "yasb-limitora" / "config.json"
+def _config_parent_state(parent: str, fs: FsView = discovery.REAL_FS) -> str:
+    if not _components_safe(parent, fs):
+        return "unsafe"
+    kind = fs.file_kind(parent)
+    return "present" if kind == "dir" else "absent" if kind == "missing" else "unsafe"
+
+
+def _snapshot_from_owned(path: str, lease: _config_lock.ConfigLease) -> config.ConfigSnapshot:
+    if not lease.owned:
+        raise OSError("config lease is not owned")
     try:
-        raw = _read_gate_one_config(path)
+        raw = _read_gate_one_config(Path(path))
     except FileNotFoundError:
         if not os.path.lexists(path):
-            return {"operation": "config-apply", "status": "refused", "reason": "config-absent"}
-        raw = None
-    except OSError:
-        raw = None
-    if raw is None:
-        return {"operation": "config-apply", "status": "refused", "reason": "configuration-invalid", "diagnostics": [{"field": "config", "reason": "unreadable-input"}]}
+            return config.ConfigSnapshot(None, None, frozenset(), config.CONFIG_ABSENT)
+        raise OSError("unsafe config") from None
     provider_errors: set[config.ProviderKey] = set()
-    try:
-        config.validate_config_document(raw, provider_errors)
-    except config.ConfigError as error:
-        return {"operation": "config-apply", "status": "refused", "reason": "configuration-invalid", "diagnostics": [_config_diagnostic(error)]}
-    diagnostics = [{"provider": key.value, "reason": "provider-invalid"} for key in sorted(provider_errors, key=lambda item: item.value)]
+    local = config.validate_config_document(raw, provider_errors)
+    return config.ConfigSnapshot(raw, local, frozenset(provider_errors), config.CONFIG_PRESENT)
+
+
+def _config_snapshot(local_appdata: str, *, lease_factory: Callable[..., Any] | None = None) -> config.ConfigSnapshot:
+    path = _config_lock._fixed_config_path(local_appdata)
+    state = _config_parent_state(ntpath.dirname(path))
+    if state == "absent":
+        return config.ConfigSnapshot(None, None, frozenset(), config.CONFIG_ABSENT)
+    if state != "present":
+        raise OSError("unsafe config parent")
+    factory = _config_lock.config_lease if lease_factory is None else lease_factory
+    with factory(local_appdata) as lease:
+        return _snapshot_from_owned(path, lease)
+
+
+def _consume_config_snapshot(snapshot: config.ConfigSnapshot, lease: _config_lock.ConfigLease) -> dict[str, object]:
+    if not lease.owned:
+        raise OSError("config lease is not owned")
+    if not snapshot.present:
+        return {"operation": "config-apply", "status": "refused", "reason": "config-absent"}
+    diagnostics = [{"provider": key.value, "reason": "provider-invalid"} for key in sorted(snapshot.provider_errors, key=lambda item: item.value)]
     result: dict[str, object] = {"operation": "config-apply", "status": "refused", "reason": "config-gate-2-unavailable"}
     if diagnostics:
         result["diagnostics"] = diagnostics
     return result
+
+
+def _config_gate_one(local_appdata: str) -> dict[str, object]:
+    """Validate the existing config once while the fixed-path lease remains owned."""
+    path = _config_lock._fixed_config_path(local_appdata)
+    parent_state = _config_parent_state(ntpath.dirname(path))
+    if parent_state == "absent":
+        return {"operation": "config-apply", "status": "refused", "reason": "config-absent"}
+    if parent_state != "present":
+        return {"operation": "config-apply", "status": "refused", "reason": "configuration-invalid", "diagnostics": [{"field": "config", "reason": "unreadable-input"}]}
+    try:
+        with _config_lock.config_lease(local_appdata) as lease:
+            try:
+                snapshot = _snapshot_from_owned(path, lease)
+            except config.ConfigError as error:
+                return {"operation": "config-apply", "status": "refused", "reason": "configuration-invalid", "diagnostics": [_config_diagnostic(error)]}
+            except OSError:
+                return {"operation": "config-apply", "status": "refused", "reason": "configuration-invalid", "diagnostics": [{"field": "config", "reason": "unreadable-input"}]}
+            return _consume_config_snapshot(snapshot, lease)
+    except (_config_lock.GuardError, OSError):
+        return {"operation": "config-apply", "status": "refused", "reason": "configuration-invalid", "diagnostics": [{"field": "config", "reason": "unreadable-input"}]}
 
 
 def _write_result(root: str, payload: Mapping[str, object], fs: FsView) -> bool:
