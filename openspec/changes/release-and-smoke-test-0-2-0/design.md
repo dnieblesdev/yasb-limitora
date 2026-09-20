@@ -764,6 +764,18 @@ contract is preserved: an invalid document is never touched, backed up, or reser
 > exceeded the review budget. The maintainer split D01a2 into D01a2a (marker codec,
 > ≤260 lines) and D01a2b (Win32 process identity, ≤220 lines, depends D01a2a). D01a3
 > depends on D01a2b. No passing evidence is inherited by D01a2a or D01a2b.
+>
+> **D01a2b budget raised.** The D01a2b candidate (evidence
+> `sha256:9336fb10360083509dbee533ebb2ea1385d98186f04abd4ee605320a499025f5`)
+> was rejected with no passing evidence. Rejection reasons: real PID4
+> ERROR_ACCESS_DENIED was falsely missing; last error unused; API/query/CloseHandle
+> exceptions escaped; close could leak; padded token diverged from cache pattern.
+> The maintainer raised the D01a2b budget to ≤280 lines and pinned the correction
+> contract: only OpenProcess error87 missing is a valid refusal; all other ambiguity
+> is unprovable; use unpadded lowercase hex matching `cache.py`; token is emitted only
+> after successful close; invalid caller PID is unprovable/refused rather than proof
+> the OS process is missing. D01a3 dependency and cohesive Win32 identity scope are
+> preserved.
 
 **D01a1 — Guard domain and real deadline.**
 
@@ -802,7 +814,17 @@ the marker is refused, not approximated. Tests exercise real Windows identity wh
 supported and injected edge cases covering every refusal category; no
 acquisition/reclaim/unlink yet.
 
-Target ≤220 changed lines and one rollback boundary.
+Target ≤280 changed lines and one rollback boundary.
+
+> **Failed evidence (D01a2b).** The D01a2b candidate
+> `sha256:9336fb10360083509dbee533ebb2ea1385d98186f04abd4ee605320a499025f5`
+> was rejected with no passing evidence. Rejection reasons: real PID4
+> ERROR_ACCESS_DENIED was falsely missing; last error unused; API/query/CloseHandle
+> exceptions escaped; close could leak; padded token diverged from cache pattern.
+> Correction contract pinned: only OpenProcess error87 missing is a valid refusal;
+> all other ambiguity is unprovable; use unpadded lowercase hex matching `cache.py`;
+> token is emitted only after successful close; invalid caller PID is
+> unprovable/refused rather than proof the OS process is missing.
 
 **D01a3 — File fallback acquisition and cleanup.**
 

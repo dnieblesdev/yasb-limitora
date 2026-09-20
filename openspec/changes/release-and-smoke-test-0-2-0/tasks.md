@@ -119,10 +119,12 @@ Chain strategy: feature-branch-chain
   - **Rollback boundary:** revert only marker-codec code; no process identity, acquisition, fallback, reclaim, cleanup, read, validation, snapshot, merge, write, backup, or state-root creation is introduced.
   - **Failed evidence (parent D01a2):** `sha256:15a3e99d15c8e6d06d899dfbb60bce047e85a73a48355722bbe52b319f0d3bde` — green behavioral tests but 247/220 code+test lines, undefined version schema, CloseHandle ambiguity, incorrect PID bound, exception inconsistency; no passing evidence. Subsequent D01a2 candidate `sha256:4405cb265935e8dffe8d56f96f597e7aca8e730f9d1bcca242121b0c9f0f1c6b` produced semantically passing marker+Win32 identity but exceeded review budget, triggering D01a2a/D01a2b split. No passing evidence is inherited by D01a2a or D01a2b.
 
-- [ ] **D01a2b — Win32 process identity** (depends on D01a2a; budget: ≤220 lines; second half of original D01a2)
+- [ ] **D01a2b — Win32 process identity** (depends on D01a2a; budget: ≤280 lines; second half of original D01a2)
   - **Files:** `src/yasb_limitora/_config_lock.py` (process identity), `tests/test_config_lock.py` (identity subset).
   - **Strict-TDD tests:** (a) Win32 OpenProcess/GetProcessTimes creation token via a reusable safe primitive/pattern, no os.kill/process control; (b) CloseHandle failure or unavailability is unprovable — no usable token, marker refused not approximated; (c) real Windows identity where supported and injected edge cases covering every refusal category; (d) no acquisition/reclaim/unlink yet.
   - **Rollback boundary:** revert only process-identity code; no marker codec change, acquisition, fallback, reclaim, cleanup, read, validation, snapshot, merge, write, backup, or state-root creation is introduced.
+  - **Failed evidence:** `sha256:9336fb10360083509dbee533ebb2ea1385d98186f04abd4ee605320a499025f5` — rejected with no passing evidence. Real PID4 ERROR_ACCESS_DENIED was falsely missing; last error unused; API/query/CloseHandle exceptions escaped; close could leak; padded token diverged from cache pattern.
+  - **Correction contract (pinned):** only OpenProcess error87 missing is a valid refusal; all other ambiguity is unprovable; use unpadded lowercase hex matching `cache.py`; token is emitted only after successful close; invalid caller PID is unprovable/refused rather than proof the OS process is missing.
 
 - [ ] **D01a3 — File fallback acquisition and cleanup** (depends on D01a2b; budget: ≤280 lines; third sub-unit of D01a)
   - **Files:** `src/yasb_limitora/setup_assist.py` (or private config module), `tests/test_setup_assist_config.py` (acquisition/cleanup subset).
