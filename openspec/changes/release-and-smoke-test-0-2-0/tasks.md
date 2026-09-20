@@ -108,11 +108,39 @@ Chain strategy: feature-branch-chain
   - **TRIANGULATE → REFACTOR:** prove the nonfatal optional-operation result lets an install/upgrade program transaction continue, while normal runtime remains fail-closed with `configuration_invalid`; prove no config is auto-created outside explicit wizard flow. Run focused tests and the full suite.
   - **Rollback boundary:** an invalid document is never mutated, backed up, or repaired; no runtime validation is loosened.
 
-- [ ] **S09 — Config assist Gate 2: atomic safe merge and explicit enabled state** (depends on S08; budget: ≤400 lines)
-  - **Files:** `src/yasb_limitora/setup_assist.py` (or private config module), `tests/test_setup_assist_config.py`, `tests/test_provider_enabled_state.py`.
-  - **RED → GREEN:** test opt-in create and runtime-valid update with backup-after-Gate-1, owned-path-only ordered merge, final whole-document validation, same-directory temp/flush/fsync/replace, reread verification, and a single-writer lock; implement the smallest transaction.
-  - **TRIANGULATE → REFACTOR:** inject write/final-validation/verify failures to prove restore (or deletion of newly created config); test unowned valid fields retain order/values, enabled changes only through explicit selection, and missing secret/prerequisite names warn but never veto or alter that selection. Run focused tests and the full suite.
-  - **Rollback boundary:** restore prior valid bytes or remove only a newly-created file; never read secret values or add provider auth/transport logic.
+- [ ] **D01a1 — Guard domain and real deadline** (depends on S08; budget: ≤180 lines; first sub-unit of D01a)
+  - **Files:** `src/yasb_limitora/setup_assist.py` (or private config module), `tests/test_setup_assist_config.py` (guard-domain subset).
+  - **Strict-TDD tests:** (a) context-managed primary Guard lease keyed by the exact fixed `config.json` path so it shares the runtime mutex domain; (b) `Global\` named mutex via Guard's SID/path derivation; (c) retry Guard's 250ms waits against one 5-second DeadlineContext; (d) `guard_wait_timeout` remains contention and never activates fallback; (e) elapsed/retry semantics under the single deadline; (f) guaranteed release on context-manager exit; (g) no config/state writes.
+  - **Rollback boundary:** revert only guard-domain code; no marker codec, acquisition, reclaim, cleanup, read, validation, snapshot, merge, write, backup, or state-root creation is introduced.
+
+- [ ] **D01a2 — Process identity and marker codec** (depends on D01a1; budget: ≤220 lines; second sub-unit of D01a)
+  - **Files:** `src/yasb_limitora/setup_assist.py` (or private config module), `tests/test_setup_assist_config.py` (identity/marker subset).
+  - **Strict-TDD tests:** (a) bounded canonical marker with exact schema/size; (b) Win32 OpenProcess/GetProcessTimes creation token via a reusable safe primitive/pattern, no os.kill/process control; (c) empty/malformed/oversize/unprovable markers refuse; (d) real Windows identity where supported and injected edge cases; (e) no acquisition/reclaim/unlink yet.
+  - **Rollback boundary:** revert only identity/marker-codec code; no acquisition, fallback, reclaim, cleanup, read, validation, snapshot, merge, write, backup, or state-root creation is introduced.
+
+- [ ] **D01a3 — File fallback acquisition and cleanup** (depends on D01a2; budget: ≤280 lines; third sub-unit of D01a)
+  - **Files:** `src/yasb_limitora/setup_assist.py` (or private config module), `tests/test_setup_assist_config.py` (acquisition/cleanup subset).
+  - **Strict-TDD tests:** (a) fallback only on `guard_acquisition_failed`; (b) fixed marker under existing verified non-reparse parent; (c) handle/path binding; (d) deadline each retry; (e) reclaim only provably missing or PID-token mismatch; (f) identity-checked removal never deletes successor; (g) race tests clean exact residues; (h) live owner or unprovable ownership refuses with sanitized `config-lock-busy`.
+  - **Rollback boundary:** revert only fallback-acquisition and cleanup code; no read, validation, snapshot, merge, write, backup, or state-root creation is introduced.
+  - **Lock contract:** primary `Global\` named mutex via D01a1; O_CREAT|O_EXCL fallback only for `guard_acquisition_failed` (native mutex unavailable); fallback marker uses fixed literal name `yasb-limitora.lock` under verified existing non-reparse parent, records bounded PID/process-identity via D01a2's codec, may reclaim only provably missing or PID-token-mismatched owners; deadline checked every retry; identity-checked removal never deletes successor.
+
+- [ ] **D01b — Immutable config snapshot and assist wiring** (depends on D01a3; budget: ≤350 lines; replaces S09 snapshot portion; second half of the original D01)
+  - **Files:** `src/yasb_limitora/setup_assist.py` (or private config module), `tests/test_setup_assist_config.py` (snapshot/protocol subset).
+  - **Strict-TDD tests:** (a) missing config parent returns `config-absent` before lock acquisition and does not create the state root; (b) safe parent tri-state (present/absent/unsafe); (c) handle-bound fstat read; (d) `validate_config_document` invoked exactly once under the owned lease; (e) deeply immutable typed snapshot contains original bytes, `LocalConfig`, provider-error keys, and present/absent state; (f) explicit lease lifetime — snapshot valid only while the D01a lease remains owned; (g) D01b performs no backup, merge, or write; (h) S08 reject-and-preserve byte identity preserved on invalid document; (i) absent/unsafe/S08 behavior preserved; (j) setup-assist wiring consumes the snapshot under the owned lease.
+  - **Rollback boundary:** revert only snapshot/assist-wiring code; no merge, write, backup, or state-root creation is introduced.
+  - **Snapshot contract:** immutable snapshot valid only while the D01a context-managed lease remains owned; D02 must consume the snapshot inside that same ownership scope; lock release in guaranteed cleanup after the consumer finishes; never release before D02 consumes the snapshot.
+
+- [ ] **D02 — Owned-field merge and atomic write** (depends on D01b; budget: ≤250 lines; replaces S09 merge/write portion)
+  - **Route reference:** consumes the D01 immutable snapshot; applies owned-path-only ordered merge; final whole-document validation before write; same-directory temp/flush/fsync/replace; reread verification.
+  - **Dependency/invariant:** requires D01 snapshot; preserves S08 reject-and-preserve byte identity; no backup/merge/write occurs in D01.
+
+- [ ] **D03 — Config rollback and reread verification** (depends on D02; budget: ≤200 lines)
+  - **Route reference:** inject write/final-validation/verify failures to prove restore from backup or deletion of newly created config; reread verification confirms owned paths equal request and unowned fields equal original.
+  - **Dependency/invariant:** requires D02 merge/write; preserves S08 byte identity on rollback.
+
+- [ ] **D04 — Explicit provider selection state** (depends on D02; budget: ≤200 lines)
+  - **Route reference:** `enabled` changes only through explicit selection; missing secret/prerequisite names produce warnings but never veto or alter the selection; unowned valid fields retain order/values.
+  - **Dependency/invariant:** requires D02 merge; preserves S08 reject-and-preserve and design.md §4.4 selection-overrides-readiness invariant.
 
 - [ ] **S11 — Inno program transaction, assist invocation, and uninstall lifecycle** (depends on S04c, S05–S10, G1 pass, and G2a pass; budget: ≤400 lines)
   - **Files:** `packaging/inno/yasb-limitora.iss`, `packaging/inno/SetupAssistant.isi`, `scripts/build_setup.py`, `tests/test_inno_script.py`.

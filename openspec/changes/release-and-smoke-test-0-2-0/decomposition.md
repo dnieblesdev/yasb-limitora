@@ -144,12 +144,19 @@ These units are already specified by the parent R11 artifacts or become direct a
 
 | ID | Small unit | Primary invariant | Dependency |
 | --- | --- | --- | --- |
-| D01 | Config lock and snapshot | One writer owns one safe, runtime-valid snapshot | S08 |
-| D02 | Owned-field merge and atomic write | Preserve unowned fields and atomically replace only a valid result | D01 |
+| D01a1 | Guard domain and real deadline | Context-managed primary Guard lease keyed by exact fixed config.json path; retry Guard's 250ms waits against one 5-second DeadlineContext; guard_wait_timeout remains contention and never activates fallback | S08 |
+| D01a2 | Process identity and marker codec | Bounded canonical marker with exact schema/size; Win32 OpenProcess/GetProcessTimes creation token via reusable safe primitive; empty/malformed/oversize/unprovable refuse | D01a1 |
+| D01a3 | File fallback acquisition and cleanup | Fallback only on guard_acquisition_failed; fixed marker under verified non-reparse parent; handle/path binding; deadline each retry; reclaim only provably missing or PID-token mismatch; identity-checked removal never deletes successor | D01a2 |
+| D01b | Immutable config snapshot and assist wiring | Handle-bound fstat read, exactly-once validation under owned lease, deeply immutable snapshot, and setup-assist wiring | D01a3 |
+| D02 | Owned-field merge and atomic write | Preserve unowned fields and atomically replace only a valid result | D01b |
 | D03 | Config rollback and reread verification | Restore prior bytes or remove only a failed new creation | D02 |
 | D04 | Explicit provider selection state | Only explicit selection changes `enabled`; missing requirements only warn | D02 |
 
 Together these replace oversized S09. Each unit must retain the S08 reject-and-preserve boundary.
+
+> **D01 split note.** The original combined D01 candidate (evidence `sha256:115ba0a3f1bbde7832d80d544939877db44a24df0845d928de09c67c36548deb`) was rejected after native failure settlement/reset and rolled back to the clean baseline. It supplies no passing evidence. The maintainer authorized splitting D01 into two cohesive review/implementation units — D01a (lock ownership primitive, ≤300 lines, one rollback boundary) and D01b (immutable snapshot and assist wiring, ≤350 lines, one rollback boundary) — to keep each unit within a focused review scope. D02 depends on D01b and must consume the snapshot while the D01a lease remains owned.
+>
+> **D01a finer split.** The D01a candidate (evidence `sha256:f2d6e7e39089a09d284da0355fdf39db5be4c2acd2c98a527d5dd0f488e14fb9`) was rejected and rolled back with no passing evidence. The maintainer authorized splitting D01a into three sequential bounded sub-units — D01a1 (guard domain and real deadline, ≤180 lines), D01a2 (process identity and marker codec, ≤220 lines), and D01a3 (file fallback acquisition and cleanup, ≤280 lines) — while keeping D01a as the umbrella name. D01b depends on D01a3. D02 remains dependent on D01b.
 
 ### Installer completion
 
@@ -220,7 +227,7 @@ Construction readiness and release admission are intentionally separate. Passing
 
 ```text
 Config:
-  preserved baseline → D01 → D02 → {D03, D04}
+  preserved baseline → D01a1 → D01a2 → D01a3 → D01b → D02 → {D03, D04}
 
 Installer:
   preserved baseline → D05 → D06 → D07
@@ -294,4 +301,4 @@ Before implementation begins:
 
 ## Next gated action
 
-Stabilize the completed R11 baseline through the approved feature-branch PR chain, then update the parent task map without changing completed work. The first dependency-ready future implementation unit is **D01 — Config lock and snapshot**; planning-only work may instead begin with **SDD-C1 — Candidate build and custody** if explicitly selected in a later session. Do not create every child artifact at once; later SDDs should incorporate evidence learned from earlier units without changing the preserved R11 outcome.
+Stabilize the completed R11 baseline through the approved feature-branch PR chain, then update the parent task map without changing completed work. The first dependency-ready future implementation unit is **D01a1 — Guard domain and real deadline**; planning-only work may instead begin with **SDD-C1 — Candidate build and custody** if explicitly selected in a later session. Do not create every child artifact at once; later SDDs should incorporate evidence learned from earlier units without changing the preserved R11 outcome.

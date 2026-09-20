@@ -727,36 +727,134 @@ number, a credential-like key, a duplicate key, a non-finite number, undecodable
 
 **Gate 2 — safe merge (runtime-valid existing document, or no document).**
 
+Gate 2 is split into four implementation boundaries: **D01a1** establishes the context-managed
+primary Guard lease keyed by the exact fixed config.json path with the real 5-second deadline;
+**D01a2** defines the bounded canonical marker with exact schema/size and Win32 process-identity
+codec; **D01a3** implements file fallback acquisition and cleanup only on `guard_acquisition_failed`;
+**D01b** reads, validates, and yields an immutable snapshot under a context-managed lease owned by
+D01a; **D02** consumes that snapshot to merge, write, and verify. The D01b snapshot is valid only
+while the D01a lease remains owned; D02 must consume it inside that same ownership scope. D01a1,
+D01a2, D01a3, and D01b perform no backup, merge, or write. The S08 reject-and-preserve byte-identity
+contract is preserved: an invalid document is never touched, backed up, or reserialized.
+
+> **D01 split note.** The original combined D01 candidate (evidence
+> `sha256:115ba0a3f1bbde7832d80d544939877db44a24df0845d928de09c67c36548deb`) was rejected
+> after native failure settlement/reset and rolled back to the clean baseline. It supplies
+> no passing evidence. The maintainer authorized splitting D01 into D01a (≤300 lines) and
+> D01b (≤350 lines), each with one rollback boundary.
+>
+> **D01a finer split.** The D01a candidate (evidence
+> `sha256:f2d6e7e39089a09d284da0355fdf39db5be4c2acd2c98a527d5dd0f488e14fb9`) was rejected
+> and rolled back with no passing evidence. The maintainer authorized splitting D01a into
+> three sequential bounded sub-units — D01a1 (≤180 lines), D01a2 (≤220 lines), and D01a3
+> (≤280 lines) — while keeping D01a as the umbrella name. D01b depends on D01a3.
+
+**D01a1 — Guard domain and real deadline.**
+
+Context-managed primary Guard lease keyed by the exact fixed `config.json` path so it
+shares the runtime mutex domain; retry Guard's 250ms waits against one 5-second
+DeadlineContext; `guard_wait_timeout` remains contention and never activates fallback;
+real/injected tests must prove `Global\` naming, exact path key, elapsed/retry semantics,
+guaranteed release, and no config/state writes. Target ≤180 changed lines and one rollback
+boundary.
+
+**D01a2 — Process identity and marker codec.**
+
+Depends on D01a1. Bounded canonical marker with exact schema/size; Win32
+OpenProcess/GetProcessTimes creation token via a reusable safe primitive/pattern, no
+os.kill/process control; empty/malformed/oversize/unprovable refuse; tests exercise real
+Windows identity where supported and injected edge cases; no acquisition/reclaim/unlink
+yet. Target ≤220 changed lines and one rollback boundary.
+
+**D01a3 — File fallback acquisition and cleanup.**
+
+Depends on D01a2. Fallback only on `guard_acquisition_failed`; fixed marker under existing
+verified non-reparse parent; handle/path binding; deadline each retry; reclaim only
+provably missing or PID-token mismatch; identity-checked removal never deletes successor;
+race tests clean exact residues. Target ≤280 changed lines and one rollback boundary.
+
+**D01b — Immutable config snapshot and assist wiring.**
+
+Depends on D01a. Safe parent tri-state, handle-bound fstat read, exactly-once validation
+under the owned lease, deeply immutable diagnostic/provider state, explicit lease lifetime,
+preserved absent/unsafe/S08 behavior, setup-assist wiring, focused snapshot/protocol tests.
+Target ≤350 changed lines and one rollback boundary.
+
+The fixed config path is `%LOCALAPPDATA%\yasb-limitora\config.json`. If the fixed config
+parent directory (`%LOCALAPPDATA%\yasb-limitora\`) does not exist, return `config-absent`
+before any lock acquisition and do not create the state root. The file-level fallback
+marker uses one fixed literal name (`yasb-limitora.lock`) under the verified existing
+non-reparse parent directory; D01 invents no caller-supplied path.
+
 ```
 1. resolve      path = %LOCALAPPDATA%\yasb-limitora\config.json (fixed; no override invented)
-2. acquire      single-writer lock (reuse guard.py mutex discipline; fall back to an
-                O_CREAT|O_EXCL lock file in the state root) so a concurrent CLI refresh
-                cannot interleave
-3. read         original bytes, or record "absent"
-4. validate     the WHOLE document against the runtime contract: ordered parse with
+2. pre-check    if the fixed config parent directory is absent -> return `config-absent`;
+                do not create the state root; no lock is acquired
+3. acquire      [D01a1/D01a2/D01a3] single-writer lock with a 5-second bounded wait:
+                  primary:   [D01a1] Guard's SID/path-derived `Global\` named mutex,
+                             context-managed lease keyed by exact fixed config.json path,
+                             retry Guard's 250ms waits against one 5-second DeadlineContext
+                  marker:    [D01a2] bounded canonical marker with exact schema/size;
+                             Win32 OpenProcess/GetProcessTimes creation token via reusable
+                             safe primitive; no acquisition/reclaim/unlink in this sub-unit
+                  fallback:  [D01a3] permitted ONLY for `guard_acquisition_failed` (native
+                             mutex unavailable); use a safe O_CREAT|O_EXCL marker file
+                             with the fixed literal name `yasb-limitora.lock` under the
+                             verified existing non-reparse parent; the marker records
+                             bounded PID/process-identity ownership via D01a2's codec and
+                             may reclaim only a provably missing or PID-token-mismatched
+                             owner; a live owner or unprovable ownership refuses with
+                             sanitized `config-lock-busy`
+                  timeout:   [D01a1] `guard_wait_timeout` maps directly to sanitized
+                             `config-lock-busy` and never tries a separate lock domain
+                             or the file fallback; deadline checked every retry
+                  cleanup:   [D01a3] identity-checked removal never deletes successor;
+                             safe handle/path binding; race tests clean exact residues
+4. read         [D01b] original bytes via handle-bound fstat, or record "absent";
+                safe parent tri-state (present/absent/unsafe)
+5. validate     [D01b] the WHOLE document against the runtime contract exactly once
+                under the lock using `validate_config_document`: ordered parse with
                 duplicate-key and non-finite rejection (same discipline as
-                cli.py::_load_explicit), then LocalConfig.from_mapping plus credential-key
-                rejection.
+                cli.py::_load_explicit), then LocalConfig.from_mapping plus
+                credential-key rejection.
                 failure  -> Gate 1 reject-and-preserve: release the lock, report, done.
-                "absent" -> nothing to validate; the recovery point is "create"
-5. backup       if present -> backups\config.<UTC-timestamp>.json (bounded to 5)
-                if absent -> record "create" as the recovery point (recovery = delete)
-6. merge        apply only the explicitly selected owned paths from the request; keep key
-                order via an ordered mapping; leave every other contract-valid field as parsed
-7. validate     the final merged document, whole, against the runtime contract BEFORE writing
-8. write        temp file in the same directory, flush, os.fsync, os.replace
-9. verify       re-read, re-parse, re-validate; confirm owned paths equal the request and
-                unowned fields equal the original
-10. release     lock; report success
-on any failure at 6-9: restore from the backup with os.replace (or delete for "create"),
-                       re-verify, remove the temp file, report the reason code. A failed
-                       update leaves the prior configuration restored or authoritative —
-                       never a partial or malformed replacement.
+                            The S08 byte-identity contract is preserved: the original
+                            file remains byte-for-byte untouched.
+                "absent" -> nothing to validate; record present/absent state
+6. snapshot     [D01b] yield a deeply immutable typed snapshot containing:
+                  - original bytes (or absent marker)
+                  - the existing validator's returned LocalConfig (or absent)
+                  - immutable provider-error keys (if any)
+                  - present/absent state
+                The snapshot is valid only while the D01a lease remains owned.
+                D02 must consume the snapshot inside that same ownership scope.
+                Lock release occurs in guaranteed cleanup after the consumer
+                finishes (or immediately after D01a-only inspection/refusal
+                until D01b exists). Never release before D02 consumes the
+                snapshot. D01a and D01b perform no backup, merge, or write.
 ```
 
-The backup deliberately sits **after** the validation gate: an invalid document receives no
-backup, no merge, no write, no normalization, and no reserialization at all. Only a document
-that passes the runtime contract is ever backed up and merged.
+**D02 — Owned-field merge, atomic write, and verification** (consumes the D01 snapshot):
+
+```
+7. backup       if present -> backups\config.<UTC-timestamp>.json (bounded to 5)
+                if absent -> record "create" as the recovery point (recovery = delete)
+8. merge        apply only the explicitly selected owned paths from the request; keep key
+                order via an ordered mapping; leave every other contract-valid field as parsed
+9. validate     the final merged document, whole, against the runtime contract BEFORE writing
+10. write       temp file in the same directory, flush, os.fsync, os.replace
+11. verify      re-read, re-parse, re-validate; confirm owned paths equal the request and
+                unowned fields equal the original
+12. release     lock in guaranteed cleanup (context-manager exit); report success
+on any failure at 7-11: restore from the backup with os.replace (or delete for "create"),
+                        re-verify, remove the temp file, report the reason code. A failed
+                        update leaves the prior configuration restored or authoritative —
+                        never a partial or malformed replacement.
+```
+
+The backup deliberately sits **after** the D01 validation gate (in D02): an invalid
+document receives no backup, no merge, no write, no normalization, and no reserialization
+at all. Only a document that passes the runtime contract is ever backed up and merged.
 
 | Alternative | Verdict | Reason |
 | --- | --- | --- |
