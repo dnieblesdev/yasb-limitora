@@ -730,12 +730,24 @@ number, a credential-like key, a duplicate key, a non-finite number, undecodable
 Gate 2 is split into implementation boundaries: **D01a1** establishes the context-managed
 primary Guard lease keyed by the exact fixed config.json path with the real 5-second deadline;
 **D01a2a** defines the bounded canonical marker codec with exact schema/size and strict
-validation; **D01a2b** defines the Win32 process-identity token; **D01a3** implements file
-fallback acquisition and cleanup only on `guard_acquisition_failed`; **D01b** reads, validates,
+validation; **D01a2b** defines the Win32 process-identity token; **D01a3a1** implements safe
+marker create and identity — verified parent hold/non-reparse/final identity,
+correct Win32 CreateFileW CREATE_NEW handle with explicit DELETE+read/write/attributes access,
+FILE_SHARE_DELETE compatibility, and NULL template, verify leaf final
+path/reparse/regular/identity after create, reuse repo-validated
+FILETIME/BY_HANDLE_FILE_INFORMATION/native helpers, at least one real Windows test,
+real native create/close proof, no IO or delete; **D01a3a2** implements safe marker IO
+and disposition delete — bounded ≤256 read, partial/full write+FlushFileBuffers through
+same acquired handle, identity re-open before delete, handle disposition delete and
+successor/no-residue proof, low-level sanitized errors, no Guard/reclaim/deadline
+policy; **D01a3b** implements fallback policy and integration — typed
+ConfigLease, one shared DeadlineContext, fallback only on `guard_acquisition_failed`,
+retry/contention, decode/owner predicate, conservative busy rules, reclaim only for
+missing/mismatch, and cleanup outcome; **D01b** reads, validates,
 and yields an immutable snapshot under a context-managed lease owned by D01a; **D02** consumes
 that snapshot to merge, write, and verify. The D01b snapshot is valid only while the D01a lease
 remains owned; D02 must consume it inside that same ownership scope. D01a1, D01a2a, D01a2b,
-D01a3, and D01b perform no backup, merge, or write. The S08 reject-and-preserve byte-identity
+D01a3a1, D01a3a2, D01a3b, and D01b perform no backup, merge, or write. The S08 reject-and-preserve byte-identity
 contract is preserved: an invalid document is never touched, backed up, or reserialized.
 
 > **D01 split note.** The original combined D01 candidate (evidence
@@ -776,6 +788,14 @@ contract is preserved: an invalid document is never touched, backed up, or reser
 > after successful close; invalid caller PID is unprovable/refused rather than proof
 > the OS process is missing. D01a3 dependency and cohesive Win32 identity scope are
 > preserved.
+>
+> **D01a3 split.** The D01a3 candidate (evidence
+> `sha256:cdfae75a600fc33e170ed1e6d2b5f90b5cacec6e0fc9b99cce071913618e824d`)
+> was rejected with no passing evidence. Rejection reasons: 294/280 lines before
+> adequate tests, one focused failure, no full/native/Ruff validation. The
+> maintainer split D01a3 into D01a3a (safe marker primitives, ≤280 lines) and
+> D01a3b (fallback policy and integration, ≤280 lines, depends D01a3a). D01b
+> depends on D01a3b. No passing evidence is inherited by D01a3a or D01a3b.
 
 **D01a1 — Guard domain and real deadline.**
 
@@ -826,18 +846,89 @@ Target ≤280 changed lines and one rollback boundary.
 > token is emitted only after successful close; invalid caller PID is
 > unprovable/refused rather than proof the OS process is missing.
 
-**D01a3 — File fallback acquisition and cleanup.**
+**D01a3a1 — Safe marker create and identity.**
 
-Depends on D01a2b. Fallback only on `guard_acquisition_failed`; fixed marker under existing
-verified non-reparse parent; handle/path binding; deadline each retry; reclaim only
-provably missing or PID-token mismatch; identity-checked removal never deletes successor;
-race tests clean exact residues. Target ≤280 changed lines and one rollback boundary.
+Depends on D01a2b. Verified parent hold/non-reparse/final identity; correct Win32
+`CreateFileW` `CREATE_NEW` handle with explicit `DELETE` + read/write + attributes
+access, `FILE_SHARE_DELETE` compatibility, and NULL `hTemplateFile`; verify leaf final
+path, reparse status, regular-file status, and handle identity after create; reuse and
+cross-check repo-validated `FILETIME`/`BY_HANDLE_FILE_INFORMATION`/native helpers from
+`_native_state_cleanup.py` — fakes cannot redefine API semantics; at least one real
+Windows test is required; real native create/close proof. No IO, no delete, no Guard,
+reclaim, or deadline policy in this sub-unit. Target ≤280 changed lines and one rollback
+boundary.
+
+**D01a3a2 — Safe marker IO and disposition delete.**
+
+Depends on D01a3a1. Bounded ≤256 read through the same acquired handle; partial/full
+write + `FlushFileBuffers` through the same acquired handle; identity re-open before
+delete; handle disposition delete and successor/no-residue proof; low-level sanitized
+errors. No Guard, reclaim, or deadline policy in this sub-unit. Target ≤280 changed
+lines and one rollback boundary.
+
+> **Failed evidence (D01a3).** The D01a3 candidate
+> `sha256:cdfae75a600fc33e170ed1e6d2b5f90b5cacec6e0fc9b99cce071913618e824d`
+> was rejected with no passing evidence. Rejection reasons: 294/280 lines before
+> adequate tests, one focused failure, no full/native/Ruff validation. The maintainer
+> split D01a3 into D01a3a (safe marker primitives, ≤280 lines) and D01a3b (fallback
+> policy and integration, ≤280 lines, depends D01a3a). No passing evidence is inherited
+> by D01a3a or D01a3b.
+>
+> **Failed evidence (D01a3a) and correction.** The D01a3a candidate
+> `sha256:d9ad0c388c0603cbd6e1548e01c63e2b82b64d89654ae1e2304d44c86299213c`
+> was rejected with no passing evidence. The maintainer corrects the exclusive-create
+> mechanism: the CRT `O_CREAT|O_EXCL` create-then-verify approach is replaced with
+> Win32 `CreateFileW` `CREATE_NEW` as the OS-native exclusive-create equivalent,
+> requesting explicit `DELETE` + read/write + attributes access and `FILE_SHARE_DELETE`
+> compatibility so the same verified handle can be disposition-deleted safely. Held
+> verified parent and final-path/regular/non-reparse/identity verification are preserved.
+> The implementation must reuse and cross-check repo-validated
+> `FILETIME`/`BY_HANDLE_FILE_INFORMATION`/native helpers from `_native_state_cleanup.py`
+> and include at least one real Windows test; fakes cannot redefine API semantics.
+> Rejected defects recorded: malformed 56-byte ABI `BY_HANDLE_FILE_INFORMATION` struct,
+> `hTemplateFile` misuse (non-NULL template on create), missing `DELETE` access or
+> `FILE_SHARE_DELETE` incompatibility preventing safe disposition-delete through the
+> verified handle, no final-path comparison after create, partial writes without
+> flush+fsync, handle leaks on error paths, and no real Windows test. D01a3a budget
+> remains ≤280 lines; D01a3b is unchanged; tasks remain unchecked. No source, tests,
+> progress, or delivery.
+>
+> **D01a3a split after failed budget evidence.** The corrected D01a3a candidate
+> (evidence `sha256:df157a419b096c9ab12a04b5c23295e3d605355c183c6b105a9303d52863382d`)
+> passed focused 45, native 11, full 898+4skip, and Ruff but exceeded the ≤280 budget
+> at 563 lines (228 code, 335 tests). It supplies no passing evidence. The maintainer
+> split D01a3a into two sequential bounded sub-units — D01a3a1 (safe marker create and
+> identity, ≤280 lines) and D01a3a2 (safe marker IO and disposition delete, ≤280 lines,
+> depends D01a3a1). D01a3a1 owns verified parent hold, correct Win32 CREATE_NEW handle
+> with explicit access/share/NULL template, final/reparse/regular and handle identity,
+> and real native create/close proof; no IO, no delete. D01a3a2 owns bounded ≤256 read,
+> partial/full write+FlushFileBuffers, identity re-open, handle disposition delete and
+> successor/no-residue proof; no Guard/policy. D01a3b now depends on D01a3a2. D01b
+> depends on D01a3b. The CREATE_NEW decision is preserved. No passing evidence is
+> inherited by D01a3a1 or D01a3a2. Tasks remain unchecked. No source, tests, progress,
+> or delivery.
+
+**D01a3b — Fallback policy and integration.**
+
+Depends on D01a3a2. Private typed `ConfigLease` unifies mutex (primary) and marker
+(fallback) ownership; one shared `DeadlineContext` serves both D01a3b and D01b.
+Fallback only on `guard_acquisition_failed`; retry/contention under the shared
+deadline; decode/owner predicate; conservative busy rules — empty, partial, malformed,
+oversize, or unverifiable marker content and own-process markers refuse conservatively
+as sanitized `config-lock-busy` and are never reclaimed (manual cleanup may be needed
+after a pre-write crash). Only `ProcessTokenMissing` or a returned token mismatch
+permits reclaim; `ProcessTokenUnprovable` or an equal token refuses. Cleanup failure
+maps to `config-lock-release-failed`. One shared five-second deadline is checked on
+every Guard and marker retry; no fallback on `guard_wait_timeout`. Fixed existing
+parent directory, no creation. Race tests clean exact residues. Target ≤280 changed
+lines and one rollback boundary.
 
 **D01b — Immutable config snapshot and assist wiring.**
 
-Depends on D01a. Safe parent tri-state, handle-bound fstat read, exactly-once validation
-under the owned lease, deeply immutable diagnostic/provider state, explicit lease lifetime,
-preserved absent/unsafe/S08 behavior, setup-assist wiring, focused snapshot/protocol tests.
+Depends on D01a3b. Uses the one shared `DeadlineContext` from D01a3b. Safe parent
+tri-state, handle-bound fstat read, exactly-once validation under the owned lease,
+deeply immutable diagnostic/provider state, explicit lease lifetime, preserved
+absent/unsafe/S08 behavior, setup-assist wiring, focused snapshot/protocol tests.
 Target ≤350 changed lines and one rollback boundary.
 
 The fixed config path is `%LOCALAPPDATA%\yasb-limitora\config.json`. If the fixed config
@@ -850,7 +941,7 @@ non-reparse parent directory; D01 invents no caller-supplied path.
 1. resolve      path = %LOCALAPPDATA%\yasb-limitora\config.json (fixed; no override invented)
 2. pre-check    if the fixed config parent directory is absent -> return `config-absent`;
                 do not create the state root; no lock is acquired
-3. acquire      [D01a1/D01a2a/D01a2b/D01a3] single-writer lock with a 5-second bounded wait:
+3. acquire      [D01a1/D01a2a/D01a2b/D01a3a1/D01a3a2/D01a3b] single-writer lock with a 5-second bounded wait:
                   primary:   [D01a1] Guard's SID/path-derived `Global\` named mutex,
                              context-managed lease keyed by exact fixed config.json path,
                              retry Guard's 250ms waits against one 5-second DeadlineContext
@@ -860,19 +951,42 @@ non-reparse parent directory; D01 invents no caller-supplied path.
                   identity:  [D01a2b] Win32 process-identity token via reusable safe
                              primitive; CloseHandle failure/unavailability is
                              unprovable; no acquisition/reclaim/unlink in this sub-unit
-                  fallback:  [D01a3] permitted ONLY for `guard_acquisition_failed` (native
-                             mutex unavailable); use a safe O_CREAT|O_EXCL marker file
-                             with the fixed literal name `yasb-limitora.lock` under the
-                             verified existing non-reparse parent; the marker records
-                             bounded PID/process-identity ownership via D01a2a/D01a2b's codec and
-                             may reclaim only a provably missing or PID-token-mismatched
-                             owner; a live owner or unprovable ownership refuses with
-                             sanitized `config-lock-busy`
+                  fallback:  [D01a3a1/D01a3a2/D01a3b] permitted ONLY for `guard_acquisition_failed`
+                             (native mutex unavailable); [D01a3a1] verified parent hold/
+                             non-reparse/final identity; correct Win32 CreateFileW CREATE_NEW
+                             handle with explicit DELETE+read/write+attributes
+                             access, FILE_SHARE_DELETE compatibility, and NULL template;
+                             verify leaf final path, reparse status, regular-file status, and
+                             handle identity after create; reuse repo-validated
+                             FILETIME/BY_HANDLE_FILE_INFORMATION/native helpers from
+                             _native_state_cleanup.py; at least one real Windows test;
+                             real native create/close proof; no IO, no delete;
+                             [D01a3a2] bounded ≤256 read; partial/full write+
+                             FlushFileBuffers through same acquired handle; identity
+                             re-open before delete; handle disposition delete and
+                             successor/no-residue proof; low-level sanitized errors;
+                             fixed literal name `yasb-limitora.lock`
+                             under fixed existing parent (no creation); marker records
+                             bounded PID/process-identity ownership via D01a2a/D01a2b's
+                             codec; [D01a3b] private typed `ConfigLease` unifies
+                             mutex/marker ownership; one shared DeadlineContext;
+                             decode/owner predicate; conservative busy rules — empty/
+                             partial/malformed/oversize/unverifiable and own-process
+                             marker refuse conservatively as sanitized `config-lock-busy`
+                             and are never reclaimed (manual cleanup may be needed
+                             after pre-write crash); only ProcessTokenMissing or
+                             returned token mismatch permits reclaim;
+                             ProcessTokenUnprovable/equal token refuses
                   timeout:   [D01a1] `guard_wait_timeout` maps directly to sanitized
                              `config-lock-busy` and never tries a separate lock domain
-                             or the file fallback; deadline checked every retry
-                  cleanup:   [D01a3] identity-checked removal never deletes successor;
-                             safe handle/path binding; race tests clean exact residues
+                             or the file fallback; one shared five-second deadline
+                             checked on every Guard and marker retry; no fallback on
+                             guard_wait_timeout
+                  cleanup:   [D01a3a2] handle-derived identity and identity re-open before
+                             delete; handle-bound deletion never removes successor;
+                             low-level sanitized errors; [D01a3b] cleanup failure maps
+                             to `config-lock-release-failed`; race tests clean exact
+                             residues
 4. read         [D01b] original bytes via handle-bound fstat, or record "absent";
                 safe parent tri-state (present/absent/unsafe)
 5. validate     [D01b] the WHOLE document against the runtime contract exactly once
