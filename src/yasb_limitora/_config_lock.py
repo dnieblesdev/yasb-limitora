@@ -263,6 +263,11 @@ class MarkerPrimitiveError(OSError):
         super().__init__(code)
 
 
+class _FileDispositionInfo(ctypes.Structure):
+    """FILE_DISPOSITION_INFO: 1-byte BOOLEAN per Win32 ABI."""
+    _fields_ = [("DeleteFile", ctypes.c_byte)]
+
+
 def _real_api() -> Any:
     """Return real kernel32 marker API or None off-Windows."""
     if os.name != "nt":
@@ -285,6 +290,8 @@ def _real_api() -> Any:
     k.SetFilePointerEx.restype = ctypes.c_int
     k.FlushFileBuffers.argtypes = [H]
     k.FlushFileBuffers.restype = ctypes.c_int
+    k.SetFileInformationByHandle.argtypes = [H, ctypes.c_int, ctypes.POINTER(_FileDispositionInfo), ctypes.c_uint32]
+    k.SetFileInformationByHandle.restype = ctypes.c_int
 
     class _Api:
         def create_file(self, path, access, share, disp, attrs):
@@ -330,6 +337,11 @@ def _real_api() -> Any:
         def flush(self, handle):
             return bool(k.FlushFileBuffers(handle))
 
+        def set_disposition(self, handle):
+            delete = _FileDispositionInfo()
+            delete.DeleteFile = 1
+            return bool(k.SetFileInformationByHandle(handle, 4, ctypes.byref(delete), ctypes.sizeof(delete)))
+
     return _Api()
 
 
@@ -343,6 +355,18 @@ class ParentHold(NamedTuple):
     path: str
     handle: int
     identity: tuple[int, int, int]
+
+
+class ProbeWitness:
+    """Opaque proof of successful identity verification, bound to the original handle."""
+
+    __slots__ = ("_handle", "_identity")
+
+    def __init__(self, handle: int, identity: tuple[int, int, int]) -> None:
+        if not isinstance(handle, int) or isinstance(handle, bool) or handle <= 0:
+            raise MarkerPrimitiveError()
+        self._handle = handle
+        self._identity = identity
 
 
 def verify_parent(path: str, *, api: Any) -> ParentHold:
@@ -402,6 +426,7 @@ def create_exclusive(parent: ParentHold, *, api: Any) -> tuple[int, str, tuple[i
 # ── D01a3a2a — Durable marker IO ─────────────────────────────────────
 
 
+
 def read_marker(handle: int, *, api: Any) -> bytes:
     if not callable(getattr(api, "read_file", None)):
         raise MarkerPrimitiveError()
@@ -431,4 +456,76 @@ def write_marker(handle: int, data: bytes, *, api: Any) -> bool:
         remaining -= n
     if not api.flush(handle):
         raise MarkerPrimitiveError()
+    return True
+
+
+# ── D01a3a2b — Identity re-open and disposition delete ───────────────
+
+
+def identity_reopen(
+    path: str,
+    *,
+    parent: ParentHold,
+    expected: tuple[int, int, int],
+    original: int,
+    api: Any,
+) -> ProbeWitness:
+    """OPEN_EXISTING probe; verify path, attrs, identity; always close probe; return witness."""
+    for n in ("create_file", "query_info", "final_path", "close"):
+        if not callable(getattr(api, n, None)):
+            raise MarkerPrimitiveError()
+    h = api.create_file(path, _DEL | _GR | _RA, 7, _OEXIST, _ANORM)
+    if not h or h == -1:
+        raise MarkerPrimitiveError()
+    verified: tuple[int, int, int] | None = None
+    close_ok = False
+    try:
+        q = api.query_info(h)
+        if q is None:
+            raise MarkerPrimitiveError()
+        attr, vol, ih, il = q
+        if attr & _AREPARSE or (attr & _ADIR):
+            raise MarkerPrimitiveError()
+        fp = api.final_path(h)
+        if fp is None:
+            raise MarkerPrimitiveError()
+        leaf = os.path.normcase(os.path.abspath(ntpath.join(parent.path, _MARKER_FILE)))
+        if fp != leaf:
+            raise MarkerPrimitiveError()
+        if (vol, ih, il) != expected:
+            raise MarkerPrimitiveError()
+        verified = (vol, ih, il)
+    except MarkerPrimitiveError:
+        raise
+    except Exception:  # noqa: BLE001
+        raise MarkerPrimitiveError() from None
+    finally:
+        try:
+            close_ok = bool(api.close(h))
+        except Exception:  # noqa: BLE001
+            close_ok = False
+    if verified is None or not close_ok:
+        raise MarkerPrimitiveError()
+    return ProbeWitness(original, verified)
+
+
+def disposition_delete(handle: int, *, witness: ProbeWitness, api: Any) -> bool:
+    """SetFileInformationByHandle(FileDispositionInfo) — requires witness proof."""
+    if not isinstance(witness, ProbeWitness) or handle != witness._handle:
+        raise MarkerPrimitiveError()
+    for n in ("query_info", "set_disposition"):
+        if not callable(getattr(api, n, None)):
+            raise MarkerPrimitiveError()
+    try:
+        q = api.query_info(handle)
+        if q is None:
+            raise MarkerPrimitiveError()
+        if q[1:] != witness._identity:
+            raise MarkerPrimitiveError()
+        if not api.set_disposition(handle):
+            raise MarkerPrimitiveError()
+    except MarkerPrimitiveError:
+        raise
+    except Exception:  # noqa: BLE001
+        raise MarkerPrimitiveError() from None
     return True
