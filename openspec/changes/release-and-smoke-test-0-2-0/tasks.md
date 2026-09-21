@@ -171,6 +171,7 @@ Chain strategy: feature-branch-chain
 - [ ] **D03 — Config rollback and reread verification** (depends on D02; budget: ≤200 lines)
   - **Route reference:** inject write/final-validation/verify failures to prove restore from backup or deletion of newly created config; reread verification confirms owned paths equal request and unowned fields equal original.
   - **Dependency/invariant:** requires D02 merge/write; preserves S08 byte identity on rollback.
+  - **Current candidate (2026-09-20):** implementation and focused/full/Ruff checks pass; native review was started under explicit session authorization but capture binding was rejected before reviewer execution. D03 remains unchecked pending review closure and delivery decision.
 
 - [ ] **D04 — Explicit provider selection state** (depends on D02; budget: ≤200 lines)
   - **Route reference:** `enabled` changes only through explicit selection; missing secret/prerequisite names produce warnings but never veto or alter the selection; unowned valid fields retain order/values.

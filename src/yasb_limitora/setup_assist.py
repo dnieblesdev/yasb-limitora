@@ -359,13 +359,58 @@ def _atomic_config_write(path: Path, data: bytes) -> None:
                 os.unlink(temporary)
 
 
+def _verify_config_reread(original: bytes, reread: bytes, merged: bytes, selection: Mapping[str, object]) -> None:
+    original_document = _ordered_config_document(original)
+    reread_document = _ordered_config_document(reread)
+    for key, selected in selection.items():
+        if key == "deadline_seconds":
+            if reread_document.get(key, _GATE_ONE) != selected:
+                raise OSError("selected configuration path changed")
+            continue
+        reread_provider = reread_document.get(key)
+        if not isinstance(selected, Mapping) or not isinstance(reread_provider, dict):
+            raise OSError("selected configuration path changed")
+        for field, value in selected.items():
+            if reread_provider.get(field, _GATE_ONE) != value:
+                raise OSError("selected configuration path changed")
+
+    def unowned(document: dict[str, object]) -> dict[str, object]:
+        result = dict(document)
+        for key, selected in selection.items():
+            if key == "deadline_seconds":
+                result.pop(key, None)
+            else:
+                provider_value = result.get(key)
+                if not isinstance(selected, Mapping) or not isinstance(provider_value, dict):
+                    continue
+                provider = dict(provider_value)
+                for field in selected:
+                    provider.pop(field, None)
+                if provider:
+                    result[key] = provider
+                else:
+                    result.pop(key, None)
+        return result
+
+    if unowned(reread_document) != unowned(original_document) or reread != merged:
+        raise OSError("configuration verification failed")
+
+
 def _rollback_config_write(path: Path, backup: Path | None, lease: _config_lock.ConfigLease) -> None:
-    del lease
+    if not lease.owned:
+        raise OSError("config lease is not owned")
     if backup is None:
         with contextlib.suppress(FileNotFoundError):
             path.unlink()
+        if not lease.owned or os.path.lexists(path):
+            raise OSError("config absence verification failed")
         return
-    _atomic_config_write(path, backup.read_bytes())
+    restored = backup.read_bytes()
+    if not lease.owned:
+        raise OSError("config lease is not owned")
+    _atomic_config_write(path, restored)
+    if not lease.owned or _read_gate_one_config(path) != restored:
+        raise OSError("config restoration verification failed")
 
 
 def _consume_config_snapshot(
@@ -412,8 +457,7 @@ def _consume_config_snapshot(
             raise OSError("config lease is not owned")
         reread = _read_gate_one_config(config_path)
         config.validate_config_document(reread)
-        if reread != merged:
-            raise OSError("configuration verification failed")
+        _verify_config_reread(snapshot.raw_bytes or b"{}", reread, merged, selected)
         if snapshot.present:
             _prune_config_backups(config_path.parent / "backups")
         return {"operation": "config-apply", "status": "ok"}

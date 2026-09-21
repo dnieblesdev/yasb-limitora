@@ -1171,3 +1171,12 @@ The implementation preserves no-write behavior and S08 reject-and-preserve byte 
 - **Budget:** **247/250 source+test changed lines**.
 - **Rollback boundary:** revert only D02 merge/write code, request-schema changes, tests, and D02 evidence; D01a/D01b and S08 remain intact.
 - **Remaining:** D03 rollback/reread verification and D04 explicit provider selection state.
+
+## D03 — Config rollback and reread verification: CANDIDATE
+
+- **Implementation:** post-replacement reread failures now restore the original backup or delete a newly created config; rollback requires lease ownership and verifies restored bytes/absence; reread checks selected owned paths and preserves unowned fields.
+- **TDD/verification:** focused **30 passed + 1 skipped**; full **931 passed + 4 skipped**; Ruff clean; LSP reported no findings but two server confirmations timed out/unavailable.
+- **Budget:** **96 authored source/test lines** (within the ≤200 budget).
+- **Native review:** started with explicit session authorization; reviewer capture binding was rejected before reviewer execution, so no review closure is claimed.
+- **Rollback boundary:** revert only D03 rollback/reread code and tests; D01a/D01b, D02 merge/write, and S08 remain intact.
+- **Remaining:** native review closure, then delivery decision/commit if explicitly authorized.
