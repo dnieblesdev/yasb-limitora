@@ -598,7 +598,9 @@ class _IOFake:
         self.create_calls.append((path, access, share, disp, attrs))
         norm = os.path.normcase(os.path.abspath(path))
         if disp == 1:
-            if norm in self._pi or norm in self._pa or norm in self._markers:
+            if norm in self._pi or norm in self._pa or (
+                norm in self._markers and not self._markers[norm].get("_deleted")
+            ):
                 return 0
             h, self._h = self._h, self._h + 1
             identity = (0, self._n, 0)
@@ -666,7 +668,7 @@ class _IOFake:
             return False
         norm = self._files[handle]["p"]
         if norm in self._markers:
-            self._markers[norm]["_deleted"] = True
+            del self._markers[norm]
             return True
         return False
 
@@ -803,7 +805,7 @@ def test_disposition_delete_on_original_handle():
         orig = api._markers[norm]["identity"]
         w = identity_reopen(mp, parent=hold, expected=orig, original=h, api=api)
         assert disposition_delete(h, witness=w, api=api) is True
-        assert api._markers[norm].get("_deleted") is True
+        assert norm not in api._markers
 
 
 def test_real_windows_identity_reopen_and_disposition_delete(tmp_path):
@@ -916,7 +918,7 @@ def test_stale_witness_recycled_handle_refused_successor_survives():
         w1 = identity_reopen(mp, parent=hold, expected=ident1, original=h1, api=api)
         disposition_delete(h1, witness=w1, api=api)
         safe_close(h1, api=api)
-        del api._markers[norm]
+        api._markers.pop(norm, None)
         api._h = h1
         h2, _, ident2 = create_exclusive(hold, api=api)
         assert h2 == h1 and ident2 != ident1
@@ -949,3 +951,93 @@ def test_set_disposition_exception_sanitized_no_message_leak():
         with pytest.raises(MarkerPrimitiveError) as exc_info:
             disposition_delete(h, witness=w, api=api)
         assert "SECRET-LEAK-12345" not in str(exc_info.value)
+
+
+class _FailedGuard:
+    def acquire(self, _path, _context):
+        raise GuardError("guard_acquisition_failed")
+
+def _fallback_api(tmp_path):
+    api = _IOFake()
+    parent = tmp_path / "yasb-limitora"
+    parent.mkdir()
+    api._pa[os.path.normcase(os.path.abspath(str(parent)))] = 0x10
+    return api
+
+@pytest.mark.parametrize("disposition_ok", [True, False])
+def test_guard_failure_falls_back_to_owned_marker(tmp_path, disposition_ok):
+    api = _fallback_api(tmp_path)
+    disposition = api.set_disposition
+    api.set_disposition = lambda handle: disposition_ok and disposition(handle)
+    marker_path = os.path.normcase(os.path.abspath(str(tmp_path / "yasb-limitora" / "yasb-limitora.lock")))
+    lease = config_lease(str(tmp_path), guard=_FailedGuard(), marker_api=api,
+                         pid_provider=lambda: 123, token_provider=lambda _pid: "abc")
+    if not disposition_ok:
+        with pytest.raises(GuardError, match="config-lock-release-failed"), lease:
+            pass
+        return
+    with lease:
+        marker = api._markers[marker_path]
+        assert decode_marker(marker["content"])[:2] == (123, "abc")
+    assert marker_path not in api._markers
+    assert len(api.closed) >= 2
+
+def test_guard_wait_timeout_never_falls_back(tmp_path):
+    api = _fallback_api(tmp_path)
+    now = [1_000_000_000_000]
+    def clock():
+        now[0] += 300_000_000
+        return now[0]
+
+    with pytest.raises(GuardError, match="config-lock-busy"):
+        config_lease(
+            str(tmp_path), guard=_guard(_FakeApi([WAIT_TIMEOUT])), marker_api=api,
+            deadline_seconds=0.5, clock_ns=clock,
+        ).__enter__()
+    assert not api._markers
+
+
+@pytest.mark.parametrize("reason", ["malformed", "own", "equal", "unprovable"])
+def test_fallback_refuses_unsafe_existing_marker(tmp_path, reason):
+    api = _fallback_api(tmp_path)
+    parent = str(tmp_path / "yasb-limitora")
+    hold = verify_parent(parent, api=api)
+    handle, _path, _identity = create_exclusive(hold, api=api)
+    marker_pid, marker_token = 123, "abc"
+    if reason == "malformed":
+        data = b"partial"
+    else:
+        data = encode_marker(123 if reason == "own" else 456, marker_token)
+    write_marker(handle, data, api=api)
+    safe_close(handle, api=api)
+    safe_close(hold.handle, api=api)
+    def matching_token(_pid):
+        return marker_token
+    token_provider = matching_token
+    if reason == "unprovable":
+        def unprovable_token(_pid):
+            raise ProcessTokenUnprovable()
+        token_provider = unprovable_token
+    with pytest.raises(GuardError, match="config-lock-busy"):
+        config_lease(str(tmp_path), guard=_FailedGuard(), marker_api=api,
+                     pid_provider=lambda: marker_pid, token_provider=token_provider).__enter__()
+    assert not api._markers[os.path.normcase(os.path.abspath(os.path.join(parent, "yasb-limitora.lock")))].get("_deleted")
+
+
+def test_fallback_reclaims_missing_process_marker(tmp_path):
+    api = _fallback_api(tmp_path)
+    parent = str(tmp_path / "yasb-limitora")
+    hold = verify_parent(parent, api=api)
+    handle, _path, _identity = create_exclusive(hold, api=api)
+    write_marker(handle, encode_marker(456, "def"), api=api)
+    safe_close(handle, api=api)
+    safe_close(hold.handle, api=api)
+    def token_provider(pid):
+        if pid == 456:
+            raise ProcessTokenMissing()
+        return "123"
+
+    with config_lease(str(tmp_path), guard=_FailedGuard(), marker_api=api,
+                      pid_provider=lambda: 123, token_provider=token_provider):
+        marker = api._markers[os.path.normcase(os.path.abspath(os.path.join(parent, "yasb-limitora.lock")))]
+        assert decode_marker(marker["content"])[:2] == (123, "123")

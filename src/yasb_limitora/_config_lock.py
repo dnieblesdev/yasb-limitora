@@ -15,6 +15,7 @@ import ntpath
 import os
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Any, NamedTuple
 
 from ._native_state_cleanup import _INFO
@@ -37,44 +38,185 @@ def _fixed_config_path(local_appdata: str) -> str:
     return ntpath.join(local_appdata, "yasb-limitora", "config.json")
 
 
+@dataclass(slots=True)
+class ConfigLease:
+    guard: GuardLease | None = None
+    marker_handle: int | None = None
+    parent: ParentHold | None = None
+    marker_api: Any = None
+    name: str = ""
+    identity: tuple[int, int, int] | None = None
+
+    @property
+    def owned(self) -> bool:
+        return self.guard.owned if self.guard is not None else self.marker_handle is not None
+
+    def close(self) -> bool:
+        if self.guard is not None:
+            return self.guard.release() and self.guard.close()
+        if self.marker_api is None or self.marker_handle is None or self.parent is None or self.identity is None:
+            return False
+        try:
+            witness = identity_reopen(self.name, parent=self.parent, expected=self.identity, original=self.marker_handle, api=self.marker_api)
+            deleted = disposition_delete(self.marker_handle, witness=witness, api=self.marker_api)
+        except Exception:  # noqa: BLE001
+            deleted = False
+        closed = True
+        for handle in (self.marker_handle, self.parent.handle):
+            try:
+                closed = bool(self.marker_api.close(handle)) and closed
+            except Exception:  # noqa: BLE001
+                closed = False
+        return deleted and closed
+
+
+def _open_marker(parent: ParentHold, *, api: Any) -> tuple[int, str, tuple[int, int, int]]:
+    for n in ("create_file", "query_info", "final_path", "close"):
+        if not callable(getattr(api, n, None)):
+            raise MarkerPrimitiveError()
+    path = ntpath.join(parent.path, _MARKER_FILE)
+    handle = api.create_file(path, _DEL | _GR | _RA, 7, _OEXIST, _ANORM)
+    if not handle or handle == -1:
+        raise MarkerPrimitiveError()
+    try:
+        q = api.query_info(handle)
+        if q is None:
+            raise MarkerPrimitiveError()
+        attr, volume, high, low = q
+        final = api.final_path(handle)
+        expected = os.path.normcase(os.path.abspath(path))
+        if attr & _AREPARSE or attr & _ADIR or final != expected:
+            raise MarkerPrimitiveError()
+        return handle, final, (volume, high, low)
+    except OSError:
+        safe_close(handle, api)
+        raise
+    except Exception:  # noqa: BLE001
+        safe_close(handle, api)
+        raise MarkerPrimitiveError() from None
+
+
+def _busy() -> GuardError:
+    return GuardError("config-lock-busy")
+
+
+def _fallback_lease(parent_path: str, *, api: Any, context: DeadlineContext, pid_provider: Callable[[], int], token_provider: Callable[[int], str]) -> ConfigLease:
+    try:
+        parent = verify_parent(parent_path, api=api)
+    except Exception:  # noqa: BLE001
+        raise _busy() from None
+    while context.usable_ns() > 0:
+        handle: int | None = None
+        try:
+            handle, marker_path, identity = create_exclusive(parent, api=api)
+        except OSError:
+            try:
+                handle, marker_path, identity = _open_marker(parent, api=api)
+                pid, token, _version = decode_marker(read_marker(handle, api=api))
+                if pid == pid_provider():
+                    raise _busy()
+                try:
+                    current = token_provider(pid)
+                except ProcessTokenMissing:
+                    reclaim = True
+                except ProcessTokenUnprovable:
+                    raise _busy() from None
+                except Exception:  # noqa: BLE001
+                    raise _busy() from None
+                else:
+                    reclaim = current != token
+                if not reclaim:
+                    raise _busy()
+                witness = identity_reopen(marker_path, parent=parent, expected=identity, original=handle, api=api)
+                disposition_delete(handle, witness=witness, api=api)
+            except Exception as error:
+                if handle is not None:
+                    safe_close(handle, api)
+                safe_close(parent.handle, api)
+                if isinstance(error, GuardError):
+                    raise
+                raise _busy() from None
+            try:
+                closed = handle is not None and bool(api.close(handle))
+            except Exception:  # noqa: BLE001
+                closed = False
+            if not closed:
+                safe_close(parent.handle, api)
+                raise GuardError("config-lock-release-failed") from None
+            continue
+        try:
+            pid = pid_provider()
+            token = token_provider(pid)
+            write_marker(handle, encode_marker(pid, token), api=api)
+        except Exception:  # noqa: BLE001
+            if handle is not None:
+                safe_close(handle, api)
+            safe_close(parent.handle, api)
+            raise _busy() from None
+        if handle is None:
+            safe_close(parent.handle, api)
+            raise _busy() from None
+        return ConfigLease(None, handle, parent, api, marker_path, identity)
+    safe_close(parent.handle, api)
+    raise _busy()
+
+
 @contextmanager
 def config_lease(
     local_appdata: str,
     *,
-    guard: Guard | None = None,
+    guard: Any | None = None,
+    marker_api: Any | None = None,
+    pid_provider: Callable[[], int] = os.getpid,
+    token_provider: Callable[[int], str] | None = None,
     deadline_seconds: float = _CONFIG_DEADLINE_SECONDS,
     clock_ns: Callable[[], int] | None = None,
-) -> Iterator[GuardLease]:
-    """Acquire and guarantee a Guard lease for the fixed config.json path."""
+) -> Iterator[ConfigLease]:
+    """Acquire the Guard, falling back only on guard acquisition failure."""
     config_path = _fixed_config_path(local_appdata)
-    g = guard if guard is not None else Guard()
     ctx_kwargs: dict[str, Any] = {}
     if clock_ns is not None:
         ctx_kwargs["clock_ns"] = clock_ns
     ctx = DeadlineContext.from_seconds(deadline_seconds, **ctx_kwargs)
-    lease: GuardLease | None = None
+    lease: ConfigLease | None = None
     try:
-        while True:
-            try:
-                lease = g.acquire(config_path, ctx)
-                break
-            except GuardError as exc:
-                if exc.code == "guard_wait_timeout":
-                    if ctx.usable_ns() <= 0:
-                        raise GuardError("config-lock-busy") from None
-                    continue
+        try:
+            g = guard if guard is not None else Guard()
+            while True:
+                try:
+                    guard_lease = g.acquire(config_path, ctx)
+                    lease = ConfigLease(guard=guard_lease, name=guard_lease.name)
+                    break
+                except GuardError as exc:
+                    if exc.code == "guard_wait_timeout":
+                        if ctx.usable_ns() <= 0:
+                            raise _busy() from None
+                        continue
+                    if exc.code != "guard_acquisition_failed":
+                        raise
+                    break
+        except GuardError as exc:
+            if exc.code != "guard_acquisition_failed":
                 raise
+        if lease is None:
+            api = marker_api if marker_api is not None else _real_api()
+            if api is None:
+                raise _busy()
+            lease = _fallback_lease(ntpath.dirname(config_path), api=api, context=ctx, pid_provider=pid_provider,
+                                    token_provider=creation_token if token_provider is None else token_provider)
         yield lease
     finally:
-        if lease is not None:
-            released = any(lease.release() for _ in range(_RELEASE_RETRIES))
+        if lease is not None and lease.guard is not None:
+            released = any(lease.guard.release() for _ in range(_RELEASE_RETRIES))
             if not released:
-                lease.owned = False
-            closed = any(lease.close() for _ in range(_RELEASE_RETRIES))
+                lease.guard.owned = False
+            closed = any(lease.guard.close() for _ in range(_RELEASE_RETRIES))
             if not released:
                 raise GuardError("config-lock-release-failed")
             if not closed:
                 raise GuardError("config-lock-close-failed")
+        elif lease is not None and not lease.close():
+            raise GuardError("config-lock-release-failed")
 
 
 class MarkerValidationError(ValueError):

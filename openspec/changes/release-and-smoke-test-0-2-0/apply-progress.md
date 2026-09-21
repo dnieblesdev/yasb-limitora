@@ -1115,3 +1115,31 @@ read-only cleanup removed a duplicated idempotent `SetFileInformationByHandle` b
 - The earlier `244/280` and corrective-delta accounting was inaccurate and is superseded by the directly observed cumulative diff above.
 - Rollback boundary: revert only the corrective changes; the original D01a3a2b implementation remains intact.
 - Remaining: D01a3b (depends on D01a3a2b); D01b depends on D01a3b.
+
+## D01a3b — Fallback policy and integration: COMPLETE
+
+Delivery: `auto-chain`, `feature-branch-chain`; D01a3b only. No config read/validation/snapshot/write, parent or state-root creation, real YASB/state/PATH mutation, commit, installer, or later slice was performed.
+
+### Completed task
+
+- [x] Unified Guard and marker-fallback ownership under `ConfigLease`; the caller receives one lease and cleanup follows the owned path.
+- [x] Fallback is entered only for `guard_acquisition_failed`. Guard wait timeouts remain conservative busy/refusal outcomes and never switch to the marker path.
+- [x] Guard and fallback attempts share one 5-second `DeadlineContext`; no fresh fallback deadline is created.
+- [x] Existing-marker handling is conservative: malformed, own-process, equal-token, and unprovable-token markers are refused. Reclaim is allowed only for a missing process or a changed process token, followed by identity re-open and disposition delete.
+- [x] Cleanup is handle-bound and no-residue: the original marker handle and parent handle are closed, and fallback release deletes only the identity-verified original marker.
+- [x] Fallback verifies the existing parent/state root only; it does not create the parent or state root and does not read, validate, snapshot, or write config data.
+
+### Verification evidence
+
+- Focused config-lock verification: **63 passed**.
+- Guard integration verification: **76 passed**.
+- Native Windows proof: **11 passed**.
+- Full suite: **916 passed, 4 skipped**.
+- Ruff: **clean**.
+- Independent verification: **pass**.
+
+### Budget and workload
+
+- **278/280 source+test lines:** `src/yasb_limitora/_config_lock.py` **178 changed lines**; `tests/test_config_lock.py` **100 changed lines**.
+- Rollback boundary: revert only the D01a3b `ConfigLease`/fallback integration and its D01a3b tests/evidence records; D01a3a2b remains intact.
+- Remaining: D01b, then D02; D01b depends on D01a3b.
