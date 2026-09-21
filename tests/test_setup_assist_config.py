@@ -105,6 +105,54 @@ def test_config_apply_failure_restores_original_after_replace_failure(tmp_path, 
     assert not list(config_path.parent.glob(".config.*.tmp"))
 
 
+@pytest.mark.parametrize("failure", ["reread", "validation", "comparison"])
+def test_config_apply_post_replace_failures_restore_original_bytes(tmp_path, monkeypatch, failure):
+    raw = b'{"deadline_seconds": 7}'
+    local_appdata, config_path, _ = _run_config_apply(tmp_path, None, raw)
+    reread = {"reread": OSError("reread failed"), "validation": b'{"deadline_seconds":"bad"}', "comparison": b'{"deadline_seconds":13}'}[failure]
+    reads = iter([raw, reread, raw])
+
+    def read(_path):
+        value = next(reads)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    monkeypatch.setattr(sa, "_read_gate_one_config", read)
+    records = sa._execute((("config-apply", {"deadline_seconds": 12}),), {}, str(local_appdata))
+
+    assert records == [{"operation": "config-apply", "status": "refused", "reason": "config-write-failed"}]
+    assert config_path.read_bytes() == raw
+
+
+def test_config_apply_rejects_reread_with_changed_unowned_fields(tmp_path, monkeypatch):
+    raw = b'{"deadline_seconds":7,"codex":{"enabled":false,"timeout_seconds":5}}'
+    local_appdata, config_path, _ = _run_config_apply(tmp_path, None, raw)
+    monkeypatch.setattr(sa, "_merge_config_selection", lambda *_args: b'{"deadline_seconds":12,"codex":{"enabled":false,"timeout_seconds":6}}')
+    records = sa._execute((("config-apply", {"deadline_seconds": 12}),), {}, str(local_appdata))
+
+    assert records == [{"operation": "config-apply", "status": "refused", "reason": "config-write-failed"}]
+    assert config_path.read_bytes() == raw
+
+
+def test_absent_config_failure_removes_config_and_all_write_residue(tmp_path, monkeypatch):
+    local_appdata = tmp_path / "local"
+    config_path = local_appdata / "yasb-limitora" / "config.json"
+    def fail_after_creation(path):
+        if os.path.exists(path):
+            raise OSError("reread failed")
+        raise FileNotFoundError(path)
+
+    monkeypatch.setattr(sa, "_read_gate_one_config", fail_after_creation)
+
+    records = sa._execute((("config-apply", {"deadline_seconds": 12}),), {}, str(local_appdata))
+
+    assert records == [{"operation": "config-apply", "status": "refused", "reason": "config-write-failed"}]
+    assert not config_path.exists()
+    assert not config_path.parent.joinpath("backups").exists()
+    assert not list(config_path.parent.glob(".config.*.tmp"))
+
+
 @pytest.mark.parametrize(
     ("raw", "accepted", "providers"),
     [
