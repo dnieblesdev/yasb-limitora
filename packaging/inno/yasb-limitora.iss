@@ -51,6 +51,8 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\{{55D37
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\{{55D372A6-1DA5-41BE-B7AB-65CAB362E620}_is1"; ValueType: dword; ValueName: "NoRepair"; ValueData: "1"; Flags: uninsdeletevalue
 
 [Code]
+#include "SetupAssistant.isi"
+
 var
   AddToPathConsent: Boolean;
   EnvBlockConsent: Boolean;
@@ -267,6 +269,8 @@ begin
     end;
     EvacuatedOldDir := '';
   end;
+  if CurStep = ssPostInstall then
+    InvokePostCommitAssist(AddToPathConsent, EnvBlockConsent, ConfigWizardConsent);
 end;
 
 procedure DeinitializeSetup;
@@ -319,6 +323,12 @@ begin
   end;
   CleanupConsent := ConfirmStateCleanup;
   Result := True;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+    InvokeUninstallAssist(CleanupConsent);
 end;
 
 function PromptManualClose: Boolean;

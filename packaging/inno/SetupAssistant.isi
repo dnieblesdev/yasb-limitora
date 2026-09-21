@@ -1,0 +1,249 @@
+{ Static setup-assistant protocol helpers. }
+const
+  YasbSetupAssistRequestSchema = 'gentle-ai.yasb-limitora.setup-assist-request/v1';
+  YasbSetupAssistResultSchema = 'gentle-ai.yasb-limitora.setup-assist-result/v1';
+  YasbSetupAssistNonceEnvironment = '_YASB_SETUP_ASSIST_NONCE';
+  YasbSetupAssistSwitch = '--__yasb-limitora-setup-assist';
+  YasbSetupAssistRequestName = 'request.json';
+  YasbSetupAssistResultName = 'result.json';
+  YasbSetupAssistMaxResultBytes = 64 * 1024;
+  YasbSetupAssistMaxOperations = 8;
+  YasbSetupAssistYes = 'YES';
+function SetEnvironmentVariableW(const Name, Value: String): Boolean;
+  external 'SetEnvironmentVariableW@kernel32.dll stdcall';
+procedure YasbSetupAssistSkipSpace(const S: String; var P: Integer);
+begin
+  while (P <= Length(S)) and (S[P] in [' ', #9, #10, #13]) do Inc(P);
+end;
+function YasbSetupAssistReadString(const S: String; var P: Integer; var Text: String): Boolean;
+var Start: Integer; Escaped: Boolean; C: Char; begin
+  Result := False; Text := '';
+  YasbSetupAssistSkipSpace(S, P);
+  if (P > Length(S)) or (S[P] <> '"') then Exit;
+  Start := P + 1; Inc(P); Escaped := False;
+  while P <= Length(S) do begin
+    C := S[P];
+    if Escaped then begin
+      if not (C in ['"', '\', '/', 'b', 'f', 'n', 'r', 't', 'u']) then Exit;
+      Escaped := False;
+    end else if C = '\' then Escaped := True
+    else if C = '"' then begin
+      Text := Copy(S, Start, P - Start); Inc(P); Result := True; Exit;
+    end else if Ord(C) < 32 then Exit;
+    Inc(P);
+  end;
+end;
+function YasbSetupAssistStringArray(const S: String): Boolean;
+var P, Count: Integer; Text: String; begin
+  Result := False; P := 1; Count := 0; YasbSetupAssistSkipSpace(S, P);
+  if (P > Length(S)) or (S[P] <> '[') then Exit;
+  Inc(P); YasbSetupAssistSkipSpace(S, P);
+  if (P <= Length(S)) and (S[P] = ']') then begin Result := True; Exit; end;
+  while True do begin
+    if not YasbSetupAssistReadString(S, P, Text) then Exit;
+    Inc(Count); YasbSetupAssistSkipSpace(S, P);
+    if P > Length(S) then Exit;
+    if S[P] = ']' then begin Inc(P); Break; end;
+    if S[P] <> ',' then Exit;
+    Inc(P);
+  end;
+  YasbSetupAssistSkipSpace(S, P); Result := (P > Length(S));
+end;
+function YasbSetupAssistSkipJsonValue(const S: String; var P: Integer; const Depth: Integer): Boolean;
+var Text, Key: String; Count: Integer;
+begin
+  Result := False; if Depth > 8 then Exit;
+  YasbSetupAssistSkipSpace(S, P);
+  if YasbSetupAssistReadString(S, P, Text) then begin Result := True; Exit; end;
+  if P > Length(S) then Exit;
+  if S[P] = '{' then begin
+    Inc(P); Count := 0; YasbSetupAssistSkipSpace(S, P);
+    if (P <= Length(S)) and (S[P] = '}') then begin Inc(P); Result := True; Exit; end;
+    while True do begin
+      if (Count >= 8) or not YasbSetupAssistReadString(S, P, Key) then Exit;
+      YasbSetupAssistSkipSpace(S, P);
+      if (P > Length(S)) or (S[P] <> ':') then Exit;
+      Inc(P); if not YasbSetupAssistSkipJsonValue(S, P, Depth + 1) then Exit;
+      Inc(Count); YasbSetupAssistSkipSpace(S, P);
+      if P > Length(S) then Exit;
+      if S[P] = '}' then begin Inc(P); Result := True; Exit; end;
+      if S[P] <> ',' then Exit;
+      Inc(P);
+    end;
+  end;
+  if S[P] = '[' then begin
+    Inc(P); Count := 0; YasbSetupAssistSkipSpace(S, P);
+    if (P <= Length(S)) and (S[P] = ']') then begin Inc(P); Result := True; Exit; end;
+    while True do begin
+      if Count >= YasbSetupAssistMaxOperations then Exit;
+      if not YasbSetupAssistSkipJsonValue(S, P, Depth + 1) then Exit;
+      Inc(Count); YasbSetupAssistSkipSpace(S, P);
+      if P > Length(S) then Exit;
+      if S[P] = ']' then begin Inc(P); Result := True; Exit; end;
+      if S[P] <> ',' then Exit;
+      Inc(P);
+    end;
+  end;
+end;
+function YasbSetupAssistAllowedOperationField(const Name: String): Boolean;
+begin
+  Result := (Name = 'operation') or (Name = 'status') or (Name = 'reason') or
+    (Name = 'facts') or (Name = 'diagnostics') or (Name = 'warnings');
+end;
+function YasbSetupAssistOperation(const S: String; var P: Integer): Boolean;
+var Key, Text: String; Count: Integer; HaveOperation, HaveStatus: Boolean;
+begin
+  Result := False; YasbSetupAssistSkipSpace(S, P);
+  if (P > Length(S)) or (S[P] <> '{') then Exit;
+  Inc(P); Count := 0; HaveOperation := False; HaveStatus := False;
+  while True do begin
+    YasbSetupAssistSkipSpace(S, P);
+    if (P > Length(S)) or (S[P] = '}') then begin
+      if P <= Length(S) then Inc(P);
+      Result := HaveOperation and HaveStatus; Exit;
+    end;
+    if (Count >= 8) or not YasbSetupAssistReadString(S, P, Key) or
+      not YasbSetupAssistAllowedOperationField(Key) then Exit;
+    YasbSetupAssistSkipSpace(S, P);
+    if (P > Length(S)) or (S[P] <> ':') then Exit;
+    Inc(P);
+    if (Key = 'operation') or (Key = 'status') or (Key = 'reason') then begin
+      if not YasbSetupAssistReadString(S, P, Text) then Exit;
+      if Key = 'operation' then begin if HaveOperation then Exit; HaveOperation := True; end
+      else if Key = 'status' then begin if HaveStatus then Exit; HaveStatus := True; end;
+    end else if not YasbSetupAssistSkipJsonValue(S, P, 0) then Exit;
+    Inc(Count); YasbSetupAssistSkipSpace(S, P);
+    if P > Length(S) then Exit;
+    if S[P] = '}' then begin Inc(P); Result := HaveOperation and HaveStatus; Exit; end;
+    if S[P] <> ',' then Exit;
+    Inc(P);
+  end;
+end;
+function YasbSetupAssistOperations(const S: String; var P: Integer): Boolean;
+var Count: Integer;
+begin
+  Result := False; YasbSetupAssistSkipSpace(S, P);
+  if (P > Length(S)) or (S[P] <> '[') then Exit;
+  Inc(P); Count := 0; YasbSetupAssistSkipSpace(S, P);
+  if (P <= Length(S)) and (S[P] = ']') then Exit;
+  while True do begin
+    if (Count >= YasbSetupAssistMaxOperations) or not YasbSetupAssistOperation(S, P) then Exit;
+    Inc(Count); YasbSetupAssistSkipSpace(S, P);
+    if P > Length(S) then Exit;
+    if S[P] = ']' then begin Inc(P); Result := Count > 0; Exit; end;
+    if S[P] <> ',' then Exit;
+    Inc(P);
+  end;
+end;
+function YasbSetupAssistValidateResult(const Value: String): Boolean;
+var S, Key, Text: String; P, Count: Integer; HaveSchema, HaveStatus, HaveOperations: Boolean;
+begin
+  Result := False; S := Trim(Value); P := 1; Count := 0;
+  HaveSchema := False; HaveStatus := False; HaveOperations := False;
+  YasbSetupAssistSkipSpace(S, P);
+  if (P > Length(S)) or (S[P] <> '{') then Exit;
+  Inc(P);
+  while True do begin
+    YasbSetupAssistSkipSpace(S, P);
+    if (P > Length(S)) or (S[P] = '}') or (Count >= 3) then Exit;
+    if not YasbSetupAssistReadString(S, P, Key) or
+      ((Key <> 'schema') and (Key <> 'status') and (Key <> 'operations')) then Exit;
+    if ((Key = 'schema') and HaveSchema) or ((Key = 'status') and HaveStatus) or
+      ((Key = 'operations') and HaveOperations) then Exit;
+    YasbSetupAssistSkipSpace(S, P);
+    if (P > Length(S)) or (S[P] <> ':') then Exit;
+    Inc(P);
+    if Key = 'schema' then begin
+      if not YasbSetupAssistReadString(S, P, Text) or (Text <> YasbSetupAssistResultSchema) then Exit;
+      HaveSchema := True;
+    end else if Key = 'status' then begin
+      if not YasbSetupAssistReadString(S, P, Text) then Exit;
+      HaveStatus := True;
+    end else begin
+      if not YasbSetupAssistOperations(S, P) then Exit;
+      HaveOperations := True;
+    end;
+    Inc(Count); YasbSetupAssistSkipSpace(S, P);
+    if P > Length(S) then Exit;
+    if S[P] = '}' then begin Inc(P); Break; end;
+    if S[P] <> ',' then Exit;
+    Inc(P);
+  end;
+  YasbSetupAssistSkipSpace(S, P);
+  Result := (P > Length(S)) and (Count = 3) and HaveSchema and HaveStatus and HaveOperations;
+end;
+function YasbSetupAssistIsNonce(const Nonce: String): Boolean;
+var I: Integer; C: Char;
+begin
+  Result := Length(Nonce) = 32;
+  if not Result then Exit;
+  for I := 1 to Length(Nonce) do begin
+    C := Nonce[I];
+    if not (((C >= '0') and (C <= '9')) or ((C >= 'a') and (C <= 'f'))) then begin Result := False; Exit; end;
+  end;
+end;
+function YasbSetupAssistRoot(const Nonce: String): String;
+begin
+  Result := '';
+  if YasbSetupAssistIsNonce(Nonce) then
+    Result := ExpandConstant('{localappdata}') + '\Temp\yasb-limitora-setup-assist\' + Nonce;
+end;
+function YasbSetupAssistRequestFile(const Root: String): String;
+begin Result := Root + '\' + YasbSetupAssistRequestName; end;
+function YasbSetupAssistResultFile(const Root: String): String;
+begin Result := Root + '\' + YasbSetupAssistResultName; end;
+procedure YasbSetupAssistLog(const Message: String);
+begin try Log('[yasb-limitora setup-assist] ' + Message); except end; end;
+function YasbSetupAssistBuildRequest(const OperationsJson, ChoicesJson: String): String;
+begin
+  Result := '';
+  if YasbSetupAssistStringArray(OperationsJson) and YasbSetupAssistStringArray(ChoicesJson) then
+    Result := '{"schema":"' + YasbSetupAssistRequestSchema + '","operations":' +
+      Trim(OperationsJson) + ',"choices":' + Trim(ChoicesJson) + '}';
+end;
+procedure YasbSetupAssistCleanup(const Root: String);
+begin
+  if Root = '' then Exit;
+  DeleteFile(YasbSetupAssistRequestFile(Root));
+  DeleteFile(YasbSetupAssistResultFile(Root));
+  RemoveDir(Root);
+end;
+function YasbSetupAssistRun(const AssistantExe, OperationsJson, ChoicesJson: String; var ResultJson: String): Boolean;
+var Nonce, Root, RequestJson, RequestFile, ResultFile: String; LoadedResult: AnsiString; ExitCode: Integer;
+begin
+  Result := False; ResultJson := ''; Nonce := Lowercase(GetMD5OfString(
+    GetDateTimeString('yyyymmddhhnnsszzz', '-', ':') + ':' + ExpandConstant('{computername}')));
+  Root := YasbSetupAssistRoot(Nonce);
+  if Root = '' then begin YasbSetupAssistLog('invalid nonce root'); Exit; end;
+  RequestFile := YasbSetupAssistRequestFile(Root); ResultFile := YasbSetupAssistResultFile(Root);
+  try
+    if not ForceDirectories(Root) then begin YasbSetupAssistLog('could not create exchange root'); Exit; end;
+    RequestJson := YasbSetupAssistBuildRequest(OperationsJson, ChoicesJson);
+    if RequestJson = '' then begin YasbSetupAssistLog('request did not satisfy schema v1'); Exit; end;
+    if not SaveStringToFile(RequestFile, RequestJson, False) then begin YasbSetupAssistLog('could not write request.json'); Exit; end;
+    SetEnvironmentVariableW(YasbSetupAssistNonceEnvironment, Nonce);
+    if not Exec(AssistantExe, YasbSetupAssistSwitch, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) then begin YasbSetupAssistLog('assistant process could not be started'); Exit; end;
+    if not FileExists(ResultFile) then begin YasbSetupAssistLog('result.json was not produced'); Exit; end;
+    if not LoadStringFromFile(ResultFile, LoadedResult) then begin YasbSetupAssistLog('result.json could not be read'); Exit; end;
+    if Length(LoadedResult) > YasbSetupAssistMaxResultBytes then begin YasbSetupAssistLog('result.json exceeded 64 KiB after read'); Exit; end;
+    if not YasbSetupAssistValidateResult(String(LoadedResult)) then begin YasbSetupAssistLog('result.json did not satisfy schema v1'); Exit; end;
+    ResultJson := String(LoadedResult); Result := True;
+  finally
+    SetEnvironmentVariableW(YasbSetupAssistNonceEnvironment, ''); YasbSetupAssistCleanup(Root);
+  end;
+end;
+procedure InvokePostCommitAssist(const AddPath, EnvBlock, ConfigWizard: Boolean);
+var OperationsJson, ChoicesJson, ResultJson: String;
+begin
+  OperationsJson := '['; ChoicesJson := '[';
+  if AddPath then begin OperationsJson := OperationsJson + '"path-add"'; ChoicesJson := ChoicesJson + '"addtopath"'; end;
+  if EnvBlock then begin if Length(OperationsJson) > 1 then begin OperationsJson := OperationsJson + ','; ChoicesJson := ChoicesJson + ','; end; OperationsJson := OperationsJson + '"env-block-apply"'; ChoicesJson := ChoicesJson + '"envassist"'; end;
+  if ConfigWizard then begin if Length(OperationsJson) > 1 then begin OperationsJson := OperationsJson + ','; ChoicesJson := ChoicesJson + ','; end; OperationsJson := OperationsJson + '"config-apply"'; ChoicesJson := ChoicesJson + '"configassist"'; end;
+  if Length(OperationsJson) = 1 then begin OperationsJson := '["discover"]'; ChoicesJson := '[]'; end else begin OperationsJson := OperationsJson + ']'; ChoicesJson := ChoicesJson + ']'; end;
+  YasbSetupAssistRun(ExpandConstant('{app}\yasb-limitora.exe'), OperationsJson, ChoicesJson, ResultJson);
+end;
+procedure InvokeUninstallAssist(const CleanupConsent: Boolean);
+var ResultJson: String;
+begin
+  if CleanupConsent then YasbSetupAssistRun(ExpandConstant('{app}\yasb-limitora.exe'), '["state-cleanup"]', '["YES"]', ResultJson);
+end;

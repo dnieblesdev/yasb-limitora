@@ -370,20 +370,143 @@ def test_rollback_failed_quarantine_is_owned_by_the_current_transaction() -> Non
     assert "FailedQuarantineOwned" in restore[back_guard:back]
 
 
-def test_s10_does_not_add_assistance_transport_or_forbidden_payloads() -> None:
+def test_s10_surface_keeps_forbidden_payloads_out_of_installer_script() -> None:
     text = script_text().lower()
-    assert "request.json" not in text
     assert "targetpath" not in text
-    assert "parameters=" not in text
     assert "portable zip" not in text
     assert "yaml" not in text
     assert "css" not in text
     assert "secret" not in text
 
 
-def test_static_slice_does_not_invoke_assistance() -> None:
+ASSISTANT_INCLUDE = ROOT / "packaging" / "inno" / "SetupAssistant.isi"
+SETUP_BUILD_DRIVER = ROOT / "scripts" / "build_setup.py"
+
+
+def setup_assistant_text() -> str:
+    assert ASSISTANT_INCLUDE.is_file(), "S11 requires packaging/inno/SetupAssistant.isi"
+    return ASSISTANT_INCLUDE.read_text(encoding="utf-8")
+
+
+def setup_build_driver_text() -> str:
+    assert SETUP_BUILD_DRIVER.is_file(), "S11 requires scripts/build_setup.py"
+    return SETUP_BUILD_DRIVER.read_text(encoding="utf-8")
+
+
+def test_s11_includes_setup_assistant_and_uses_nonce_only_transport() -> None:
+    text = script_text()
+    assistant = setup_assistant_text()
+    assert re.search(r"(?mi)^\s*#include\s+[\"<]SetupAssistant\.isi[\">]", text)
+    assert "_YASB_SETUP_ASSIST_NONCE" in assistant
+    assert "--__yasb-limitora-setup-assist" in assistant
+    assert "request.json" in assistant and "result.json" in assistant
+    assert re.search(r"['\"]\{localappdata\}['\"]", assistant)
+    assert "\\Temp\\yasb-limitora-setup-assist\\" in assistant
+    assert "Length(Nonce) = 32" in assistant
+    assert "C >= 'a'" in assistant and "C <= 'f'" in assistant
+    assert "{localappdata}\\yasb-limitora" not in assistant
+
+
+def test_s11_run_invocation_has_no_request_or_target_path_argument() -> None:
+    assistant = setup_assistant_text()
+    run = assistant.split("function YasbSetupAssistRun", 1)[1].split(
+        "procedure InvokePostCommitAssist", 1
+    )[0]
+    assert "YasbSetupAssistSwitch = '--__yasb-limitora-setup-assist'" in assistant
+    assert "YasbSetupAssistNonceEnvironment = '_YASB_SETUP_ASSIST_NONCE'" in assistant
+    nonce_set = run.index("SetEnvironmentVariableW(YasbSetupAssistNonceEnvironment, Nonce);")
+
+    invocation = re.search(
+        r"(?s)Exec\(\s*AssistantExe,\s*YasbSetupAssistSwitch,\s*''\s*,\s*"
+        r"SW_HIDE,\s*ewWaitUntilTerminated,\s*ExitCode\s*\)",
+        run,
+    )
+    assert invocation is not None
+    assert nonce_set < invocation.start()
+    invocation_text = invocation.group(0).lower()
+    assert "request" not in invocation_text
+    assert "target" not in invocation_text
+    assert "path" not in invocation_text
+
+
+def test_s11_request_is_schema_v1_and_operations_choices_only() -> None:
+    assistant = setup_assistant_text()
+    assert re.search(
+        r"['\"]gentle-ai\.yasb-limitora\.setup-assist-request/v1['\"]",
+        assistant,
+    )
+    assert re.search(
+        r"['\"]gentle-ai\.yasb-limitora\.setup-assist-result/v1['\"]",
+        assistant,
+    )
+    assert re.search(r"(?m)request.*schema", assistant, re.IGNORECASE)
+    assert re.search(r"(?m)operations.*(?:choice|consent)", assistant, re.IGNORECASE)
+    assert "target_path" not in assistant and "target-path" not in assistant
+    assert "target" not in re.sub(r"(?i)target[a-z_-]*", "", assistant)
+
+
+def test_s11_result_read_is_bounded_regular_schema_valid_before_exact_cleanup() -> None:
+    assistant = setup_assistant_text()
+    run = assistant.split("function YasbSetupAssistRun", 1)[1].split(
+        "procedure InvokePostCommitAssist", 1
+    )[0]
+    assert "FileExists(ResultFile)" in run
+    assert re.search(r"64\s*\*\s*1024|65536|MaxResultBytes", run)
+    validator = assistant.split("function YasbSetupAssistValidateResult", 1)[1].split(
+        "function YasbSetupAssistResultState", 1
+    )[0]
+    assert "YasbSetupAssistResultSchema" in validator
+    validation = run[run.index("if not YasbSetupAssistValidateResult"):]
+    assert "result.json did not satisfy schema v1" in validation
+    assert run.index("YasbSetupAssistValidateResult") < run.index(
+        "YasbSetupAssistCleanup(Root)"
+    )
+
+    cleanup = assistant.split("procedure YasbSetupAssistCleanup", 1)[1].split(
+        "procedure YasbSetupAssistCleanupState", 1
+    )[0]
+    assert "if Root = ''" in cleanup
+    assert "DeleteFile(YasbSetupAssistRequestFile(Root));" in cleanup
+    assert "DeleteFile(YasbSetupAssistResultFile(Root));" in cleanup
+    assert "RemoveDir(Root);" in cleanup
+
+
+def test_s11_install_assist_runs_after_commit_and_is_nonfatal() -> None:
+    code = code_section(script_text()) + "\n" + setup_assistant_text()
+    commit = code.index("CurStep = ssPostInstall")
+    assist = code.index("InvokePostCommitAssist", commit)
+    assert commit < assist
+    assistant = setup_assistant_text()
+    assist_slice = assistant.split("function YasbSetupAssistRun", 1)[1].split(
+        "procedure InvokeUninstallAssist", 1
+    )[0]
+    assert "Exec(" in assist_slice
+    assert "Log(" in assist_slice
+    assert "RaiseException" not in assist_slice
+
+
+def test_s11_uninstall_dispatches_state_cleanup_only_for_literal_yes() -> None:
     code = code_section(script_text())
-    assert "assistance" not in code.lower()
-    assert "setup-assist" not in code.lower()
-    assert "[run]" not in script_text().lower()
-    assert "Filename:" not in script_text()
+    assistant = setup_assistant_text()
+    assert "InitializeUninstall" in code
+    uninstall = assistant.split("procedure InvokeUninstallAssist", 1)[1]
+    assert "'[\"state-cleanup\"]'" in uninstall
+    assert "'[\"YES\"]'" in uninstall
+    assert uninstall.count("YasbSetupAssistRun(") == 1
+    assert re.search(
+        r"(?is)if\s+CleanupConsent\s+then.*?YasbSetupAssistRun\(.*?"
+        r"'\[\"state-cleanup\"\]',\s*'\[\"YES\"\]'",
+        uninstall,
+    )
+
+
+def test_s11_build_driver_validates_frozen_input_and_passes_explicit_iscc_defines() -> None:
+    driver = setup_build_driver_text()
+    assert "ISCC.exe" in driver or "iscc.exe" in driver.lower()
+    assert "yasb-limitora.exe" in driver
+    assert re.search(r"is_file\(\).*yasb-limitora\.exe|yasb-limitora\.exe.*is_file\(\)", driver, re.IGNORECASE | re.DOTALL)
+    assert re.search(r"/DAppVersion=", driver)
+    assert re.search(r"/DSourceDir=", driver)
+    assert re.search(r"/DOutputDir=", driver)
+    assert "BuildError" in driver or "ValueError" in driver
+    assert "stderr" in driver and "returncode" in driver
