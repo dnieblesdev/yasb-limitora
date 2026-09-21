@@ -1163,3 +1163,11 @@ The implementation preserves no-write behavior and S08 reject-and-preserve byte 
 - **228/350 changed source+test lines**.
 - Rollback boundary: revert only D01b snapshot/assist-wiring changes and their tests/evidence; D01a3b and S08 remain intact.
 - Remaining: D02 owned-field merge and atomic write, D03 rollback/reread verification, and D04 explicit provider selection state.
+
+## D02 — Owned-field merge and atomic write: COMPLETE
+
+- **Implementation:** `request.json` `config-apply` entries now use exactly a `selection` object containing explicitly selected owned paths. The merge consumes the D01b snapshot under the D01a lease, preserves unowned fields and insertion order, validates before mutation, and performs same-directory temporary-file flush/fsync plus atomic replace and reread comparison.
+- **TDD/verification:** focused **73 passed + 1 skipped**; native **11 passed**; full **926 passed + 4 skipped**; Ruff **clean**; diff-check **clean**.
+- **Budget:** **247/250 source+test changed lines**.
+- **Rollback boundary:** revert only D02 merge/write code, request-schema changes, tests, and D02 evidence; D01a/D01b and S08 remain intact.
+- **Remaining:** D03 rollback/reread verification and D04 explicit provider selection state.

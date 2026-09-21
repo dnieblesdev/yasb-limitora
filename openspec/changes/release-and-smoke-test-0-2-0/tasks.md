@@ -163,9 +163,10 @@ Chain strategy: feature-branch-chain
   - **Snapshot contract:** immutable snapshot valid only while the D01a context-managed lease remains owned; D02 must consume the snapshot inside that same ownership scope; lock release in guaranteed cleanup after the consumer finishes; never release before D02 consumes the snapshot.
   - **Final evidence:** 228/350 changed source+test lines; focused 85 passed + 1 skipped; native 11; full 922 passed + 4 skipped; Ruff clean; independent verification passed.
 
-- [ ] **D02 — Owned-field merge and atomic write** (depends on D01b; budget: ≤250 lines; replaces S09 merge/write portion)
+- [x] **D02 — Owned-field merge and atomic write** (depends on D01b; budget: ≤250 lines; replaces S09 merge/write portion)
   - **Route reference:** consumes the D01 immutable snapshot; applies owned-path-only ordered merge; final whole-document validation before write; same-directory temp/flush/fsync/replace; reread verification.
   - **Dependency/invariant:** requires D01 snapshot; preserves S08 reject-and-preserve byte identity; no backup/merge/write occurs in D01.
+  - **Final evidence:** `request.json` carries exactly a `selection` object for explicitly selected owned paths; implementation preserves unowned fields/order, validates before mutation, atomically replaces via same-directory temp with flush/fsync, then rereads and compares. Focused **73 passed + 1 skipped**; native **11 passed**; full **926 passed + 4 skipped**; Ruff and diff-check clean; **247/250** source+test changed lines. Rollback is limited to D02 merge/write, request-schema, tests, and evidence; D01a/D01b and S08 remain intact.
 
 - [ ] **D03 — Config rollback and reread verification** (depends on D02; budget: ≤200 lines)
   - **Route reference:** inject write/final-validation/verify failures to prove restore from backup or deletion of newly created config; reread verification confirms owned paths equal request and unowned fields equal original.

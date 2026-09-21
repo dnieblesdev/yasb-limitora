@@ -11,6 +11,7 @@ travels only in the exclusively created, <=64 KiB result.json, never on stdout.
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import json
 import ntpath
@@ -18,6 +19,8 @@ import os
 import re
 import stat
 import sys
+import tempfile
+import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
@@ -36,6 +39,13 @@ _ALLOWED_OPERATIONS = frozenset({"discover", "yasb-running", "path-add", "path-r
 _PATH_KEY = re.compile(r"path|dir|target|file|location|root|drive", re.IGNORECASE)
 _MAX_OPERATIONS, _MAX_FILE_BYTES, _O_BINARY = 8, 64 * 1024, getattr(os, "O_BINARY", 0)
 _REPARSE = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+_CONFIG_SELECTION_FIELDS = {
+    "deadline_seconds": frozenset(),
+    "codex": frozenset({"enabled", "runner", "timeout_seconds"}),
+    "opencode_go": frozenset({"enabled", "timeout_seconds"}),
+}
+_BACKUP_NAME = re.compile(r"config\\..+\\.json\\Z")
+_GATE_ONE = object()
 
 class _GUID(ctypes.Structure):
     _fields_ = [("data1", ctypes.c_uint32), ("data2", ctypes.c_uint16), ("data3", ctypes.c_uint16), ("data4", ctypes.c_uint8 * 8)]
@@ -144,6 +154,10 @@ def _validate_request(raw: bytes) -> tuple[tuple[tuple[str, object], ...] | None
             if set(item) != {"operation", "consent"} or item.get("consent") != "YES":
                 return None, "schema-violation"
             consent = item["consent"]
+        elif name == "config-apply":
+            if set(item) != {"operation", "selection"} or not _valid_config_selection(item.get("selection")):
+                return None, "schema-violation"
+            consent = item["selection"]
         else:
             if set(item) != {"operation"}:
                 return None, "schema-violation"
@@ -248,24 +262,185 @@ def _config_snapshot(local_appdata: str, *, lease_factory: Callable[..., Any] | 
         return _snapshot_from_owned(path, lease)
 
 
-def _consume_config_snapshot(snapshot: config.ConfigSnapshot, lease: _config_lock.ConfigLease) -> dict[str, object]:
+def _valid_config_selection(selection: object) -> bool:
+    if not isinstance(selection, Mapping) or not selection:
+        return False
+    for key, value in selection.items():
+        allowed = _CONFIG_SELECTION_FIELDS.get(key)
+        if allowed is None:
+            return False
+        if key == "deadline_seconds":
+            continue
+        if not isinstance(value, Mapping) or not value or any(field not in allowed for field in value):
+            return False
+    return True
+
+
+def _ordered_config_document(raw: bytes) -> dict[str, object]:
+    try:
+        document = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object, parse_constant=_reject_constant)
+    except (UnicodeDecodeError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ValueError("invalid configuration document") from error
+    if not isinstance(document, dict):
+        raise TypeError("configuration document is not an object")
+    return document
+
+
+def _merge_config_selection(raw: bytes, selection: Mapping[str, object]) -> bytes:
+    document = _ordered_config_document(raw)
+    for key, value in selection.items():
+        if key == "deadline_seconds":
+            document[key] = value
+            continue
+        current = document.get(key)
+        if current is None:
+            current = {}
+            document[key] = current
+        if not isinstance(current, dict) or not isinstance(value, Mapping):
+            raise TypeError("configuration selection has an invalid provider shape")
+        for field, selected in value.items():
+            current[field] = selected
+    return json.dumps(document, ensure_ascii=True, allow_nan=False).encode("utf-8")
+
+
+def _write_fsynced(path: Path, data: bytes, *, exclusive: bool = True) -> None:
+    flags = os.O_WRONLY | os.O_CREAT | _O_BINARY
+    if exclusive:
+        flags |= os.O_EXCL
+    fd = os.open(path, flags, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            fd = -1
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+    finally:
+        if fd != -1:
+            os.close(fd)
+
+
+def _create_config_backup(path: Path, raw: bytes) -> Path:
+    backup_dir = path.parent / "backups"
+    backup_dir.mkdir(exist_ok=True)
+    if not backup_dir.is_dir():
+        raise OSError("unsafe backup directory")
+    stamp = time.time_ns()
+    backup = backup_dir / f"config.{stamp}.json"
+    while backup.exists():
+        stamp += 1
+        backup = backup_dir / f"config.{stamp}.json"
+    _write_fsynced(backup, raw)
+    return backup
+
+
+def _prune_config_backups(directory: Path) -> None:
+    backups = [
+        entry for entry in directory.iterdir()
+        if _BACKUP_NAME.fullmatch(entry.name) and entry.is_file() and not entry.is_symlink()
+    ]
+    backups.sort(key=lambda entry: (entry.stat().st_mtime_ns, entry.name))
+    for entry in backups[:-5]:
+        entry.unlink()
+
+
+def _atomic_config_write(path: Path, data: bytes) -> None:
+    temporary: str | None = None
+    try:
+        fd, temporary = tempfile.mkstemp(prefix=".config.", suffix=".tmp", dir=str(path.parent))
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        if temporary is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(temporary)
+
+
+def _rollback_config_write(path: Path, backup: Path | None, lease: _config_lock.ConfigLease) -> None:
+    del lease
+    if backup is None:
+        with contextlib.suppress(FileNotFoundError):
+            path.unlink()
+        return
+    _atomic_config_write(path, backup.read_bytes())
+
+
+def _consume_config_snapshot(
+    snapshot: config.ConfigSnapshot,
+    lease: _config_lock.ConfigLease,
+    selection: object = _GATE_ONE,
+    path: str | None = None,
+) -> dict[str, object]:
     if not lease.owned:
         raise OSError("config lease is not owned")
-    if not snapshot.present:
+    if not snapshot.present and selection is _GATE_ONE:
         return {"operation": "config-apply", "status": "refused", "reason": "config-absent"}
     diagnostics = [{"provider": key.value, "reason": "provider-invalid"} for key in sorted(snapshot.provider_errors, key=lambda item: item.value)]
     result: dict[str, object] = {"operation": "config-apply", "status": "refused", "reason": "config-gate-2-unavailable"}
     if diagnostics:
         result["diagnostics"] = diagnostics
-    return result
+    if selection is _GATE_ONE:
+        return result
+    if not _valid_config_selection(selection) or path is None:
+        return {"operation": "config-apply", "status": "refused", "reason": "config-selection-invalid"}
+    if snapshot.provider_errors:
+        return result
+    selected = selection
+    if not isinstance(selected, Mapping):
+        return {"operation": "config-apply", "status": "refused", "reason": "config-selection-invalid"}
+    try:
+        merged = _merge_config_selection(snapshot.raw_bytes if snapshot.raw_bytes is not None else b"{}", selected)
+        config.validate_config_document(merged)
+    except (config.ConfigError, TypeError, ValueError, UnicodeError, OverflowError):
+        return {"operation": "config-apply", "status": "refused", "reason": "config-selection-invalid"}
+    if not lease.owned:
+        raise OSError("config lease is not owned")
+    config_path = Path(path)
+    backup: Path | None = None
+    replaced = False
+    try:
+        if snapshot.present:
+            backup = _create_config_backup(config_path, snapshot.raw_bytes or b"")
+        if not lease.owned:
+            raise OSError("config lease is not owned")
+        _atomic_config_write(config_path, merged)
+        replaced = True
+        if not lease.owned:
+            raise OSError("config lease is not owned")
+        reread = _read_gate_one_config(config_path)
+        config.validate_config_document(reread)
+        if reread != merged:
+            raise OSError("configuration verification failed")
+        if snapshot.present:
+            _prune_config_backups(config_path.parent / "backups")
+        return {"operation": "config-apply", "status": "ok"}
+    except Exception:  # noqa: BLE001 - write path fails closed and attempts rollback
+        if replaced:
+            try:
+                _rollback_config_write(config_path, backup, lease)
+            except OSError:
+                return {"operation": "config-apply", "status": "refused", "reason": "config-rollback-failed"}
+        return {"operation": "config-apply", "status": "refused", "reason": "config-write-failed"}
 
 
-def _config_gate_one(local_appdata: str) -> dict[str, object]:
+def _config_gate_one(local_appdata: str, selection: object = _GATE_ONE) -> dict[str, object]:
     """Validate the existing config once while the fixed-path lease remains owned."""
     path = _config_lock._fixed_config_path(local_appdata)
-    parent_state = _config_parent_state(ntpath.dirname(path))
+    parent = ntpath.dirname(path)
+    parent_state = _config_parent_state(parent)
     if parent_state == "absent":
-        return {"operation": "config-apply", "status": "refused", "reason": "config-absent"}
+        if selection is _GATE_ONE:
+            return {"operation": "config-apply", "status": "refused", "reason": "config-absent"}
+        if not _valid_config_selection(selection):
+            return {"operation": "config-apply", "status": "refused", "reason": "config-selection-invalid"}
+        try:
+            Path(parent).mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return {"operation": "config-apply", "status": "refused", "reason": "configuration-invalid", "diagnostics": [{"field": "config", "reason": "unreadable-input"}]}
+        parent_state = _config_parent_state(parent)
     if parent_state != "present":
         return {"operation": "config-apply", "status": "refused", "reason": "configuration-invalid", "diagnostics": [{"field": "config", "reason": "unreadable-input"}]}
     try:
@@ -276,7 +451,9 @@ def _config_gate_one(local_appdata: str) -> dict[str, object]:
                 return {"operation": "config-apply", "status": "refused", "reason": "configuration-invalid", "diagnostics": [_config_diagnostic(error)]}
             except OSError:
                 return {"operation": "config-apply", "status": "refused", "reason": "configuration-invalid", "diagnostics": [{"field": "config", "reason": "unreadable-input"}]}
-            return _consume_config_snapshot(snapshot, lease)
+            if selection is _GATE_ONE:
+                return _consume_config_snapshot(snapshot, lease)
+            return _consume_config_snapshot(snapshot, lease, selection, path)
     except (_config_lock.GuardError, OSError):
         return {"operation": "config-apply", "status": "refused", "reason": "configuration-invalid", "diagnostics": [{"field": "config", "reason": "unreadable-input"}]}
 
@@ -333,7 +510,7 @@ def _execute(names: tuple[tuple[str, object], ...], environment: Mapping[str, st
                 result = _path_cleanup.cleanup_literal_state(path_registry, state_dir)
                 records.append({"operation": name, "status": "ok"} if result.changed else {"operation": name, "status": "refused", "reason": result.reason or "state-unchanged"})
         elif name == "config-apply":
-            records.append(_config_gate_one(local_appdata))
+            records.append(_config_gate_one(local_appdata) if isinstance(consent, bool) else _config_gate_one(local_appdata, consent))
         else:  # semantics arrive in S09+; a bounded nonfatal refusal keeps the program transaction continuable
             records.append({"operation": name, "status": "refused", "reason": "operation-unavailable"})
     return records

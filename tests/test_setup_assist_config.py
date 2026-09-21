@@ -58,6 +58,53 @@ def test_runtime_valid_config_stops_at_gate_one_without_creating_a_backup_or_tem
     assert sorted(path.name for path in config_path.parent.iterdir()) == ["config.json"]
 
 
+def _run_config_apply(tmp_path, selection=None, raw=None):
+    local_appdata = tmp_path / "local"
+    config_path = local_appdata / "yasb-limitora" / "config.json"
+    if raw is not None:
+        config_path.parent.mkdir(parents=True)
+        config_path.write_bytes(raw)
+    return local_appdata, config_path, sa._execute((("config-apply", selection),), {}, str(local_appdata)) if selection is not None else None
+
+
+def test_config_apply_merges_only_owned_fields_and_preserves_order(tmp_path):
+    _, config_path, records = _run_config_apply(tmp_path, {"deadline_seconds": 12, "codex": {"enabled": True}}, b'{"opencode_go": {"timeout_seconds": 5}, "deadline_seconds": 7, "codex": {"runner": "C:\\\\codex.exe"}}')
+
+    assert records == [{"operation": "config-apply", "status": "ok"}]
+    assert list(__import__("json").loads(config_path.read_text(encoding="utf-8"))) == ["opencode_go", "deadline_seconds", "codex"]
+    assert __import__("json").loads(config_path.read_text(encoding="utf-8")) == {
+        "opencode_go": {"timeout_seconds": 5}, "deadline_seconds": 12,
+        "codex": {"runner": "C:\\codex.exe", "enabled": True}, }
+    backups = list(config_path.parent.joinpath("backups").glob("config.*.json"))
+    assert len(backups) == 1 and backups[0].read_bytes() == b'{"opencode_go": {"timeout_seconds": 5}, "deadline_seconds": 7, "codex": {"runner": "C:\\\\codex.exe"}}'
+
+
+def test_config_apply_rejects_unowned_selection_and_never_writes(tmp_path):
+    _, config_path, records = _run_config_apply(tmp_path, {"custom": True}, b'{"deadline_seconds": 7}')
+
+    assert records == [{"operation": "config-apply", "status": "refused", "reason": "config-selection-invalid"}]
+    assert config_path.read_bytes() == b'{"deadline_seconds": 7}'
+    assert not config_path.parent.joinpath("backups").exists()
+
+
+def test_config_apply_creates_absent_config_only_for_explicit_selection(tmp_path):
+    _, config_path, records = _run_config_apply(tmp_path, {"deadline_seconds": 12})
+
+    assert records == [{"operation": "config-apply", "status": "ok"}]
+    assert __import__("json").loads(config_path.read_text(encoding="utf-8")) == {"deadline_seconds": 12}
+    assert len(list(config_path.parent.joinpath("backups").glob("config.*.json"))) == 0
+
+
+def test_config_apply_failure_restores_original_after_replace_failure(tmp_path, monkeypatch):
+    local_appdata, config_path, _ = _run_config_apply(tmp_path, None, b'{"deadline_seconds": 7}')
+    monkeypatch.setattr(sa.os, "replace", lambda *_args: (_ for _ in ()).throw(OSError("replace failed")))
+    records = sa._execute((("config-apply", {"deadline_seconds": 12}),), {}, str(local_appdata))
+
+    assert records == [{"operation": "config-apply", "status": "refused", "reason": "config-write-failed"}]
+    assert config_path.read_bytes() == b'{"deadline_seconds": 7}'
+    assert not list(config_path.parent.glob(".config.*.tmp"))
+
+
 @pytest.mark.parametrize(
     ("raw", "accepted", "providers"),
     [
@@ -307,9 +354,9 @@ def test_snapshot_is_deeply_immutable(tmp_path):
     snapshot = sa._config_snapshot(local_appdata=str(local_appdata))
 
     with pytest.raises((AttributeError, TypeError)):
-        snapshot.state = "absent"
+        snapshot.state = "absent"  # type: ignore[misc]
     with pytest.raises(AttributeError):
-        snapshot.provider_errors.add("codex")
+        snapshot.provider_errors.add("codex")  # type: ignore[attr-defined]
     assert isinstance(snapshot.raw_bytes, bytes)
 
 
