@@ -173,9 +173,10 @@ Chain strategy: feature-branch-chain
   - **Dependency/invariant:** requires D02 merge/write; preserves S08 byte identity on rollback.
   - **Current candidate (2026-09-20):** implementation and focused/full/Ruff checks pass; native review was started under explicit session authorization but capture binding was rejected before reviewer execution. D03 remains unchecked pending review closure and delivery decision.
 
-- [ ] **D04 — Explicit provider selection state** (depends on D02; budget: ≤200 lines)
+- [x] **D04 — Explicit provider selection state** (depends on D02; budget: ≤200 lines)
   - **Route reference:** `enabled` changes only through explicit selection; missing secret/prerequisite names produce warnings but never veto or alter the selection; unowned valid fields retain order/values.
   - **Dependency/invariant:** requires D02 merge; preserves S08 reject-and-preserve and design.md §4.4 selection-overrides-readiness invariant.
+  - **Final evidence:** focused **35 passed, 1 skipped**; full **936 passed, 4 skipped**; Ruff clean on all three changed source/test files; `git diff --check` clean; budget **166/200 source+test diff lines**. Native review lineage `review-3bf4cb02bc2ce48f` completed all four lenses, approved target `sha256:b45ae3f63c92ebbe56aec8b53fd9ddcddd6d93a2d652b1679fac0f4657d40db6`, and was acknowledged/burned. The informational `R3-relative-runner-readiness` warning at `src/yasb_limitora/setup_assist.py:308` was non-blocking and opened no correction or re-review. Implementation commit: `9f2a0e1` (`feat(config): preserve explicit provider selection`); issue **#293** is approved and open.
 
 - [ ] **S11 — Inno program transaction, assist invocation, and uninstall lifecycle** (depends on S04c, S05–S10, G1 pass, and G2a pass; budget: ≤400 lines)
   - **Files:** `packaging/inno/yasb-limitora.iss`, `packaging/inno/SetupAssistant.isi`, `scripts/build_setup.py`, `tests/test_inno_script.py`.

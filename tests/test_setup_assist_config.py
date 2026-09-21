@@ -67,7 +67,12 @@ def _run_config_apply(tmp_path, selection=None, raw=None):
     return local_appdata, config_path, sa._execute((("config-apply", selection),), {}, str(local_appdata)) if selection is not None else None
 
 
-def test_config_apply_merges_only_owned_fields_and_preserves_order(tmp_path):
+def test_config_apply_merges_only_owned_fields_and_preserves_order(tmp_path, monkeypatch):
+    runner = sa.Path("C:\\codex.exe")
+    is_file = sa.Path.is_file
+    is_symlink = sa.Path.is_symlink
+    monkeypatch.setattr(sa.Path, "is_file", lambda path: True if path == runner else is_file(path))
+    monkeypatch.setattr(sa.Path, "is_symlink", lambda path: False if path == runner else is_symlink(path))
     _, config_path, records = _run_config_apply(tmp_path, {"deadline_seconds": 12, "codex": {"enabled": True}}, b'{"opencode_go": {"timeout_seconds": 5}, "deadline_seconds": 7, "codex": {"runner": "C:\\\\codex.exe"}}')
 
     assert records == [{"operation": "config-apply", "status": "ok"}]
