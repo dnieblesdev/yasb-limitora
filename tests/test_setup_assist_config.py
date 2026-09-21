@@ -10,7 +10,7 @@ import threading
 import pytest  # pyright: ignore[reportMissingImports]
 
 import yasb_limitora.setup_assist as sa
-from yasb_limitora import cli
+from yasb_limitora import _config_lock, cli
 from yasb_limitora.config import ConfigError
 
 
@@ -226,3 +226,102 @@ def test_config_assist_never_creates_config_without_a_completed_wizard_flow(tmp_
 
     assert records == [{"operation": "config-apply", "status": "refused", "reason": "config-absent"}]
     assert not local_appdata.exists()
+
+
+def test_config_parent_has_present_absent_unsafe_tri_state(tmp_path):
+    local_appdata = tmp_path / "local"
+    parent = local_appdata / "yasb-limitora"
+    assert sa._config_parent_state(str(parent)) == "absent"
+    parent.mkdir(parents=True)
+    assert sa._config_parent_state(str(parent)) == "present"
+    parent.rmdir()
+    parent.write_bytes(b"not-a-directory")
+    assert sa._config_parent_state(str(parent)) == "unsafe"
+
+
+def test_absent_parent_returns_snapshot_without_lock_or_state_root(tmp_path):
+    local_appdata = tmp_path / "local"
+    events = []
+
+    def fail_if_acquired(*_args, **_kwargs):
+        events.append("acquired")
+        raise AssertionError("lock must not be acquired for an absent parent")
+
+    snapshot = sa._config_snapshot(local_appdata=str(local_appdata), lease_factory=fail_if_acquired)
+
+    assert snapshot.state == "absent"
+    assert snapshot.raw_bytes is None and snapshot.local_config is None
+    assert snapshot.provider_errors == frozenset()
+    assert events == []
+    assert not local_appdata.exists()
+
+
+def test_snapshot_reads_fixed_path_and_validates_once_while_lease_is_owned(tmp_path, monkeypatch):
+    local_appdata = tmp_path / "local"
+    parent = local_appdata / "yasb-limitora"
+    parent.mkdir(parents=True)
+    raw = b'{"codex":{"enabled":"bad"}}'
+    path = parent / "config.json"
+    path.write_bytes(raw)
+    calls = []
+    lease_states = []
+
+    class Lease:
+        owned = True
+
+    class LeaseContext:
+        def __enter__(self):
+            lease_states.append(Lease.owned)
+            return Lease()
+
+        def __exit__(self, *_args):
+            Lease.owned = False
+
+    def lease_factory(local_appdata):
+        assert local_appdata == str(tmp_path / "local")
+        assert _config_lock._fixed_config_path(local_appdata).replace("\\", "/").endswith("/yasb-limitora/config.json")
+        return LeaseContext()
+
+    original = sa.config.validate_config_document
+
+    def validate_once(raw_bytes, provider_errors):
+        calls.append((raw_bytes, Lease.owned))
+        return original(raw_bytes, provider_errors)
+
+    monkeypatch.setattr(sa.config, "validate_config_document", validate_once)
+    snapshot = sa._config_snapshot(local_appdata=str(local_appdata), lease_factory=lease_factory)
+
+    assert calls == [(raw, True)]
+    assert lease_states == [True]
+    assert snapshot.raw_bytes == raw
+    assert snapshot.local_config is not None
+    assert {key.value for key in snapshot.provider_errors} == {"codex"}
+
+
+def test_snapshot_is_deeply_immutable(tmp_path):
+    local_appdata = tmp_path / "local"
+    parent = local_appdata / "yasb-limitora"
+    parent.mkdir(parents=True)
+    parent.joinpath("config.json").write_bytes(b'{"deadline_seconds":7}')
+
+    snapshot = sa._config_snapshot(local_appdata=str(local_appdata))
+
+    with pytest.raises((AttributeError, TypeError)):
+        snapshot.state = "absent"
+    with pytest.raises(AttributeError):
+        snapshot.provider_errors.add("codex")
+    assert isinstance(snapshot.raw_bytes, bytes)
+
+
+def test_assist_consumes_snapshot_before_lease_release(tmp_path, monkeypatch):
+    local_appdata = tmp_path / "local"
+    parent = local_appdata / "yasb-limitora"
+    parent.mkdir(parents=True)
+    parent.joinpath("config.json").write_bytes(b'{"deadline_seconds":7}')
+    observed = []
+
+    monkeypatch.setattr(sa, "_consume_config_snapshot", lambda snapshot, lease: observed.append((snapshot.state, lease.owned)))
+    result = sa._config_gate_one(str(local_appdata))
+
+    assert result is None
+    assert observed == [("present", True)]

@@ -1143,3 +1143,23 @@ Delivery: `auto-chain`, `feature-branch-chain`; D01a3b only. No config read/vali
 - **278/280 source+test lines:** `src/yasb_limitora/_config_lock.py` **178 changed lines**; `tests/test_config_lock.py` **100 changed lines**.
 - Rollback boundary: revert only the D01a3b `ConfigLease`/fallback integration and its D01a3b tests/evidence records; D01a3a2b remains intact.
 - Remaining: D01b, then D02; D01b depends on D01a3b.
+
+## D01b — Immutable config snapshot and assist wiring: COMPLETE
+
+D01b reuses the fixed config path end to end. Parent tri-state checks run before lock acquisition, and present-config reads use handle-bound `fstat`/read operations under the owned lease. Validation runs exactly once while the lease is held, producing a deeply immutable snapshot for assist consumers. The consumer completes before lease release, preserving the D01a fallback's owned lifecycle and guaranteed cleanup boundary.
+
+The implementation preserves no-write behavior and S08 reject-and-preserve byte identity: D01b performs no backup, merge, or write and does not create the state root. Absent, unsafe, and invalid-config behavior remains fail-closed with sanitized outcomes.
+
+### Verification evidence
+
+- Focused: **85 passed + 1 skipped**.
+- Native Windows proof: **11**.
+- Full suite: **922 passed + 4 skipped**.
+- Ruff: **clean**.
+- Independent verification: **passed**.
+
+### Budget and rollback
+
+- **228/350 changed source+test lines**.
+- Rollback boundary: revert only D01b snapshot/assist-wiring changes and their tests/evidence; D01a3b and S08 remain intact.
+- Remaining: D02 owned-field merge and atomic write, D03 rollback/reread verification, and D04 explicit provider selection state.

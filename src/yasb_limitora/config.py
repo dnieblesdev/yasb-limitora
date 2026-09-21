@@ -25,6 +25,31 @@ _CREDENTIAL_KEY = re.compile(
     r"(?:auth.?cookie|cookie|token|password|secret|credential|api.?key|authorization)",
     re.IGNORECASE,
 )
+CONFIG_PRESENT = "present"
+CONFIG_ABSENT = "absent"
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigSnapshot:
+    """Immutable validation result consumed while its config lease is owned."""
+
+    raw_bytes: bytes | None
+    local_config: "LocalConfig | None"
+    provider_errors: frozenset[ProviderKey]
+    state: str
+
+    def __post_init__(self) -> None:
+        if self.raw_bytes is not None and not isinstance(self.raw_bytes, bytes):
+            object.__setattr__(self, "raw_bytes", bytes(self.raw_bytes))
+        object.__setattr__(self, "provider_errors", frozenset(self.provider_errors))
+        if self.state not in {CONFIG_PRESENT, CONFIG_ABSENT}:
+            raise ConfigError("invalid configuration snapshot state")
+        if self.state == CONFIG_ABSENT and (self.raw_bytes is not None or self.local_config is not None):
+            raise ConfigError("invalid absent configuration snapshot")
+
+    @property
+    def present(self) -> bool:
+        return self.state == CONFIG_PRESENT
 
 
 def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
