@@ -19,15 +19,16 @@ Prove and harden rollback after replacement/final-validation/reread failures, in
 ## Tasks
 - [x] Add RED tests for post-replace failure, owned/unowned reread tampering, absent-config cleanup, and rollback verification.
 - [x] Implement the smallest verified rollback/reread path.
-- [ ] Run native and independent review checks to closure; record final evidence.
+- [x] Run native and independent review checks to closure; record final evidence.
 
-## Candidate evidence
+## Final evidence
 - Source/test diff: 96 authored lines (52 source, 48 tests with 4 deletions), within the <=200 budget.
 - Focused: `python -m pytest -q --strict-markers tests/test_setup_assist_config.py` -> 30 passed, 1 skipped.
 - Full: `python -m pytest -q --strict-markers` -> 931 passed, 4 skipped.
 - Ruff: `python -m ruff check src/yasb_limitora/setup_assist.py tests/test_setup_assist_config.py` -> clean.
 - LSP diagnostics: no reported findings; confirmation timed out/unavailable for the two servers.
-- Native review: started with explicit session authorization, but reviewer capture binding was rejected before any reviewer mutation; no review closure or commit is claimed.
+- Native review: approved and closed; independent verification completed.
+- Delivery: implementation commit `3fc0382`, merged to main as `9c6f0ef` through PR #292; issue #291 is closed.
 
 
 ## Rollback boundary

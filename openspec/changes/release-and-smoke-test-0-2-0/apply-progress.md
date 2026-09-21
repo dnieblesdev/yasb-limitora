@@ -1172,14 +1172,15 @@ The implementation preserves no-write behavior and S08 reject-and-preserve byte 
 - **Rollback boundary:** revert only D02 merge/write code, request-schema changes, tests, and D02 evidence; D01a/D01b and S08 remain intact.
 - **Remaining:** D03 rollback/reread verification and D04 explicit provider selection state.
 
-## D03 — Config rollback and reread verification: CANDIDATE
+## D03 — Config rollback and reread verification: COMPLETE
 
 - **Implementation:** post-replacement reread failures now restore the original backup or delete a newly created config; rollback requires lease ownership and verifies restored bytes/absence; reread checks selected owned paths and preserves unowned fields.
-- **TDD/verification:** focused **30 passed + 1 skipped**; full **931 passed + 4 skipped**; Ruff clean; LSP reported no findings but two server confirmations timed out/unavailable.
+- **TDD/verification:** focused **30 passed + 1 skipped**; full **931 passed + 4 skipped**; Ruff clean; LSP reported no findings but two server confirmations timed out/unavailable. Independent verification completed.
 - **Budget:** **96 authored source/test lines** (within the ≤200 budget).
-- **Native review:** started with explicit session authorization; reviewer capture binding was rejected before reviewer execution, so no review closure is claimed.
+- **Native review:** approved and closed.
+- **Delivery:** implementation commit `3fc0382` merged to main as `9c6f0ef` through PR **#292**; issue **#291** is closed.
 - **Rollback boundary:** revert only D03 rollback/reread code and tests; D01a/D01b, D02 merge/write, and S08 remain intact.
-- **Remaining:** native review closure, then delivery decision/commit if explicitly authorized.
+- **Remaining:** none for D03.
 
 ## D04 — Explicit provider selection state: COMPLETE
 
@@ -1188,4 +1189,4 @@ The implementation preserves no-write behavior and S08 reject-and-preserve byte 
 - **Budget:** **166 source+test diff lines** (160 additions, 6 deletions), within the ≤200-line budget.
 - **Review status:** native review lineage `review-3bf4cb02bc2ce48f` completed all four lenses, approved target `sha256:b45ae3f63c92ebbe56aec8b53fd9ddcddd6d93a2d652b1679fac0f4657d40db6`, and was acknowledged/burned. One non-blocking informational reliability warning remained: `R3-relative-runner-readiness` at `src/yasb_limitora/setup_assist.py:308`; it opened no correction and must not trigger re-review.
 - **Rollback boundary:** revert only D04 readiness-warning code, provider-selection tests, D04 compatibility isolation, and D04 evidence; D01–D03 config snapshot/merge/rollback behavior remains intact.
-- **Delivery:** implementation commit `9f2a0e1` (`feat(config): preserve explicit provider selection`) is recorded. Issue **#293** is approved and open; PR/merge remains pending.
+- **Delivery:** implementation commit `9f2a0e1` (`feat(config): preserve explicit provider selection`) and documentation commit `4ab8e70` merged to main as `dd935dc` through PR **#294**; issue **#293** is closed.
