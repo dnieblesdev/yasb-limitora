@@ -303,6 +303,21 @@ def _merge_config_selection(raw: bytes, selection: Mapping[str, object]) -> byte
     return json.dumps(document, ensure_ascii=True, allow_nan=False).encode("utf-8")
 
 
+def _readiness_warnings(local_config: config.LocalConfig, environment: Mapping[str, str]) -> list[dict[str, str]]:
+    warnings: list[dict[str, str]] = []
+    if local_config.codex.enabled:
+        runner = local_config.codex.runner
+        try:
+            runner_file = isinstance(runner, str) and Path(runner).is_file() and not Path(runner).is_symlink()
+        except OSError:
+            runner_file = False
+        if not runner_file:
+            warnings.append({"provider": "codex", "reason": "runner-not-file", "requirement": "codex-runner-file"})
+    if local_config.opencode_go.enabled and "LIMITORA_OPENCODE_API_KEY" not in environment:
+        warnings.append({"provider": "opencode_go", "reason": "missing-api-key", "requirement": "LIMITORA_OPENCODE_API_KEY"})
+    return warnings
+
+
 def _write_fsynced(path: Path, data: bytes, *, exclusive: bool = True) -> None:
     flags = os.O_WRONLY | os.O_CREAT | _O_BINARY
     if exclusive:
@@ -418,6 +433,7 @@ def _consume_config_snapshot(
     lease: _config_lock.ConfigLease,
     selection: object = _GATE_ONE,
     path: str | None = None,
+    environment: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
     if not lease.owned:
         raise OSError("config lease is not owned")
@@ -438,7 +454,8 @@ def _consume_config_snapshot(
         return {"operation": "config-apply", "status": "refused", "reason": "config-selection-invalid"}
     try:
         merged = _merge_config_selection(snapshot.raw_bytes if snapshot.raw_bytes is not None else b"{}", selected)
-        config.validate_config_document(merged)
+        local_config = config.validate_config_document(merged)
+        warnings = _readiness_warnings(local_config, environment or {})
     except (config.ConfigError, TypeError, ValueError, UnicodeError, OverflowError):
         return {"operation": "config-apply", "status": "refused", "reason": "config-selection-invalid"}
     if not lease.owned:
@@ -460,7 +477,10 @@ def _consume_config_snapshot(
         _verify_config_reread(snapshot.raw_bytes or b"{}", reread, merged, selected)
         if snapshot.present:
             _prune_config_backups(config_path.parent / "backups")
-        return {"operation": "config-apply", "status": "ok"}
+        result: dict[str, object] = {"operation": "config-apply", "status": "ok"}
+        if warnings:
+            result["warnings"] = warnings
+        return result
     except Exception:  # noqa: BLE001 - write path fails closed and attempts rollback
         if replaced:
             try:
@@ -470,7 +490,11 @@ def _consume_config_snapshot(
         return {"operation": "config-apply", "status": "refused", "reason": "config-write-failed"}
 
 
-def _config_gate_one(local_appdata: str, selection: object = _GATE_ONE) -> dict[str, object]:
+def _config_gate_one(
+    local_appdata: str,
+    selection: object = _GATE_ONE,
+    environment: Mapping[str, str] | None = None,
+) -> dict[str, object]:
     """Validate the existing config once while the fixed-path lease remains owned."""
     path = _config_lock._fixed_config_path(local_appdata)
     parent = ntpath.dirname(path)
@@ -497,7 +521,7 @@ def _config_gate_one(local_appdata: str, selection: object = _GATE_ONE) -> dict[
                 return {"operation": "config-apply", "status": "refused", "reason": "configuration-invalid", "diagnostics": [{"field": "config", "reason": "unreadable-input"}]}
             if selection is _GATE_ONE:
                 return _consume_config_snapshot(snapshot, lease)
-            return _consume_config_snapshot(snapshot, lease, selection, path)
+            return _consume_config_snapshot(snapshot, lease, selection, path, environment)
     except (_config_lock.GuardError, OSError):
         return {"operation": "config-apply", "status": "refused", "reason": "configuration-invalid", "diagnostics": [{"field": "config", "reason": "unreadable-input"}]}
 
@@ -554,7 +578,11 @@ def _execute(names: tuple[tuple[str, object], ...], environment: Mapping[str, st
                 result = _path_cleanup.cleanup_literal_state(path_registry, state_dir)
                 records.append({"operation": name, "status": "ok"} if result.changed else {"operation": name, "status": "refused", "reason": result.reason or "state-unchanged"})
         elif name == "config-apply":
-            records.append(_config_gate_one(local_appdata) if isinstance(consent, bool) else _config_gate_one(local_appdata, consent))
+            records.append(
+                _config_gate_one(local_appdata)
+                if isinstance(consent, bool)
+                else _config_gate_one(local_appdata, consent, environment)
+            )
         else:  # semantics arrive in S09+; a bounded nonfatal refusal keeps the program transaction continuable
             records.append({"operation": name, "status": "refused", "reason": "operation-unavailable"})
     return records

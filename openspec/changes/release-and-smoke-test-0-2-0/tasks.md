@@ -176,6 +176,7 @@ Chain strategy: feature-branch-chain
 - [ ] **D04 — Explicit provider selection state** (depends on D02; budget: ≤200 lines)
   - **Route reference:** `enabled` changes only through explicit selection; missing secret/prerequisite names produce warnings but never veto or alter the selection; unowned valid fields retain order/values.
   - **Dependency/invariant:** requires D02 merge; preserves S08 reject-and-preserve and design.md §4.4 selection-overrides-readiness invariant.
+  - **Current candidate (2026-09-20):** implementation and focused/full/Ruff verification pass; budget is **166/200 source+test diff lines**. Native `gentle_review assess` was unassessable because the native command returned empty output, so no native review closure is claimed. No delivery is claimed and D04 remains unchecked.
 
 - [ ] **S11 — Inno program transaction, assist invocation, and uninstall lifecycle** (depends on S04c, S05–S10, G1 pass, and G2a pass; budget: ≤400 lines)
   - **Files:** `packaging/inno/yasb-limitora.iss`, `packaging/inno/SetupAssistant.isi`, `scripts/build_setup.py`, `tests/test_inno_script.py`.

@@ -1180,3 +1180,12 @@ The implementation preserves no-write behavior and S08 reject-and-preserve byte 
 - **Native review:** started with explicit session authorization; reviewer capture binding was rejected before reviewer execution, so no review closure is claimed.
 - **Rollback boundary:** revert only D03 rollback/reread code and tests; D01a/D01b, D02 merge/write, and S08 remain intact.
 - **Remaining:** native review closure, then delivery decision/commit if explicitly authorized.
+
+## D04 — Explicit provider selection state: CANDIDATE
+
+- **Implementation:** explicit selection alone changes provider `enabled`; preserved enabled values participate in readiness checks; OpenCode and Codex prerequisite issues produce bounded name-only warnings without vetoing valid merges, changing state, or exposing values/paths.
+- **TDD/verification:** strict-TDD RED recorded 2 initial focused missing-warning failures; correction RED recorded `AssertionError: secret value inspected`. Final focused **35 passed, 1 skipped**; full **936 passed, 4 skipped**; Ruff clean on all three changed source/test files; `git diff --check` clean. Independent verifier confirmed all D04 contract points.
+- **Budget:** **166 source+test diff lines** (160 additions, 6 deletions), within the ≤200-line budget.
+- **Review status:** native `gentle_review assess` was unassessable because the native command returned empty output; no native review closure is claimed.
+- **Rollback boundary:** revert only D04 readiness-warning code, provider-selection tests, D04 compatibility isolation, and D04 evidence; D01–D03 config snapshot/merge/rollback behavior remains intact.
+- **Remaining:** native review/delivery decision; no commit or delivery authorization exists.
