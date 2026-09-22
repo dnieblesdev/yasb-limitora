@@ -91,3 +91,28 @@ proof: the rollback Execs the new uninstaller with `/VERYSILENT /SUPPRESSMSGBOXE
 - A suppressed `IDCANCEL` makes the manual-close gate fail closed under silence, so the uninstaller
   aborts and the rollback continues down the existing filesystem-restore path. The existing rollback
   code already handles a non-zero uninstaller result, and a test asserts it does not ignore it.
+
+## Native review
+
+- Lineage `review-cb2dbb877619cd93`, target
+  `sha256:bd91306e3bda7b7b2a59c0630d0c24ec85db746ad9c3fffdce8d8ff33407d5c6`, tier **high**, 133 changed
+  lines, correction budget 67, four lenses in order: `review-risk`, `review-resilience`,
+  `review-readability`, `review-reliability`.
+- Verdict **approved** on the last admitted event with all four reviewers prepared and submitted.
+  Authority is burned (`gentle-ai.review-acknowledged/v1`), so delivery follows ordinary repository
+  policy and the review grants no delivery authority by itself.
+- Advisory finding `R2-001` (lens readability, `odd/tasks/g1-rollback-consent-gate.md:80-81`,
+  severity SUGGESTION, disposition informational) targets the footprint statement. It is
+  non-blocking: it opened no correction, and the closure states it is never a reason to re-run the
+  review on this candidate. Left unaddressed by decision and recorded here as later work.
+- Reviewed commit identity:
+  `355838f fix(installer): make uninstall prompts suppressible`, containing exactly the reviewed
+  bytes of these three paths.
+- Blockers hit while obtaining the review, and how each was cleared: the lens models resolve through
+  the interactive session's model list, which did not contain
+  `qwen-token-plan-individual/deepseek-v4.1-flash`, so every submission failed with
+  `reviewer-model-not-found`; adding that model to `~/.pi/agent/models.json` by the pi documentation's
+  built-in-provider merge semantics, plus a Pi reload to rebuild the session's list, restored
+  resolution; the concurrent four-lens group then hit one provider `429` and succeeded after the rate
+  window passed. The three failed submissions ran no reviewer and mutated nothing
+  (`mutation_performed: none`), and the lineage survived them unchanged.
