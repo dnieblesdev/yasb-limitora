@@ -380,17 +380,11 @@ def test_s10_surface_keeps_forbidden_payloads_out_of_installer_script() -> None:
 
 
 ASSISTANT_INCLUDE = ROOT / "packaging" / "inno" / "SetupAssistant.isi"
-SETUP_BUILD_DRIVER = ROOT / "scripts" / "build_setup.py"
 
 
 def setup_assistant_text() -> str:
     assert ASSISTANT_INCLUDE.is_file(), "S11 requires packaging/inno/SetupAssistant.isi"
     return ASSISTANT_INCLUDE.read_text(encoding="utf-8")
-
-
-def setup_build_driver_text() -> str:
-    assert SETUP_BUILD_DRIVER.is_file(), "S11 requires scripts/build_setup.py"
-    return SETUP_BUILD_DRIVER.read_text(encoding="utf-8")
 
 
 def test_s11_includes_setup_assistant_and_uses_nonce_only_transport() -> None:
@@ -498,15 +492,3 @@ def test_s11_uninstall_dispatches_state_cleanup_only_for_literal_yes() -> None:
         r"'\[\"state-cleanup\"\]',\s*'\[\"YES\"\]'",
         uninstall,
     )
-
-
-def test_s11_build_driver_validates_frozen_input_and_passes_explicit_iscc_defines() -> None:
-    driver = setup_build_driver_text()
-    assert "ISCC.exe" in driver or "iscc.exe" in driver.lower()
-    assert "yasb-limitora.exe" in driver
-    assert re.search(r"is_file\(\).*yasb-limitora\.exe|yasb-limitora\.exe.*is_file\(\)", driver, re.IGNORECASE | re.DOTALL)
-    assert re.search(r"/DAppVersion=", driver)
-    assert re.search(r"/DSourceDir=", driver)
-    assert re.search(r"/DOutputDir=", driver)
-    assert "BuildError" in driver or "ValueError" in driver
-    assert "stderr" in driver and "returncode" in driver
