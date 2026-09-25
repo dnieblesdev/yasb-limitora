@@ -584,3 +584,42 @@ def test_slice2_is_absolute_path_accepts_drive_and_unc() -> None:
         ("Pos" in func_body and "Length" in func_body)
     )
     assert has_validation, "UNC validation must check server and share components"
+
+
+def test_provider_page_combos_assign_parent_before_handle_dependent_properties() -> None:
+    """VCL rule: a control's window handle exists only after Parent is assigned,
+    so handle-dependent properties (Style, Items, ItemIndex) must come after Parent.
+    Violating this order causes 'Control has no parent window' at runtime."""
+    code = code_section(script_text())
+    # Isolate CreateProviderPage body
+    proc_start = code.find("procedure CreateProviderPage;")
+    assert proc_start != -1, "CreateProviderPage not found"
+    # Slice until the next top-level procedure/function
+    proc_body = code[proc_start:]
+    next_boundary = re.search(r"\n(?:function|procedure)\s+\w+", proc_body[10:])
+    if next_boundary:
+        proc_body = proc_body[: 10 + next_boundary.start()]
+
+    for combo_name in ("CodexCombo", "OpencodeCombo"):
+        create_pos = proc_body.find(f"{combo_name} := TNewComboBox.Create(")
+        assert create_pos != -1, f"{combo_name} Create not found in CreateProviderPage"
+        # Find the first Parent assignment for this control after Create
+        parent_pattern = re.compile(
+            rf"\b{re.escape(combo_name)}\.Parent\s*:=",
+        )
+        parent_match = parent_pattern.search(proc_body, create_pos)
+        assert parent_match is not None, f"{combo_name}.Parent assignment not found"
+        parent_pos = parent_match.start()
+        # Check that Style, Items, and ItemIndex assignments on this control
+        # all appear AFTER Parent
+        for prop in ("Style", "Items", "ItemIndex"):
+            prop_pattern = re.compile(
+                rf"\b{re.escape(combo_name)}\.{prop}\b",
+            )
+            prop_match = prop_pattern.search(proc_body, create_pos)
+            if prop_match is not None:
+                assert prop_match.start() > parent_pos, (
+                    f"{combo_name}.{prop} at offset {prop_match.start()} must appear "
+                    f"AFTER {combo_name}.Parent at offset {parent_pos} "
+                    f"(VCL requires Parent before handle-dependent properties)"
+                )
