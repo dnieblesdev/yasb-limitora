@@ -1206,7 +1206,7 @@ Date: 2026-09-21 (local).
 - The original S11 candidate exceeded the ≤400-line budget and is being reworked as the two bounded sub-slices S11a and S11b, each with its own ≤400-line budget.
 - Actual install/reinstall/upgrade/uninstall lifecycle proof remains pending. This note records no completion for S11, S11a, or S11b; no task checkbox is being marked complete.
 
-## S11a — latest compact-refactor evidence (PENDING)
+## S11a — latest compact-refactor evidence (SUPERSEDED BY THE S11b CLOSURE SECTION BELOW)
 
 - `SetupAssistant.isi` is reduced to **249 lines**, within the S11a ≤400-line candidate budget.
 - Focused verification: `python -m pytest -q --strict-markers tests/test_inno_script.py tests/test_setup_assist_protocol.py` → **80 passed**.
@@ -1216,7 +1216,52 @@ Date: 2026-09-21 (local).
 - S11a and S11b remain unchecked because real install/reinstall/upgrade/uninstall lifecycle proof is pending.
 - The S11a/S11b split and the ≤400-line budget for each candidate are preserved.
 
-## S11b — verification evidence (PENDING)
+## S11b — lifecycle closure evidence (RECORDED ON OLD BRANCH; PENDING REBUILD ON THIS BRANCH)
+
+> **Branch reconciliation note.** This section was recorded on the old branch
+> (`feat/s11b-transaction-closeout-reconciled`, head `84ddcb3`). The lifecycle proof, setup hashes,
+> checkpoint identities, and verification results below were produced on that tree and do not describe
+> `feat/s11b-transaction-closeout-v2` (head `e0c2794`). A fresh disposable-VM cycle on an artifact
+> rebuilt from this branch is pending; no proof is claimed for this tree until that rebuild and cycle
+> complete. The historical record is preserved below for continuity.
+
+Date: 2026-09-23 (local, old branch). This section supersedes the S11a/S11b pending notes above, including the stale
+`pyinstaller_missing` blocker (PyInstaller 6.22.3 is installed and the frozen build plus native compile run).
+
+- **S11a base on this branch.** The S11a base on `feat/s11b-transaction-closeout-v2` has the typed
+  operations, the provider page, and the registry ownership gate. C2 (cleanup decoupled from PATH
+  bookkeeping) and C3 (truthful config assistance) were deliberately dropped by user decision; only
+  C1's uninstall `path-remove` fragment (commit `d4b4013`) was carried from the correction slices.
+- **Bounded transaction closeout and build driver (S11b side).** Canonical-directory ownership for the
+  same-path new uninstaller, fail-closed post-restoration `.failed` cleanup, and a bounded absolute-path,
+  version-bound build driver; footprint 390/400 lines, focused **95 passed**, native Windows **11 passed**,
+  full suite **959 passed / 4 skipped**, frozen build for `0.2.0`, native ISCC compile producing exactly one
+  temporary setup (old branch; setup hash must be produced by a rebuild on this branch and is not yet recorded).
+- **B1 correction.** `ConfirmStateCleanup` and `PromptManualClose` are `SuppressibleMsgBox` with fail-safe
+  suppressed defaults `IDNO` and `IDCANCEL`; proven by contract tests, a native compile, and the reviewed
+  commit `355838f` (`odd/tasks/g1-rollback-consent-gate.md`).
+- **Lifecycle proof (zero-touch re-run, old branch).** Eight declared scenarios executed unattended against the r8 input
+  set, all `success` in about 26 minutes (checkpoint and setup identities are from the old branch and not valid on this branch):
+  - first-install 178.2 s from a clean baseline;
+  - reinstall 191.2 s; upgrade 212.7 s;
+  - fault-registry-phase 193.6 s; fault-post-bookkeeping 235.0 s;
+  - locked-file 211.9 s;
+  - uninstall-preserve 200.0 s and explicit-cleanup 193.1 s.
+- **Explicit-cleanup outcome correction for this branch.** On the old branch, explicit-cleanup answered
+  YES and the state-root fixture was removed. On this branch, the `state-cleanup` assist requires the
+  registry ownership proof, so it refuses with `state-record-missing`, the installer logs
+  `assistant reported non-zero exit (code 1)`, and the fixture state remains. That refusal is the
+  **correct** outcome — the ownership gate working as designed.
+- **Independent verification (old branch).** Read-only `gentle-ai-verify` returned
+  `PASS_WITH_FINDINGS`. Two findings: **C5** — subsequently **PASS with caveats** on the old branch;
+  on this branch the C5 dynamic proof is pending a fresh rebuild. **C10** — mitigated for
+  forward-looking runs only.
+- **Status on this branch.** S11a and S11b are NOT marked complete on this branch. The recorded
+  lifecycle proof and C5 dynamic proof were run on payloads built from the old branch, so they
+  establish nothing for this tree. A fresh disposable-VM cycle on an artifact rebuilt from
+  `feat/s11b-transaction-closeout-v2` is pending.
+
+## S11b — verification evidence (SUPERSEDED BY THE SECTION ABOVE)
 
 - Build-driver static checks and Ruff pass.
 - Full suite: **942 passed, 4 skipped**.
