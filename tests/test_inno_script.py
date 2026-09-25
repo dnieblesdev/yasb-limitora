@@ -623,3 +623,90 @@ def test_provider_page_combos_assign_parent_before_handle_dependent_properties()
                     f"AFTER {combo_name}.Parent at offset {parent_pos} "
                     f"(VCL requires Parent before handle-dependent properties)"
                 )
+
+
+# --- Bounded reason channel (installer side) ---
+
+def test_s11_reason_channel_env_constant_and_bounded_read() -> None:
+    """The installer defines a reason env var, sets it before Exec, reads the
+    bounded reason file after non-zero exit, logs it, then clears and deletes."""
+    assistant = setup_assistant_text()
+    # Constant for the reason environment variable
+    assert "YasbSetupAssistReasonEnvironment" in assistant
+    assert "_YASB_SETUP_ASSIST_REASON" in assistant
+    # Bounded read constant
+    assert "YasbSetupAssistMaxReasonBytes" in assistant
+    # The run function sets the reason env var before Exec
+    run = assistant.split("function YasbSetupAssistRun", 1)[1].split(
+        "procedure InvokePostCommitAssist", 1
+    )[0]
+    assert "YasbSetupAssistReasonEnvironment" in run
+    assert "SetEnvironmentVariableW(YasbSetupAssistReasonEnvironment" in run
+    # After non-zero exit, reads bounded reason and logs it
+    assert "assistant reported non-zero exit: " in run
+    # Clears the reason env var in the finally block
+    assert "SetEnvironmentVariableW(YasbSetupAssistReasonEnvironment, '')" in run
+    # Deletes the reason file
+    assert "DeleteFile(ReasonPath)" in run
+
+
+def test_s11_reason_channel_helper_is_bounded() -> None:
+    """The reason reader truncates to the bounded size."""
+    assistant = setup_assistant_text()
+    assert "YasbSetupAssistReadBoundedReason" in assistant
+    # The helper uses the max-bytes constant for truncation
+    helper = assistant.split("function YasbSetupAssistReadBoundedReason", 1)[1].split(
+        "\nend;", 1
+    )[0]
+    assert "YasbSetupAssistMaxReasonBytes" in helper
+
+
+def test_s11_reason_channel_missing_file_keeps_generic_line() -> None:
+    """Missing or empty reason file keeps the generic log line."""
+    assistant = setup_assistant_text()
+    run = assistant.split("function YasbSetupAssistRun", 1)[1].split(
+        "procedure InvokePostCommitAssist", 1
+    )[0]
+    # The generic line is still present for the missing/empty case
+    assert "assistant reported non-zero exit" in run
+    # The bounded reason is appended only when available
+    assert "Length(ReasonText) > 0" in run or "ReasonText <> ''" in run
+
+
+# --- Scenario 10: owned-cleanup ---
+
+SCENARIO_DIR = ROOT / "build" / "s11a-lifecycle" / "scenarios"
+
+
+def test_scenario_10_owned_cleanup_shape() -> None:
+    """Scenario 10 establishes PATH ownership first, then cleans up."""
+    import json
+    scenario_path = SCENARIO_DIR / "10-owned-cleanup.json"
+    assert scenario_path.is_file(), "10-owned-cleanup.json must exist"
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    assert scenario["schema"] == "gentle-ai.yasb-limitora.s11b-scenario/v1"
+    assert scenario["scenario"] == "owned-cleanup"
+    assert scenario["shutdownWhenDone"] is True
+    steps = scenario["steps"]
+    kinds = [s["kind"] for s in steps]
+    # Setup step selects the PATH-recording task
+    setup_steps = [s for s in steps if s["kind"] == "setup"]
+    assert len(setup_steps) >= 1
+    install_setup = setup_steps[0]
+    assert "/TASKS=addtopath" in install_setup["argumentList"]
+    # fixture-state-root step is present
+    assert "fixture-state-root" in kinds
+    fixture = next(s for s in steps if s["kind"] == "fixture-state-root")
+    assert len(fixture["files"]) >= 1
+    # Two capture steps: before and after
+    captures = [s for s in steps if s["kind"] == "capture"]
+    assert len(captures) == 2
+    phases = [c["phase"] for c in captures]
+    assert "before" in phases
+    assert "after" in phases
+    # Uninstall step is present
+    assert "uninstall" in kinds
+    # Dialog answer is declared
+    answers = scenario.get("dialogAnswers", [])
+    assert len(answers) >= 1
+    assert any(a["answer"] == "YES" for a in answers)

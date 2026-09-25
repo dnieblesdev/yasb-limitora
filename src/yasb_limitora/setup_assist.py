@@ -31,7 +31,9 @@ from .path import MAX_CONFIG_BYTES
 _SETUP_ASSIST_FLAG = "--__yasb-limitora-setup-assist"
 _NONCE_ENV = "_YASB_SETUP_ASSIST_NONCE"
 _REQUEST_ENV = "_YASB_SETUP_ASSIST_REQUEST"
+_REASON_ENV = "_YASB_SETUP_ASSIST_REASON"
 _NONCE = re.compile(r"[0-9a-f]{32}")
+_MAX_REASON_BYTES = 256
 _REQUEST_SCHEMA = "gentle-ai.yasb-limitora.setup-assist-request/v1"
 _RESULT_SCHEMA = "gentle-ai.yasb-limitora.setup-assist-result/v1"
 _TRANSPORT_SEGMENTS = ("Temp", "yasb-limitora-setup-assist")
@@ -590,6 +592,23 @@ def _execute(names: tuple[tuple[str, object], ...], environment: Mapping[str, st
             records.append({"operation": name, "status": "refused", "reason": "operation-unavailable"})
     return records
 
+def _write_reason(environment: Mapping[str, str], reason: str) -> None:
+    """Best-effort write of a bounded reason code to the reason file path.
+
+    Only writes if the environment variable names an absolute path.
+    Truncates to _MAX_REASON_BYTES. Never changes the exit code.
+    """
+    path = environment.get(_REASON_ENV, "")
+    if not path or not ntpath.isabs(path):
+        return
+    try:
+        bounded = reason[:_MAX_REASON_BYTES]
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(bounded)
+    except OSError:
+        pass  # best-effort: unreadable or unwritable path must not change exit code
+
+
 def _run_setup_assist(environment: Mapping[str, str], *, local_appdata: str | None = None,
                       fs: FsView = discovery.REAL_FS, appdata_resolver: Callable[[], str | None] = resolve_local_appdata,
                       registry: _path_cleanup.UserPathRegistry | None = None) -> int:
@@ -598,24 +617,40 @@ def _run_setup_assist(environment: Mapping[str, str], *, local_appdata: str | No
         try:
             raw_bytes = raw_request.encode("utf-8")
         except UnicodeEncodeError:
+            _write_reason(environment, "request-undecodable")
             return 1
         names, violation = _validate_request(raw_bytes)
         if violation is not None or names is None:
+            _write_reason(environment, violation or "request-malformed")
             return 1
         resolved = local_appdata if local_appdata is not None else appdata_resolver()
         if not isinstance(resolved, str) or (canonical := _canonical_local_dir(resolved)) is None:
+            _write_reason(environment, "appdata-unsafe")
             return 1
         records = _execute(names, environment, canonical, registry)
-        return 0 if all(record["status"] == "ok" for record in records) else 1
+        if not all(record["status"] == "ok" for record in records):
+            # Write the first non-ok operation's reason
+            for record in records:
+                if record["status"] != "ok":
+                    reason = record.get("reason", "operation-failed")
+                    if isinstance(reason, str):
+                        _write_reason(environment, reason)
+                    break
+            return 1
+        return 0
     if not _valid_nonce(environment.get(_NONCE_ENV, "")):
+        _write_reason(environment, "nonce-invalid")
         return 1  # nonce grammar is validated before any filesystem access
     resolved = local_appdata if local_appdata is not None else appdata_resolver()
     if not isinstance(resolved, str) or (canonical := _canonical_local_dir(resolved)) is None:
+        _write_reason(environment, "appdata-unsafe")
         return 1
     root = _derive_transport_root(canonical, str(environment[_NONCE_ENV]))
     if not _components_safe(root, fs):
+        _write_reason(environment, "transport-unsafe")
         return 1  # unsafe or reparse transport component: refuse without writing
     if not fs.is_dir(root):
+        _write_reason(environment, "transport-missing")
         return 1  # the assist never creates the nonce directory; setup.exe owns it
     data, defect = _read_request(ntpath.join(root, "request.json"), fs)
     names, violation = _validate_request(data or b"") if defect is None else (None, None)
@@ -623,9 +658,19 @@ def _run_setup_assist(environment: Mapping[str, str], *, local_appdata: str | No
         reason = defect or violation or "request-malformed"
         refusal = {"schema": _RESULT_SCHEMA, "status": "refused", "operations": [{"operation": "request", "status": "refused", "reason": reason}]}
         _write_result(root, refusal, fs)
+        _write_reason(environment, reason)
         return 1
     records = _execute(names, environment, canonical, registry)
     status = "complete" if all(record["status"] == "ok" for record in records) else "partial"
     if not _write_result(root, {"schema": _RESULT_SCHEMA, "status": status, "operations": records}, fs):
+        _write_reason(environment, "result-write-failed")
         return 1
+    if status != "complete":
+        # Write the first non-ok operation's reason
+        for record in records:
+            if record["status"] != "ok":
+                reason = record.get("reason", "operation-failed")
+                if isinstance(reason, str):
+                    _write_reason(environment, reason)
+                break
     return 0 if status == "complete" else 1
