@@ -633,10 +633,15 @@ result.json file exchange; the assist module retains the nonce-derived file tran
 unreachable fallback code, but the CLI entry point dispatches only when `_REQUEST_ENV` is
 non-empty. The Inno producer generates typed operation objects that satisfy the strict
 Python `{schema, operations}` validator; each operation carries its fixed typed consent field.
-The installer emits no provider-selection operation (`config-apply`) without an explicit
-user selection UI; the `configassist` checkbox is a separate consent gate that does not
-alter provider enabled state. This environment/exit-code contract supersedes the file-based
-flows elsewhere in this design; those passages are historical, not active.
+The installer emits a provider-selection operation (`config-apply`) only when the
+`configassist` consent gate is selected and the user makes at least one explicit provider
+choice (unchanged/enabled/disabled) on the provider configuration page. The `configassist`
+checkbox is a separate consent gate; the provider page appears only when it is checked.
+Both provider controls default to unchanged; unchanged choices are omitted from the
+selection so Python leaves existing state untouched. Enabling Codex requires an absolute
+runner path, validated in Inno before serialization. When all choices are unchanged, the
+existing discover fallback is retained. This environment/exit-code contract supersedes
+the file-based flows elsewhere in this design; those passages are historical, not active.
 
 | Transport | Verdict | Reason |
 | --- | --- | --- |

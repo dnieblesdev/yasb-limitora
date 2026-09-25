@@ -58,6 +58,13 @@ var
   EnvBlockConsent: Boolean;
   ConfigWizardConsent: Boolean;
   CleanupConsent: Boolean;
+  CodexChoice: Integer;
+  OpencodeChoice: Integer;
+  CodexRunnerPath: String;
+  ProviderPage: TInputFileWizardPage;
+  CodexCombo: TNewComboBox;
+  OpencodeCombo: TNewComboBox;
+  RunnerInputIdx: Integer;
 
 { G1 contract: pre-install evacuation only.
   canonical -> .old before native copy/register.
@@ -270,7 +277,7 @@ begin
     EvacuatedOldDir := '';
   end;
   if CurStep = ssPostInstall then
-    InvokePostCommitAssist(AddToPathConsent, EnvBlockConsent, ConfigWizardConsent);
+    InvokePostCommitAssist(AddToPathConsent, EnvBlockConsent, ConfigWizardConsent, CodexChoice, OpencodeChoice, CodexRunnerPath);
 end;
 
 procedure DeinitializeSetup;
@@ -279,12 +286,108 @@ begin
     RestoreEvacuatedPriorInstall;
 end;
 
+function IsAbsolutePath(const S: String): Boolean;
+var
+  I: Integer;
+  HasServer, HasShare: Boolean;
+begin
+  Result := False;
+  if Length(S) < 3 then Exit;
+
+  // Check for drive-rooted: C:\
+  if (S[2] = ':') and ((S[3] = '\') or (S[3] = '/')) then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  // Check for UNC: \\server\share
+  if (Length(S) >= 5) and (S[1] = '\') and (S[2] = '\') then
+  begin
+    HasServer := False;
+    HasShare := False;
+
+    // Scan for server name (non-empty, no backslash)
+    I := 3;
+    while (I <= Length(S)) and (S[I] <> '\') do
+    begin
+      HasServer := True;
+      Inc(I);
+    end;
+
+    if not HasServer or (I > Length(S)) then Exit; // no server or no separator
+
+    // Skip the backslash after server
+    Inc(I);
+
+    // Scan for share name (non-empty)
+    while (I <= Length(S)) and (S[I] <> '\') do
+    begin
+      HasShare := True;
+      Inc(I);
+    end;
+
+    Result := HasShare;
+  end;
+end;
+procedure OnCodexComboChange(Sender: TObject);
+begin
+  ProviderPage.Edits[RunnerInputIdx].Enabled := (CodexCombo.ItemIndex = 1);
+  ProviderPage.Buttons[RunnerInputIdx].Enabled := (CodexCombo.ItemIndex = 1);
+end;
+procedure CreateProviderPage;
+var Y: Integer;
+begin
+  ProviderPage := CreateInputFilePage(wpSelectTasks, 'Provider Configuration',
+    'Choose provider states for the optional configuration wizard.', '');
+  RunnerInputIdx := ProviderPage.Add('Codex runner path (absolute; required when enabling):',
+    'Executable Files|*.exe|All Files|*.*', 'exe');
+  ProviderPage.Edits[RunnerInputIdx].Enabled := False;
+  ProviderPage.Buttons[RunnerInputIdx].Enabled := False;
+  Y := ProviderPage.Edits[RunnerInputIdx].Top + ProviderPage.Edits[RunnerInputIdx].Height + ScaleY(12);
+  with TNewStaticText.Create(ProviderPage) do begin
+    Caption := 'Codex:'; Top := Y; AutoSize := True; Parent := ProviderPage.Surface;
+  end;
+  Y := Y + ScaleY(20);
+  CodexCombo := TNewComboBox.Create(ProviderPage);
+  CodexCombo.Style := csDropDownList;
+  CodexCombo.Items.Add('Unchanged'); CodexCombo.Items.Add('Enabled'); CodexCombo.Items.Add('Disabled');
+  CodexCombo.ItemIndex := 0; CodexCombo.Top := Y; CodexCombo.Width := ScaleX(200);
+  CodexCombo.OnChange := @OnCodexComboChange;
+  CodexCombo.Parent := ProviderPage.Surface;
+  Y := Y + ScaleY(28);
+  with TNewStaticText.Create(ProviderPage) do begin
+    Caption := 'OpenCode Go:'; Top := Y; AutoSize := True; Parent := ProviderPage.Surface;
+  end;
+  Y := Y + ScaleY(20);
+  OpencodeCombo := TNewComboBox.Create(ProviderPage);
+  OpencodeCombo.Style := csDropDownList;
+  OpencodeCombo.Items.Add('Unchanged'); OpencodeCombo.Items.Add('Enabled'); OpencodeCombo.Items.Add('Disabled');
+  OpencodeCombo.ItemIndex := 0; OpencodeCombo.Top := Y; OpencodeCombo.Width := ScaleX(200);
+  OpencodeCombo.Parent := ProviderPage.Surface;
+end;
+function CaptureProviderChoices: Boolean;
+begin
+  CodexChoice := CodexCombo.ItemIndex;
+  OpencodeChoice := OpencodeCombo.ItemIndex;
+  CodexRunnerPath := Trim(ProviderPage.Values[RunnerInputIdx]);
+  if (CodexChoice = 1) and not IsAbsolutePath(CodexRunnerPath) then begin
+    MsgBox('Codex runner path must be an absolute path when enabling Codex.', mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+  Result := True;
+end;
 procedure InitializeWizard;
 begin
   AddToPathConsent := False;
   EnvBlockConsent := False;
   ConfigWizardConsent := False;
   CleanupConsent := False;
+  CodexChoice := 0;
+  OpencodeChoice := 0;
+  CodexRunnerPath := '';
+  CreateProviderPage;
 end;
 
 function CaptureInstallConsent: Boolean;
@@ -295,11 +398,19 @@ begin
   Result := True;
 end;
 
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := False;
+  if (ProviderPage <> nil) and (PageID = ProviderPage.ID) and not ConfigWizardConsent then
+    Result := True;
+end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
   if CurPageID = wpSelectTasks then
     Result := CaptureInstallConsent;
+  if (CurPageID = ProviderPage.ID) and Result then
+    Result := CaptureProviderChoices;
 end;
 
 function ConfirmStateCleanup: Boolean;

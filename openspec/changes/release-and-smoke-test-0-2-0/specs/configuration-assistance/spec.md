@@ -84,6 +84,21 @@ A provider MUST become enabled or disabled only as a result of an explicit user 
 - THEN the provider enabled state reflects that explicit selection
 - AND the wizard warns that the provider may not work until the missing requirement is satisfied
 
+#### Scenario: Installer tri-state controls default to unchanged
+
+- GIVEN the user checks the `configassist` consent gate in the installer
+- AND the provider configuration page appears with tri-state controls (unchanged, enabled, disabled) for each provider
+- WHEN the user leaves both provider controls at the default unchanged
+- THEN no `config-apply` operation is emitted
+- AND the existing discover fallback is used instead
+
+#### Scenario: Installer Codex enable requires absolute runner path
+
+- GIVEN the user selects enabled for Codex in the installer provider page
+- WHEN the runner path is empty or not absolute
+- THEN the installer rejects the page advance
+- AND no `config-apply` operation is emitted for that selection
+
 ### Requirement: Provider ownership and credential boundaries remain intact
 
 The provider wizard MUST NOT implement or duplicate provider authentication, transport, selection logic, or interpretation outside the established Limitora ownership boundary. Credentials and secrets MUST remain in the existing YASB startup-loaded environment or effective environment and MUST NOT be copied into `config.json`, installer arguments, logs, output, fixtures, reports, or release artifacts.
