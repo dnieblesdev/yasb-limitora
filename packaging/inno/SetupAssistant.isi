@@ -4,12 +4,10 @@ const
   YasbSetupAssistResultSchema = 'gentle-ai.yasb-limitora.setup-assist-result/v1';
   YasbSetupAssistNonceEnvironment = '_YASB_SETUP_ASSIST_NONCE';
   YasbSetupAssistRequestEnvironment = '_YASB_SETUP_ASSIST_REQUEST';
-  YasbSetupAssistReasonEnvironment = '_YASB_SETUP_ASSIST_REASON';
   YasbSetupAssistSwitch = '--__yasb-limitora-setup-assist';
   YasbSetupAssistRequestName = 'request.json';
   YasbSetupAssistResultName = 'result.json';
   YasbSetupAssistMaxResultBytes = 64 * 1024;
-  YasbSetupAssistMaxReasonBytes = 256;
   YasbSetupAssistMaxOperations = 8;
   YasbSetupAssistYes = 'YES';
 function SetEnvironmentVariableW(const Name, Value: String): Boolean;
@@ -197,17 +195,6 @@ function YasbSetupAssistResultFile(const Root: String): String;
 begin Result := Root + '\' + YasbSetupAssistResultName; end;
 procedure YasbSetupAssistLog(const Message: String);
 begin try Log('[yasb-limitora setup-assist] ' + Message); except end; end;
-function YasbSetupAssistReadBoundedReason(const Path: String): String;
-var FullText: String;
-begin
-  Result := '';
-  if not FileExists(Path) then Exit;
-  if not LoadStringFromFile(Path, FullText) then Exit;
-  if Length(FullText) > YasbSetupAssistMaxReasonBytes then
-    Result := Copy(FullText, 1, YasbSetupAssistMaxReasonBytes)
-  else
-    Result := FullText;
-end;
 function YasbSetupAssistBuildRequest(const OperationsJson: String): String;
 begin
   Result := '';
@@ -222,31 +209,21 @@ begin
   RemoveDir(Root);
 end;
 function YasbSetupAssistRun(const AssistantExe, OperationsJson: String): Boolean;
-var RequestJson: String; ExitCode: Integer; ReasonPath: String; ReasonText: String;
+var RequestJson: String; ExitCode: Integer;
 begin
   Result := False;
   RequestJson := YasbSetupAssistBuildRequest(OperationsJson);
   if RequestJson = '' then begin YasbSetupAssistLog('request did not satisfy schema v1'); Exit; end;
   if not SetEnvironmentVariableW(YasbSetupAssistRequestEnvironment, RequestJson) then
   begin YasbSetupAssistLog('could not set request environment'); Exit; end;
-  ReasonPath := ExpandConstant('{tmp}\yasb-limitora-assist-reason.txt');
-  if not SetEnvironmentVariableW(YasbSetupAssistReasonEnvironment, ReasonPath) then
-  begin SetEnvironmentVariableW(YasbSetupAssistRequestEnvironment, ''); Exit; end;
   try
     if not Exec(AssistantExe, YasbSetupAssistSwitch, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) then
     begin YasbSetupAssistLog('assistant process could not be started'); Exit; end;
     Result := (ExitCode = 0);
-    if not Result then begin
-      ReasonText := YasbSetupAssistReadBoundedReason(ReasonPath);
-      if Length(ReasonText) > 0 then
-        YasbSetupAssistLog('assistant reported non-zero exit: ' + ReasonText)
-      else
-        YasbSetupAssistLog('assistant reported non-zero exit');
-    end;
+    if not Result then
+      YasbSetupAssistLog('assistant reported non-zero exit (code ' + IntToStr(ExitCode) + ')');
   finally
     SetEnvironmentVariableW(YasbSetupAssistRequestEnvironment, '');
-    SetEnvironmentVariableW(YasbSetupAssistReasonEnvironment, '');
-    DeleteFile(ReasonPath);
   end;
 end;
 function YasbSetupAssistEscapeJson(const S: String): String;

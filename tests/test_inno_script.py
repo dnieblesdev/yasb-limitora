@@ -625,52 +625,42 @@ def test_provider_page_combos_assign_parent_before_handle_dependent_properties()
                 )
 
 
-# --- Bounded reason channel (installer side) ---
+# --- Reason channel removed (R1-001 / R1-002 regression guard) ---
 
-def test_s11_reason_channel_env_constant_and_bounded_read() -> None:
-    """The installer defines a reason env var, sets it before Exec, reads the
-    bounded reason file after non-zero exit, logs it, then clears and deletes."""
+def test_s11_no_reason_channel_artifacts_in_installer() -> None:
+    """R1-001 regression: the elevated installer must never load a child-supplied
+    file into memory. All reason-channel artifacts are removed."""
     assistant = setup_assistant_text()
-    # Constant for the reason environment variable
-    assert "YasbSetupAssistReasonEnvironment" in assistant
-    assert "_YASB_SETUP_ASSIST_REASON" in assistant
-    # Bounded read constant
-    assert "YasbSetupAssistMaxReasonBytes" in assistant
-    # The run function sets the reason env var before Exec
-    run = assistant.split("function YasbSetupAssistRun", 1)[1].split(
-        "procedure InvokePostCommitAssist", 1
-    )[0]
-    assert "YasbSetupAssistReasonEnvironment" in run
-    assert "SetEnvironmentVariableW(YasbSetupAssistReasonEnvironment" in run
-    # After non-zero exit, reads bounded reason and logs it
-    assert "assistant reported non-zero exit: " in run
-    # Clears the reason env var in the finally block
-    assert "SetEnvironmentVariableW(YasbSetupAssistReasonEnvironment, '')" in run
-    # Deletes the reason file
-    assert "DeleteFile(ReasonPath)" in run
+    for token in (
+        "_YASB_SETUP_ASSIST_REASON",
+        "YasbSetupAssistReasonEnvironment",
+        "YasbSetupAssistMaxReasonBytes",
+        "YasbSetupAssistReadBoundedReason",
+    ):
+        assert token not in assistant, f"reason-channel artifact still present: {token}"
+    assert "LoadStringFromFile" not in assistant
 
 
-def test_s11_reason_channel_helper_is_bounded() -> None:
-    """The reason reader truncates to the bounded size."""
-    assistant = setup_assistant_text()
-    assert "YasbSetupAssistReadBoundedReason" in assistant
-    # The helper uses the max-bytes constant for truncation
-    helper = assistant.split("function YasbSetupAssistReadBoundedReason", 1)[1].split(
-        "\nend;", 1
-    )[0]
-    assert "YasbSetupAssistMaxReasonBytes" in helper
-
-
-def test_s11_reason_channel_missing_file_keeps_generic_line() -> None:
-    """Missing or empty reason file keeps the generic log line."""
+def test_s11_non_zero_exit_log_carries_numeric_exit_code() -> None:
+    """The non-zero-exit log line carries the numeric child exit code."""
     assistant = setup_assistant_text()
     run = assistant.split("function YasbSetupAssistRun", 1)[1].split(
         "procedure InvokePostCommitAssist", 1
     )[0]
-    # The generic line is still present for the missing/empty case
-    assert "assistant reported non-zero exit" in run
-    # The bounded reason is appended only when available
-    assert "Length(ReasonText) > 0" in run or "ReasonText <> ''" in run
+    matches = re.findall(r".*IntToStr\(ExitCode\).*", run)
+    assert len(matches) == 1, f"expected exactly one IntToStr(ExitCode) log line, found {len(matches)}"
+    assert "non-zero exit" in matches[0]
+
+
+def test_s11_request_env_still_set_and_cleared() -> None:
+    """YasbSetupAssistRun still sets the request env before Exec and clears it
+    in the finally block."""
+    assistant = setup_assistant_text()
+    run = assistant.split("function YasbSetupAssistRun", 1)[1].split(
+        "procedure InvokePostCommitAssist", 1
+    )[0]
+    assert "SetEnvironmentVariableW(YasbSetupAssistRequestEnvironment, RequestJson)" in run
+    assert "SetEnvironmentVariableW(YasbSetupAssistRequestEnvironment, '')" in run
 
 
 # --- Scenario 10: owned-cleanup ---
