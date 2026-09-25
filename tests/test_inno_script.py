@@ -470,15 +470,16 @@ def test_s11_install_assist_runs_after_commit_and_is_nonfatal() -> None:
     assert "RaiseException" not in assist_slice
 
 
-def test_s11_uninstall_dispatches_state_cleanup_only_for_literal_yes() -> None:
+def test_s11_uninstall_dispatches_path_remove_and_state_cleanup_for_literal_yes() -> None:
     code = code_section(script_text())
     assistant = setup_assistant_text()
     assert "InitializeUninstall" in code
     uninstall = assistant.split("procedure InvokeUninstallAssist", 1)[1]
-    # C1: typed operation object with consent field, not separate string arrays
+    # path-remove is always dispatched; state-cleanup joins only with consent
+    assert '{"operation":"path-remove"}' in uninstall
     assert '{"operation":"state-cleanup"' in uninstall
     assert '"consent":"YES"' in uninstall
-    assert uninstall.count("YasbSetupAssistRun(") == 1
+    assert uninstall.count("YasbSetupAssistRun(") == 2
     assert re.search(
         r"(?is)if\s+CleanupConsent\s+then.*?YasbSetupAssistRun\(",
         uninstall,
