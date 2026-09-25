@@ -8,6 +8,7 @@ import json
 from yasb_limitora import cli
 from yasb_limitora.setup_assist import (
     _NONCE_ENV,
+    _REQUEST_ENV,
     _SETUP_ASSIST_FLAG,
 )
 
@@ -31,8 +32,8 @@ def test_platform_gate_precedes_freeze_support_and_sentinels(monkeypatch):
     code, stdout, stderr, events = _invoke(monkeypatch, (_SETUP_ASSIST_FLAG,), windows=False, environment={_NONCE_ENV: NONCE})
     assert (code, stdout.getvalue(), stderr.getvalue(), events) == (2, b"", "yasb-limitora: unsupported_platform\n", [])
 
-def test_assist_sentinel_with_nonce_dispatches_before_config_path(monkeypatch):
-    code, stdout, _, events = _invoke(monkeypatch, (_SETUP_ASSIST_FLAG,), environment={_NONCE_ENV: NONCE})
+def test_assist_sentinel_with_request_dispatches_before_config_path(monkeypatch):
+    code, stdout, _, events = _invoke(monkeypatch, (_SETUP_ASSIST_FLAG,), environment={_REQUEST_ENV: "{}"})
     assert code == 0 and stdout.getvalue() == b"" and events == ["freeze_support", "assist"]  # no stdout contract
 
 def test_helper_sentinel_still_precedes_assist_dispatch(monkeypatch):

@@ -3,6 +3,7 @@ const
   YasbSetupAssistRequestSchema = 'gentle-ai.yasb-limitora.setup-assist-request/v1';
   YasbSetupAssistResultSchema = 'gentle-ai.yasb-limitora.setup-assist-result/v1';
   YasbSetupAssistNonceEnvironment = '_YASB_SETUP_ASSIST_NONCE';
+  YasbSetupAssistRequestEnvironment = '_YASB_SETUP_ASSIST_REQUEST';
   YasbSetupAssistSwitch = '--__yasb-limitora-setup-assist';
   YasbSetupAssistRequestName = 'request.json';
   YasbSetupAssistResultName = 'result.json';
@@ -194,12 +195,11 @@ function YasbSetupAssistResultFile(const Root: String): String;
 begin Result := Root + '\' + YasbSetupAssistResultName; end;
 procedure YasbSetupAssistLog(const Message: String);
 begin try Log('[yasb-limitora setup-assist] ' + Message); except end; end;
-function YasbSetupAssistBuildRequest(const OperationsJson, ChoicesJson: String): String;
+function YasbSetupAssistBuildRequest(const OperationsJson: String): String;
 begin
   Result := '';
-  if YasbSetupAssistStringArray(OperationsJson) and YasbSetupAssistStringArray(ChoicesJson) then
-    Result := '{"schema":"' + YasbSetupAssistRequestSchema + '","operations":' +
-      Trim(OperationsJson) + ',"choices":' + Trim(ChoicesJson) + '}';
+  if Length(Trim(OperationsJson)) > 2 then
+    Result := '{"schema":"' + YasbSetupAssistRequestSchema + '","operations":' + Trim(OperationsJson) + '}';
 end;
 procedure YasbSetupAssistCleanup(const Root: String);
 begin
@@ -208,42 +208,37 @@ begin
   DeleteFile(YasbSetupAssistResultFile(Root));
   RemoveDir(Root);
 end;
-function YasbSetupAssistRun(const AssistantExe, OperationsJson, ChoicesJson: String; var ResultJson: String): Boolean;
-var Nonce, Root, RequestJson, RequestFile, ResultFile: String; LoadedResult: AnsiString; ExitCode: Integer;
+function YasbSetupAssistRun(const AssistantExe, OperationsJson: String): Boolean;
+var RequestJson: String; ExitCode: Integer;
 begin
-  Result := False; ResultJson := ''; Nonce := Lowercase(GetMD5OfString(
-    GetDateTimeString('yyyymmddhhnnsszzz', '-', ':') + ':' + ExpandConstant('{computername}')));
-  Root := YasbSetupAssistRoot(Nonce);
-  if Root = '' then begin YasbSetupAssistLog('invalid nonce root'); Exit; end;
-  RequestFile := YasbSetupAssistRequestFile(Root); ResultFile := YasbSetupAssistResultFile(Root);
+  Result := False;
+  RequestJson := YasbSetupAssistBuildRequest(OperationsJson);
+  if RequestJson = '' then begin YasbSetupAssistLog('request did not satisfy schema v1'); Exit; end;
+  if not SetEnvironmentVariableW(YasbSetupAssistRequestEnvironment, RequestJson) then
+  begin YasbSetupAssistLog('could not set request environment'); Exit; end;
   try
-    if not ForceDirectories(Root) then begin YasbSetupAssistLog('could not create exchange root'); Exit; end;
-    RequestJson := YasbSetupAssistBuildRequest(OperationsJson, ChoicesJson);
-    if RequestJson = '' then begin YasbSetupAssistLog('request did not satisfy schema v1'); Exit; end;
-    if not SaveStringToFile(RequestFile, RequestJson, False) then begin YasbSetupAssistLog('could not write request.json'); Exit; end;
-    SetEnvironmentVariableW(YasbSetupAssistNonceEnvironment, Nonce);
-    if not Exec(AssistantExe, YasbSetupAssistSwitch, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) then begin YasbSetupAssistLog('assistant process could not be started'); Exit; end;
-    if not FileExists(ResultFile) then begin YasbSetupAssistLog('result.json was not produced'); Exit; end;
-    if not LoadStringFromFile(ResultFile, LoadedResult) then begin YasbSetupAssistLog('result.json could not be read'); Exit; end;
-    if Length(LoadedResult) > YasbSetupAssistMaxResultBytes then begin YasbSetupAssistLog('result.json exceeded 64 KiB after read'); Exit; end;
-    if not YasbSetupAssistValidateResult(String(LoadedResult)) then begin YasbSetupAssistLog('result.json did not satisfy schema v1'); Exit; end;
-    ResultJson := String(LoadedResult); Result := True;
+    if not Exec(AssistantExe, YasbSetupAssistSwitch, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) then
+    begin YasbSetupAssistLog('assistant process could not be started'); Exit; end;
+    Result := (ExitCode = 0);
+    if not Result then YasbSetupAssistLog('assistant reported non-zero exit');
   finally
-    SetEnvironmentVariableW(YasbSetupAssistNonceEnvironment, ''); YasbSetupAssistCleanup(Root);
+    SetEnvironmentVariableW(YasbSetupAssistRequestEnvironment, '');
   end;
 end;
 procedure InvokePostCommitAssist(const AddPath, EnvBlock, ConfigWizard: Boolean);
-var OperationsJson, ChoicesJson, ResultJson: String;
+var OperationsJson: String;
 begin
-  OperationsJson := '['; ChoicesJson := '[';
-  if AddPath then begin OperationsJson := OperationsJson + '"path-add"'; ChoicesJson := ChoicesJson + '"addtopath"'; end;
-  if EnvBlock then begin if Length(OperationsJson) > 1 then begin OperationsJson := OperationsJson + ','; ChoicesJson := ChoicesJson + ','; end; OperationsJson := OperationsJson + '"env-block-apply"'; ChoicesJson := ChoicesJson + '"envassist"'; end;
-  if ConfigWizard then begin if Length(OperationsJson) > 1 then begin OperationsJson := OperationsJson + ','; ChoicesJson := ChoicesJson + ','; end; OperationsJson := OperationsJson + '"config-apply"'; ChoicesJson := ChoicesJson + '"configassist"'; end;
-  if Length(OperationsJson) = 1 then begin OperationsJson := '["discover"]'; ChoicesJson := '[]'; end else begin OperationsJson := OperationsJson + ']'; ChoicesJson := ChoicesJson + ']'; end;
-  YasbSetupAssistRun(ExpandConstant('{app}\yasb-limitora.exe'), OperationsJson, ChoicesJson, ResultJson);
+  OperationsJson := '[';
+  if AddPath then OperationsJson := OperationsJson + '{"operation":"path-add"}';
+  if EnvBlock then begin
+    if Length(OperationsJson) > 1 then OperationsJson := OperationsJson + ',';
+    OperationsJson := OperationsJson + '{"operation":"env-block-apply","consent":true}';
+  end;
+  { Slice 1: configassist is a consent gate only; provider selection deferred to Slice 2. }
+  if Length(OperationsJson) = 1 then OperationsJson := '[{"operation":"discover"}]' else OperationsJson := OperationsJson + ']';
+  YasbSetupAssistRun(ExpandConstant('{app}\yasb-limitora.exe'), OperationsJson);
 end;
 procedure InvokeUninstallAssist(const CleanupConsent: Boolean);
-var ResultJson: String;
 begin
-  if CleanupConsent then YasbSetupAssistRun(ExpandConstant('{app}\yasb-limitora.exe'), '["state-cleanup"]', '["YES"]', ResultJson);
+  if CleanupConsent then YasbSetupAssistRun(ExpandConstant('{app}\yasb-limitora.exe'), '[{"operation":"state-cleanup","consent":"YES"}]');
 end;

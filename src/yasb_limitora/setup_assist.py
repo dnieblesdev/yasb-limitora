@@ -1,12 +1,11 @@
-"""Private setup-assist sentinel protocol and nonce-derived temp transport.
+"""Private setup-assist sentinel: environment-carried request, bounded exit result.
 
 Internal module: no public export, no __all__. Dispatched from cli.main after
-freeze_support() and before argv validation only when setup.exe's per-run nonce env
+freeze_support() and before argv validation only when setup.exe's per-run request env
 value is present; otherwise the sentinel falls through to invalid-argv exit 2 touching
-nothing. Both sides independently derive %LOCALAPPDATA%\\Temp\\yasb-limitora-setup-assist\\
-<nonce>\\ from the Local AppData known folder, fixed literal segments, and the validated
-nonce; no request-supplied transport/target path is accepted; the sanitized result
-travels only in the exclusively created, <=64 KiB result.json, never on stdout.
+nothing. The request travels in the process environment; the bounded exit code
+communicates the outcome; no filesystem exchange, no request-supplied transport/target
+path is accepted, never on stdout.
 """
 
 from __future__ import annotations
@@ -31,6 +30,7 @@ from .path import MAX_CONFIG_BYTES
 
 _SETUP_ASSIST_FLAG = "--__yasb-limitora-setup-assist"
 _NONCE_ENV = "_YASB_SETUP_ASSIST_NONCE"
+_REQUEST_ENV = "_YASB_SETUP_ASSIST_REQUEST"
 _NONCE = re.compile(r"[0-9a-f]{32}")
 _REQUEST_SCHEMA = "gentle-ai.yasb-limitora.setup-assist-request/v1"
 _RESULT_SCHEMA = "gentle-ai.yasb-limitora.setup-assist-result/v1"
@@ -110,6 +110,9 @@ def _derive_transport_root(local_appdata: str, nonce: str) -> str:
 
 def _has_setup_assist_nonce(environment: Mapping[str, str]) -> bool:
     return _NONCE_ENV in environment
+
+def _has_setup_assist_request(environment: Mapping[str, str]) -> bool:
+    return bool(environment.get(_REQUEST_ENV, ""))
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     if len({key for key, _ in pairs}) != len(pairs):
@@ -590,6 +593,20 @@ def _execute(names: tuple[tuple[str, object], ...], environment: Mapping[str, st
 def _run_setup_assist(environment: Mapping[str, str], *, local_appdata: str | None = None,
                       fs: FsView = discovery.REAL_FS, appdata_resolver: Callable[[], str | None] = resolve_local_appdata,
                       registry: _path_cleanup.UserPathRegistry | None = None) -> int:
+    raw_request = environment.get(_REQUEST_ENV, "")
+    if raw_request:
+        try:
+            raw_bytes = raw_request.encode("utf-8")
+        except UnicodeEncodeError:
+            return 1
+        names, violation = _validate_request(raw_bytes)
+        if violation is not None or names is None:
+            return 1
+        resolved = local_appdata if local_appdata is not None else appdata_resolver()
+        if not isinstance(resolved, str) or (canonical := _canonical_local_dir(resolved)) is None:
+            return 1
+        records = _execute(names, environment, canonical, registry)
+        return 0 if all(record["status"] == "ok" for record in records) else 1
     if not _valid_nonce(environment.get(_NONCE_ENV, "")):
         return 1  # nonce grammar is validated before any filesystem access
     resolved = local_appdata if local_appdata is not None else appdata_resolver()

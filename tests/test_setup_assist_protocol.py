@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import io
 import json
 import ntpath
 import os
@@ -11,6 +12,7 @@ import subprocess
 import pytest  # pyright: ignore[reportMissingImports]
 
 import yasb_limitora.setup_assist as sa
+from yasb_limitora import cli
 
 NONCE = "0123456789abcdef" * 2
 V1 = "gentle-ai.yasb-limitora.setup-assist-request/v1"
@@ -385,3 +387,115 @@ def test_write_result_fails_closed_and_removes_stray_when_root_is_a_junction(tmp
     substitute_with_junction(root, attacker)
     assert sa._write_result(str(root), {"schema": "x"}, sa.discovery.REAL_FS) is False
     assert list(attacker.iterdir()) == []  # exclusively created remnant removed; attacker gains nothing
+
+# --- Environment-carried request transport (active path) ---
+
+def test_env_carried_request_with_valid_operations_exits_zero():
+    raw = request_bytes([{"operation": "discover"}])
+    assert sa._run_setup_assist({sa._REQUEST_ENV: raw.decode(), "USERPROFILE": r"C:\Users\u"}) == 0
+
+def test_env_carried_request_with_schema_violation_exits_one():
+    raw = request_bytes([{"operation": "unknown-op"}])
+    assert sa._run_setup_assist({sa._REQUEST_ENV: raw.decode()}) == 1
+
+def test_env_carried_request_empty_falls_through_to_nonce_path():
+    # Empty request env falls through to the legacy nonce path, which also fails
+    assert sa._run_setup_assist({sa._REQUEST_ENV: ""}) == 1
+
+def test_env_carried_request_no_filesystem_artifacts(tmp_path):
+    raw = request_bytes([{"operation": "discover"}])
+    la = tmp_path / "la"
+    la.mkdir()
+    assert sa._run_setup_assist({sa._REQUEST_ENV: raw.decode(), "USERPROFILE": str(tmp_path)}, local_appdata=str(la)) == 0
+    # No request.json or result.json created
+    assert not (la / "Temp").exists()
+
+def test_nonce_only_does_not_dispatch_setup_assist(monkeypatch):
+    dispatched = False
+
+    def unexpected_dispatch(_environment):
+        nonlocal dispatched
+        dispatched = True
+        return 0
+
+    monkeypatch.setattr(cli, "_run_setup_assist", unexpected_dispatch)
+    assert cli.main(
+        argv=(sa._SETUP_ASSIST_FLAG,),
+        environment={sa._NONCE_ENV: NONCE},
+        stdout=io.BytesIO(),
+        stderr=io.StringIO(),
+        platform_is_windows=lambda: True,
+    ) == 2
+    assert not dispatched
+
+# --- C1: Inno/Python request-schema alignment regression tests ---
+# The Inno Setup producer must generate typed operation objects that satisfy
+# Python's strict {schema, operations} validator. The old format used a
+# separate "choices" array and string-typed operations, which the validator
+# correctly rejects as schema-violation. These tests lock the aligned format.
+
+def _inno_post_install_request(add_path: bool, env_block: bool) -> bytes:
+    """Build the exact request bytes the Slice 1 Inno InvokePostCommitAssist produces.
+
+    Slice 1 emits no config-apply operation; the configassist checkbox is a
+    separate consent gate with no provider-selection UI yet (Slice 2).
+    """
+    ops: list[dict[str, object]] = []
+    if add_path:
+        ops.append({"operation": "path-add"})
+    if env_block:
+        ops.append({"operation": "env-block-apply", "consent": True})
+    if not ops:
+        ops.append({"operation": "discover"})
+    return json.dumps({"schema": V1, "operations": ops}).encode()
+
+def _inno_uninstall_request() -> bytes:
+    """Build the exact request bytes the fixed Inno InvokeUninstallAssist produces."""
+    return json.dumps({"schema": V1, "operations": [{"operation": "state-cleanup", "consent": "YES"}]}).encode()
+
+def test_c1_inno_post_install_request_with_path_and_env_passes_validation():
+    """The aligned Inno post-install request (path-add + env-block-apply) passes validation."""
+    raw = _inno_post_install_request(add_path=True, env_block=True)
+    names, violation = sa._validate_request(raw)
+    assert violation is None and names is not None
+    assert names == (("path-add", True), ("env-block-apply", True))
+
+def test_c1_slice1_no_config_apply_emitted_by_inno():
+    """Slice 1: Inno emits no config-apply; configassist is a consent gate only."""
+    raw = _inno_post_install_request(add_path=True, env_block=True)
+    payload = json.loads(raw)
+    op_names = [op["operation"] for op in payload["operations"]]
+    assert "config-apply" not in op_names
+
+def test_c1_inno_post_install_request_discover_only_passes_validation():
+    """When no user operations are selected, Inno sends discover only."""
+    raw = _inno_post_install_request(add_path=False, env_block=False)
+    names, violation = sa._validate_request(raw)
+    assert violation is None and names is not None
+    assert names == (("discover", True),)
+
+def test_c1_inno_uninstall_request_passes_validation():
+    """The aligned Inno uninstall request (state-cleanup with YES consent) passes validation."""
+    raw = _inno_uninstall_request()
+    names, violation = sa._validate_request(raw)
+    assert violation is None and names is not None
+    assert names == (("state-cleanup", "YES"),)
+
+def test_c1_old_inno_format_with_choices_is_rejected():
+    """Regression guard: the old Inno format with a choices key is rejected."""
+    old_request = json.dumps({
+        "schema": V1,
+        "operations": ["path-add", "env-block-apply"],
+        "choices": ["addtopath", "envassist"]
+    }).encode()
+    names, violation = sa._validate_request(old_request)
+    assert violation == "schema-violation" and names is None
+
+def test_c1_old_inno_string_operations_are_rejected():
+    """Regression guard: string-typed operations (old Inno format) are rejected."""
+    old_request = json.dumps({
+        "schema": V1,
+        "operations": ["state-cleanup"]
+    }).encode()
+    names, violation = sa._validate_request(old_request)
+    assert violation == "schema-violation" and names is None
