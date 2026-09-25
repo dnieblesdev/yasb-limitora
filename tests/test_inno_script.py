@@ -3,6 +3,8 @@
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "packaging" / "inno" / "yasb-limitora.iss"
 
@@ -669,10 +671,17 @@ SCENARIO_DIR = ROOT / "build" / "s11a-lifecycle" / "scenarios"
 
 
 def test_scenario_10_owned_cleanup_shape() -> None:
-    """Scenario 10 establishes PATH ownership first, then cleans up."""
-    import json
+    """Scenario 10 establishes PATH ownership first, then cleans up.
+
+    The scenario manifests live in the git-ignored disposable-VM harness under
+    ``build/``, so a checkout without that harness (CI clones the repository
+    alone) can only skip this shape assertion. The harness validates the same
+    manifests locally with ``validate-scenarios.ps1``.
+    """
     scenario_path = SCENARIO_DIR / "10-owned-cleanup.json"
-    assert scenario_path.is_file(), "10-owned-cleanup.json must exist"
+    if not scenario_path.is_file():
+        pytest.skip("S11a lifecycle harness is not present in this checkout")
+    import json
     scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
     assert scenario["schema"] == "gentle-ai.yasb-limitora.s11b-scenario/v1"
     assert scenario["scenario"] == "owned-cleanup"
