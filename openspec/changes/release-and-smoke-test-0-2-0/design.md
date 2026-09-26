@@ -625,15 +625,26 @@ assist side:
 ```
 
 **Transport selection.** Inno's `Exec`/`[Run]` cannot pipe stdin to a child, and a stdout
-result would create a second stdout JSON contract on the public executable, so the transport
-is a nonce-derived directory under the per-user Local AppData temp root:
+result would create a second stdout JSON contract on the public executable. The active
+transport is the process environment for the request and the process exit code for the
+outcome: setup.exe sets `_YASB_SETUP_ASSIST_REQUEST` to the UTF-8 request bytes and reads
+exit 0 (all operations ok) or exit 1 (refusal/failure). There is no active request.json or
+result.json file exchange; the assist module retains the nonce-derived file transport as
+unreachable fallback code, but the CLI entry point dispatches only when `_REQUEST_ENV` is
+non-empty. The Inno producer generates typed operation objects that satisfy the strict
+Python `{schema, operations}` validator; each operation carries its fixed typed consent field.
+The installer emits no provider-selection operation (`config-apply`) without an explicit
+user selection UI; the `configassist` checkbox is a separate consent gate that does not
+alter provider enabled state. This environment/exit-code contract supersedes the file-based
+flows elsewhere in this design; those passages are historical, not active.
 
 | Transport | Verdict | Reason |
 | --- | --- | --- |
 | Request in argv | Rejected | `_SECRET` argv scanning; process-listing visibility |
 | stdin/stdout JSON | Rejected | Inno cannot pipe stdin through `Exec`/`[Run]`; a stdout result is a second public stdout contract |
 | Inherited-handle / named-pipe IPC | Rejected | No mechanism is proven inside Inno's constraints without extra native code or a broker process; unproven here, so it is not selected |
-| `%LOCALAPPDATA%\Temp\yasb-limitora-setup-assist\<nonce>\{request,result}.json` | **Selected** | Outside program and state roots, survives state cleanup, does not create mutable application state during discovery, and is independently derivable without honoring a supplied path |
+| Environment request + bounded exit code | **Active** | Request in `_YASB_SETUP_ASSIST_REQUEST`; exit 0/1 communicates outcome; no filesystem exchange, no request-supplied path accepted |
+| `%LOCALAPPDATA%\Temp\yasb-limitora-setup-assist\<nonce>\{request,result}.json` | Inactive fallback | Retained in assist module; not dispatched from CLI entry point |
 
 **Schemas and hardening.** `request.json` is an object with exactly `schema:
 "gentle-ai.yasb-limitora.setup-assist-request/v1"` and `operations`; `operations` is a bounded,
@@ -649,7 +660,8 @@ Installer and assist each derive roots independently; the nonce selects correlat
 create/read/write/delete, each side rejects any reparse-point component and any non-regular file.
 The assist never recursively follows a reparse point. `state-cleanup` also refuses if the literal
 state root or any descendant is a reparse point, so deletion cannot escape through a link. The
-request contains only operations and choices, never a target path. Missing nonce/request,
+request contains only typed operation objects with their fixed consent/selection fields,
+never a separate choices array and never a target path. Missing nonce/request,
 malformed/over-size data, unsafe roots, schema violations, or cleanup ambiguity fail closed with no
 target mutation. Inno owns final transport removal after consuming the result; it removes only the
 two literal files and empty nonce directory, never a caller-selected or recursively discovered path.

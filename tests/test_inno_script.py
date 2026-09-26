@@ -370,20 +370,158 @@ def test_rollback_failed_quarantine_is_owned_by_the_current_transaction() -> Non
     assert "FailedQuarantineOwned" in restore[back_guard:back]
 
 
-def test_s10_does_not_add_assistance_transport_or_forbidden_payloads() -> None:
+def test_s10_surface_keeps_forbidden_payloads_out_of_installer_script() -> None:
     text = script_text().lower()
-    assert "request.json" not in text
     assert "targetpath" not in text
-    assert "parameters=" not in text
     assert "portable zip" not in text
     assert "yaml" not in text
     assert "css" not in text
     assert "secret" not in text
 
 
-def test_static_slice_does_not_invoke_assistance() -> None:
+ASSISTANT_INCLUDE = ROOT / "packaging" / "inno" / "SetupAssistant.isi"
+
+
+def setup_assistant_text() -> str:
+    assert ASSISTANT_INCLUDE.is_file(), "S11 requires packaging/inno/SetupAssistant.isi"
+    return ASSISTANT_INCLUDE.read_text(encoding="utf-8")
+
+
+def test_s11_includes_setup_assistant_and_uses_env_carried_request() -> None:
+    text = script_text()
+    assistant = setup_assistant_text()
+    assert re.search(r"(?mi)^\s*#include\s+[\"<]SetupAssistant\.isi[\">]", text)
+    assert "_YASB_SETUP_ASSIST_REQUEST" in assistant
+    assert "--__yasb-limitora-setup-assist" in assistant
+    # Legacy filesystem helpers retained but not used by active transport
+    assert "request.json" in assistant and "result.json" in assistant
+    assert "YasbSetupAssistRequestEnvironment" in assistant
+    assert "{localappdata}\\yasb-limitora" not in assistant
+
+
+def test_s11_run_invocation_carries_request_via_env_and_checks_exit_code() -> None:
+    assistant = setup_assistant_text()
+    run = assistant.split("function YasbSetupAssistRun", 1)[1].split(
+        "procedure InvokePostCommitAssist", 1
+    )[0]
+    assert "YasbSetupAssistSwitch = '--__yasb-limitora-setup-assist'" in assistant
+    assert "YasbSetupAssistRequestEnvironment = '_YASB_SETUP_ASSIST_REQUEST'" in assistant
+    env_set = run.index("if not SetEnvironmentVariableW(YasbSetupAssistRequestEnvironment, RequestJson) then")
+
+    invocation = re.search(
+        r"(?s)Exec\(\s*AssistantExe,\s*YasbSetupAssistSwitch,\s*''\s*,\s*"
+        r"SW_HIDE,\s*ewWaitUntilTerminated,\s*ExitCode\s*\)",
+        run,
+    )
+    assert invocation is not None
+    assert env_set < invocation.start()
+    assert "ExitCode = 0" in run
+    assert "SetEnvironmentVariableW(YasbSetupAssistRequestEnvironment, '')" in run
+
+
+def test_s11_request_is_schema_v1_and_typed_operations_only() -> None:
+    """C1: Request has exactly {schema, operations} with typed operation objects."""
+    assistant = setup_assistant_text()
+    assert re.search(
+        r"['\"]gentle-ai\.yasb-limitora\.setup-assist-request/v1['\"]",
+        assistant,
+    )
+    assert re.search(
+        r"['\"]gentle-ai\.yasb-limitora\.setup-assist-result/v1['\"]",
+        assistant,
+    )
+    assert re.search(r"(?m)request.*schema", assistant, re.IGNORECASE)
+    # C1: operations carry typed consent fields, not a separate choices array;
+    # Slice 1 emits no config-apply/selection without explicit provider UI
+    assert re.search(r"(?m)operations.*consent", assistant, re.IGNORECASE)
+    assert "target_path" not in assistant and "target-path" not in assistant
+    assert "target" not in re.sub(r"(?i)target[a-z_-]*", "", assistant)
+
+
+def test_s11_active_transport_has_no_filesystem_exchange() -> None:
+    assistant = setup_assistant_text()
+    run = assistant.split("function YasbSetupAssistRun", 1)[1].split(
+        "procedure InvokePostCommitAssist", 1
+    )[0]
+    # Active transport uses environment variable, not filesystem
+    assert "ForceDirectories" not in run
+    assert "SaveStringToFile" not in run
+    assert "LoadStringFromFile" not in run
+    assert "FileExists(ResultFile)" not in run
+    assert "YasbSetupAssistCleanup(Root)" not in run
+    assert "GetMD5OfString" not in run
+    # Exit code is the result mechanism
+    assert "ExitCode = 0" in run
+
+
+def test_s11_install_assist_runs_after_commit_and_is_nonfatal() -> None:
+    code = code_section(script_text()) + "\n" + setup_assistant_text()
+    commit = code.index("CurStep = ssPostInstall")
+    assist = code.index("InvokePostCommitAssist", commit)
+    assert commit < assist
+    assistant = setup_assistant_text()
+    assist_slice = assistant.split("function YasbSetupAssistRun", 1)[1].split(
+        "procedure InvokeUninstallAssist", 1
+    )[0]
+    assert "Exec(" in assist_slice
+    assert "Log(" in assist_slice
+    assert "RaiseException" not in assist_slice
+
+
+def test_s11_uninstall_dispatches_state_cleanup_only_for_literal_yes() -> None:
     code = code_section(script_text())
-    assert "assistance" not in code.lower()
-    assert "setup-assist" not in code.lower()
-    assert "[run]" not in script_text().lower()
-    assert "Filename:" not in script_text()
+    assistant = setup_assistant_text()
+    assert "InitializeUninstall" in code
+    uninstall = assistant.split("procedure InvokeUninstallAssist", 1)[1]
+    # C1: typed operation object with consent field, not separate string arrays
+    assert '{"operation":"state-cleanup"' in uninstall
+    assert '"consent":"YES"' in uninstall
+    assert uninstall.count("YasbSetupAssistRun(") == 1
+    assert re.search(
+        r"(?is)if\s+CleanupConsent\s+then.*?YasbSetupAssistRun\(",
+        uninstall,
+    )
+
+
+def test_c1_inno_request_has_no_choices_key() -> None:
+    """C1: The request builder must not emit a choices key; Python rejects it."""
+    assistant = setup_assistant_text()
+    build_slice = assistant.split("function YasbSetupAssistBuildRequest", 1)[1].split(
+        "\nend;", 1
+    )[0]
+    assert "choices" not in build_slice.lower()
+    assert "ChoicesJson" not in build_slice
+
+
+def test_c1_inno_run_takes_single_operations_parameter() -> None:
+    """C1: YasbSetupAssistRun no longer takes a ChoicesJson parameter."""
+    assistant = setup_assistant_text()
+    run_sig = assistant.split("function YasbSetupAssistRun(", 1)[1].split(")", 1)[0]
+    assert "ChoicesJson" not in run_sig
+    assert "OperationsJson" in run_sig
+
+
+def test_c1_inno_post_install_emits_typed_operation_objects() -> None:
+    """C1: InvokePostCommitAssist emits typed operation objects, not bare strings."""
+    assistant = setup_assistant_text()
+    invoke = assistant.split("procedure InvokePostCommitAssist", 1)[1].split(
+        "procedure InvokeUninstallAssist", 1
+    )[0]
+    # Each operation is a JSON object with an "operation" key
+    assert '{"operation":"path-add"}' in invoke
+    assert '{"operation":"env-block-apply"' in invoke
+    assert '"consent":true' in invoke
+    # The old bare-string format must not appear
+    assert "'\"path-add\"'" not in invoke
+    assert "'\"env-block-apply\"'" not in invoke
+
+
+def test_c1_slice1_no_config_apply_without_explicit_selection() -> None:
+    """Slice 1: configassist is a consent gate only; no config-apply without explicit provider UI."""
+    assistant = setup_assistant_text()
+    invoke = assistant.split("procedure InvokePostCommitAssist", 1)[1].split(
+        "procedure InvokeUninstallAssist", 1
+    )[0]
+    assert "config-apply" not in invoke
+    assert '"selection"' not in invoke
+    assert '"codex"' not in invoke

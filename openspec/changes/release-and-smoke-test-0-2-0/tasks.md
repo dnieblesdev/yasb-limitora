@@ -9,7 +9,7 @@
 | Estimated changed lines | 4,000–5,400 (code, tests, installer, CI workflows, and release materials) |
 | 400-line budget risk | High |
 | Chained PRs recommended | Yes |
-| Suggested split | S01 → S02a → S02b → G1 → S10 → S03 → S04a → G2a → S04c → S05–S09 → S11 → S12 → S13 → G2b → S14 → S15 → S16 |
+| Suggested split | S01 → S02a → S02b → G1 → S10 → S03 → S04a → G2a → S04c → S05–S09 → S11a → S11b → S12 → S13 → G2b → S14 → S15 → S16 |
 | Delivery strategy | auto-chain (resolved; feature-branch chain in use for stabilization) |
 | Chain strategy | feature-branch-chain |
 
@@ -178,13 +178,18 @@ Chain strategy: feature-branch-chain
   - **Dependency/invariant:** requires D02 merge; preserves S08 reject-and-preserve and design.md §4.4 selection-overrides-readiness invariant.
   - **Final evidence:** focused **35 passed, 1 skipped**; full **936 passed, 4 skipped**; Ruff clean on all three changed source/test files; `git diff --check` clean; budget **166/200 source+test diff lines**. Native review lineage `review-3bf4cb02bc2ce48f` completed all four lenses, approved target `sha256:b45ae3f63c92ebbe56aec8b53fd9ddcddd6d93a2d652b1679fac0f4657d40db6`, and was acknowledged/burned. The informational `R3-relative-runner-readiness` warning at `src/yasb_limitora/setup_assist.py:308` was non-blocking and opened no correction or re-review. Implementation commit `9f2a0e1` (`feat(config): preserve explicit provider selection`) and documentation commit `4ab8e70` merged to main as `dd935dc` through PR **#294**; issue **#293** is closed.
 
-- [ ] **S11 — Inno program transaction, assist invocation, and uninstall lifecycle** (depends on S04c, S05–S10, G1 pass, and G2a pass; budget: ≤400 lines)
-  - **Files:** `packaging/inno/yasb-limitora.iss`, `packaging/inno/SetupAssistant.isi`, `scripts/build_setup.py`, `tests/test_inno_script.py`.
-  - **RED → GREEN:** add textual/driver assertions for the G1-proven stage/verify/capture/swap/register/commit order, `.failed` quarantine, registry restore, and post-commit nonfatal assist invocation. Assert Inno independently derives the nonce temp directory, writes operations/choices-only request JSON, reads a regular bounded schema-valid result **before** deleting only literal `request.json`, `result.json`, and the empty exact nonce directory; no state-root transport or request target path is allowed.
-  - **TRIANGULATE → REFACTOR:** cover first install, same-version reinstall, upgrade, locked-file abort, induced registration failure/reverse rollback, stale `.old`/`.failed`, manual-close cancellation, default uninstall, affirmative cleanup dispatch, missing/unsafe result refusal, and cleanup result availability after state deletion. Re-run the real native lifecycle proof from G1 plus focused tests and full suite.
-  - **Rollback boundary:** reverse-swap restores a coherent prior canonical directory and captured registry identity. Assist refusal/failure is reported after commit, never rolls back program files, and never deletes state except the explicitly consented literal-root cleanup.
+- [ ] **S11a — Inno setup-assist transport and invocation** (depends S04c/S05–S10/G1/G2a; budget ≤400 lines)
+  - **Surfaces:** `packaging/inno/SetupAssistant.isi`, relevant `packaging/inno/yasb-limitora.iss` hooks, and focused tests.
+  - **Scope:** implement and verify the exact nonce-derived transport, operations/choices-only request schema, bounded regular-file result schema, consent operations, exact transport cleanup ordering, and nonfatal post-commit invocation. No state-root transport or request target path is allowed.
+  - **Checks:** focused tests cover missing/unsafe result refusal, manual-close cancellation, and cleanup-result availability after state deletion without rolling back committed program files. Keep this sub-slice unchecked.
 
-- [ ] **S12 — Internal candidate build custody** (depends on S03 + S11; budget: ≤400 lines)
+- [ ] **S11b — Inno transaction closeout and setup build driver** (depends S11a; budget ≤400 lines)
+  - **Surfaces:** remaining Inno lifecycle wiring, `scripts/build_setup.py`, and tests.
+  - **Scope:** complete the G1-proven stage/verify/capture/swap/register/commit order, `.failed` quarantine, registry restore, first install/reinstall/upgrade/locked-file/registration-failure rollback paths, uninstall behavior, and bounded frozen-input/ISCC driver contract.
+  - **Checks:** run focused tests plus native compile and lifecycle evidence, including actual install/reinstall/upgrade/uninstall proof. **Actual lifecycle proof remains pending; neither S11a nor S11b is complete.**
+  - **Rollback boundary:** reverse-swap restores a coherent prior canonical directory and captured registry identity; assist refusal/failure remains nonfatal after commit and never deletes state except the explicitly consented literal-root cleanup.
+
+- [ ] **S12 — Internal candidate build custody** (depends on S03 + S11b; budget: ≤400 lines)
   - **Files:** `.github/workflows/release-build.yml`, `.github/workflows/windows-proof.yml`, workflow-validation targets under `.github/` or `tests/` following repository convention.
   - **RED → GREEN:** add repository-standard workflow validation for final-version candidate build, 90-day immutable candidate retention, S03 manifest/SHA256SUMS/SBOM/build-info/provenance generation, source/full/native checks, and secret scanning; implement the build workflow without a public RC tag and without acceptance status in the candidate bundle. Build and retain the exact S04c-integrated `setup.exe` bytes with immutable `rc-manifest.json` identity for G2b.
   - **TRIANGULATE → REFACTOR:** prove the workflow refuses missing identity/integrity outputs or unsafe evidence and preserves the exact retained candidate bytes and manifest identity for G2b; prototype G2a arrangements are never promoted. Run workflow validation, focused tests, and the full suite.

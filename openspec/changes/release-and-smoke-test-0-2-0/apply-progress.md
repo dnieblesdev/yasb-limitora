@@ -1190,3 +1190,36 @@ The implementation preserves no-write behavior and S08 reject-and-preserve byte 
 - **Review status:** native review lineage `review-3bf4cb02bc2ce48f` completed all four lenses, approved target `sha256:b45ae3f63c92ebbe56aec8b53fd9ddcddd6d93a2d652b1679fac0f4657d40db6`, and was acknowledged/burned. One non-blocking informational reliability warning remained: `R3-relative-runner-readiness` at `src/yasb_limitora/setup_assist.py:308`; it opened no correction and must not trigger re-review.
 - **Rollback boundary:** revert only D04 readiness-warning code, provider-selection tests, D04 compatibility isolation, and D04 evidence; D01–D03 config snapshot/merge/rollback behavior remains intact.
 - **Delivery:** implementation commit `9f2a0e1` (`feat(config): preserve explicit provider selection`) and documentation commit `4ab8e70` merged to main as `dd935dc` through PR **#294**; issue **#293** is closed.
+
+## S11 — candidate/progress (PENDING)
+
+Date: 2026-09-21 (local).
+
+- The implementation candidate is present in the four S11 surfaces. RED recorded 7 failures / 26 passed; GREEN focused verification recorded 32 passed; full suite recorded 942 passed / 4 skipped; Ruff is clean.
+- Native ISCC 6.7.3 disposable compile passed using a temporary minimal frozen bundle. Actual install/reinstall/upgrade/uninstall lifecycle proof remains pending, and no S11 task checkbox completion was recorded.
+- S11, G2b, and publication remain pending.
+
+## S11 split decision — rework pending
+
+Date: 2026-09-21 (local).
+
+- The original S11 candidate exceeded the ≤400-line budget and is being reworked as the two bounded sub-slices S11a and S11b, each with its own ≤400-line budget.
+- Actual install/reinstall/upgrade/uninstall lifecycle proof remains pending. This note records no completion for S11, S11a, or S11b; no task checkbox is being marked complete.
+
+## S11a — latest compact-refactor evidence (PENDING)
+
+- `SetupAssistant.isi` is reduced to **249 lines**, within the S11a ≤400-line candidate budget.
+- Focused verification: `python -m pytest -q --strict-markers tests/test_inno_script.py tests/test_setup_assist_protocol.py` → **80 passed**.
+- Full suite: **942 passed, 4 skipped**.
+- Ruff: clean.
+- Disposable native ISCC **6.7.3** compile passed with a temporary minimal frozen bundle after correcting unsupported Inno APIs.
+- S11a and S11b remain unchecked because real install/reinstall/upgrade/uninstall lifecycle proof is pending.
+- The S11a/S11b split and the ≤400-line budget for each candidate are preserved.
+
+## S11b — verification evidence (PENDING)
+
+- Build-driver static checks and Ruff pass.
+- Full suite: **942 passed, 4 skipped**.
+- Native ISCC **6.7.3** compile passes with a temporary minimal frozen bundle.
+- `python scripts/build_frozen_bundle.py` cannot produce a real candidate because PyInstaller **>=6,<7** is not installed; it exits `2` with `pyinstaller_missing`.
+- Therefore actual install/reinstall/upgrade/uninstall lifecycle proof remains pending, and S11b stays unchecked.
