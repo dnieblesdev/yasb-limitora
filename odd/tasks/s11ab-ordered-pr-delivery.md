@@ -16,8 +16,8 @@ Publish and merge the validated S11a, S11b, and G1/B1 work in dependency order, 
 3. [x] Remove the S11b-only build-driver test/helper from S11a and verify locally. Commit `72d18ca` removes 18 lines from `tests/test_inno_script.py`; focused tests passed (31) and the full suite passed (942 passed, 3 skipped). Projected PR #298 diff: 501 lines.
 4. [x] Resolve native finding `R1-nonce-predictable-transport` in the S11a transport before any push. Native review marked it CRITICAL; the user authorized an Inno API-feasibility spike and disposable-VM validation. The current 194-line environment candidate removes the active elevated file exchange and passes full tests plus prior compile-only checks. Setup Assist still fails closed because of the separate Inno/Python schema mismatch (C1 follow-up). No VM proof or native approval exists; no native review calls were made per the current instruction. Keep publication blocked.
 5. [x] Prepare ordered PR slices from existing commit boundaries, preserving SHAs; use the user-approved size exceptions only for the identified slices. Every PR must link an approved issue and have exactly one `type:*` label.
-6. [ ] Push required branches and open PRs in dependency order; verify each diff, check, review, base, and issue linkage before merging.
-7. [ ] Merge only after required reviews and checks pass; record PR/merge results. Keep skills tracking/copy outside scope.
+6. [x] Push required branches and open PRs in dependency order; verify each diff, check, review, base, and issue linkage before merging.
+7. [x] Merge only after required reviews and checks pass; record PR/merge results. Keep skills tracking/copy outside scope.
 
 ## Verified delivery facts
 - S11a: PR #298, `feat/s11a-setup-assist` → `main`, remote head `bd31f71`; local isolated worktree has unpushed fix commit `72d18ca`. It is not combined with S11b.
@@ -50,7 +50,26 @@ Publish and merge the validated S11a, S11b, and G1/B1 work in dependency order, 
 - **#305** `docs(s11a): record the r3 VM proof identities and what it does not prove` (`documentation`) — the r3 identities plus the five limits (silent-run `config-apply`, `assist-request` payload, refusal cause no longer recorded, `owned-cleanup` attribution inference, ISO attached by design).
 - None of the three carries `status:approved` yet; that label is the user's gate to start, and any PR linking them needs it.
 
-### Reconciliation executed (2026-09-25)
+### S11b PR opened (2026-09-25)
+
+**#306** `feat/s11b-transaction-closeout-v2` → `feat/s11a-installer-hardening`, `type:bug`, +1255/−18 across 12 files, linking #299 as the umbrella with an explicit note that it does not close it (B1/G1 and the C5 re-proof remain). Commits: `d4b4013` (C1 `path-remove` fragment), `355df8a` (G1 closeout + build driver), `e0c2794` (S11a delivery record and this plan), `de76b29` (the S11b records re-authored for this base). Documentation dominates the diff, so the PR exceeds the 400-line review budget: the chained-PR rule permits docs to travel with the unit they describe, but a `size:exception` acceptance is the maintainer's.
+
+### Merged (2026-09-25)
+
+All four PRs merged in order with the `size:exception` accepted on #306: #300 → `8c4072e3`, #301 → `d9688073`, #302 → `94db00a9`, #306 → `73181486`. Each child was retargeted to `main` after its parent merged (the parent branches are kept on purpose, and GitHub only auto-retargets on deletion). Every commit SHA is preserved and verified as an ancestor of `origin/main`: `bd31f71`, `1f37fa6`, `93aa649`, `b363abe`, `8681dd2`, `5cc45b2`, `d4b4013`, `355df8a`, `de76b29`. Every merge happened on a `MERGEABLE`/`CLEAN` PR with `native-proof` green; `main` carries no branch protection.
+
+### S11b review closed (2026-09-26)
+
+The unrun review recorded above did run, on the same commits, and closed honestly.
+
+- Lineage `review-b7e714040d2e7c77` (candidate `5cc45b2..de76b29`, tier high, 1273 changed lines, correction budget 200): four lenses admitted, and `review-resilience` raised one candidate-caused CRITICAL - `R4-001` at `packaging/inno/yasb-limitora.iss:254-260`, where the candidate's cleanup ordering let an owned `.failed` quarantine present at the rollback step make `RenameFile(AppDir, FailedDir)` fail, so the rollback exited before restoring the prior payload and before re-advertising its registry state.
+- Correction applied with test-first evidence (two tests that fail on the parent `de76b29` and pass on the fix) as `93a802e` (`fix(installer): clear the owned failed quarantine before re-quarantining`), touching only `packaging/inno/yasb-limitora.iss` and `tests/test_inno_script.py`. Contract of the fix: the owned quarantine is cleared before the rename, its `DelTree` result is checked fail-closed with a logged `Exit`, and the post-restore cleanup of the step-2 quarantine is preserved and stays ownership-guarded.
+- Delivered as **PR #307** (`fix/s11b-owned-failed-quarantine` -> `main`, `type:bug`, `Refs #299` non-closing) with the required `native-proof` check passing in 1m32s, merged as **`c3b8a03d268188467abe0d14c21ca414df7c787a`**; `main` no longer carries the un-corrected rollback.
+- The targeted validator materialized, validated the correction, and the lineage closed `approved` (store revision `sha256:62162782b748465be7e59d1294c67413d68d50f562e4f6f1c1df415ab0b22948`) with its acknowledgement burned (`gentle-ai.review-acknowledged/v1`).
+- Getting there cost one detour worth recording rather than hiding: every validator attempt was refused with `repository_context_unavailable ... invalid rctx2 repository context` while STATUS kept reissuing the identical slot, because the capture path derives the correction from the **live worktree** while STATUS derives it from the frozen snapshot. The two uncommitted records of this change (these two `odd/tasks` files, both inside the frozen reviewed scope) were enough to make the provider-issued context unresolvable. Normalizing the worktree made the byte-identical binding work on the first attempt, and the two files were then restored unchanged. Reported upstream as **Gentleman-Programming/gentle-ai#4997**, with a diagnosis comment on #4664.
+- The eight remaining validator findings are informational and non-blocking; they are recorded verbatim in **#303**.
+
+Remaining in the plan: the B1/G1 slice on the merged head, then the C5 artifact rebuild and its disposable-VM re-proof, plus the parked issues #303/#304/#305 (no `status:approved` yet).
 
 Branch `feat/s11b-transaction-closeout-v2` from `5cc45b2`, in the S11b worktree, uncommitted and independently verified: net delta four files (391 insertions / 9 deletions) plus two untracked ODD records. Carried the C1 uninstall `path-remove` fragment (adapted to the S11a environment transport) and `69c7ff5` by cherry-pick; dropped C2 and C3 by user decision. Full suite 982 passed / 4 skipped with the correct runner (`PYTHONPATH=<worktree>/src` against the S11a venv); ISCC 6.7.3 compile-only exit 0. No S11a work was lost: all nine removed lines are the intended replacements.
 
