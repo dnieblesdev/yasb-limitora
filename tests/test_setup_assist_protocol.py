@@ -434,17 +434,34 @@ def test_nonce_only_does_not_dispatch_setup_assist(monkeypatch):
 # separate "choices" array and string-typed operations, which the validator
 # correctly rejects as schema-violation. These tests lock the aligned format.
 
-def _inno_post_install_request(add_path: bool, env_block: bool) -> bytes:
-    """Build the exact request bytes the Slice 1 Inno InvokePostCommitAssist produces.
+def _inno_post_install_request(
+    add_path: bool,
+    env_block: bool,
+    config_wizard: bool = False,
+    codex_choice: str = "unchanged",
+    opencode_choice: str = "unchanged",
+    codex_runner: str = "",
+) -> bytes:
+    """Build the exact request bytes the Slice 2 Inno InvokePostCommitAssist produces.
 
-    Slice 1 emits no config-apply operation; the configassist checkbox is a
-    separate consent gate with no provider-selection UI yet (Slice 2).
+    Runner is serialized only when codex_choice == "enabled".
     """
     ops: list[dict[str, object]] = []
     if add_path:
         ops.append({"operation": "path-add"})
     if env_block:
         ops.append({"operation": "env-block-apply", "consent": True})
+    if config_wizard:
+        selection: dict[str, object] = {}
+        if codex_choice != "unchanged":
+            entry: dict[str, object] = {"enabled": codex_choice == "enabled"}
+            if codex_choice == "enabled" and codex_runner:
+                entry["runner"] = codex_runner
+            selection["codex"] = entry
+        if opencode_choice != "unchanged":
+            selection["opencode_go"] = {"enabled": opencode_choice == "enabled"}
+        if selection:
+            ops.append({"operation": "config-apply", "selection": selection})
     if not ops:
         ops.append({"operation": "discover"})
     return json.dumps({"schema": V1, "operations": ops}).encode()
@@ -460,12 +477,82 @@ def test_c1_inno_post_install_request_with_path_and_env_passes_validation():
     assert violation is None and names is not None
     assert names == (("path-add", True), ("env-block-apply", True))
 
-def test_c1_slice1_no_config_apply_emitted_by_inno():
-    """Slice 1: Inno emits no config-apply; configassist is a consent gate only."""
-    raw = _inno_post_install_request(add_path=True, env_block=True)
+def test_slice2_all_unchanged_falls_back_to_discover():
+    """When all provider choices are unchanged, configassist uses discover fallback."""
+    raw = _inno_post_install_request(add_path=False, env_block=False, config_wizard=True)
     payload = json.loads(raw)
     op_names = [op["operation"] for op in payload["operations"]]
     assert "config-apply" not in op_names
+    assert "discover" in op_names
+
+
+def test_slice2_explicit_codex_enabled_emits_config_apply_with_runner():
+    """Explicit codex enabled emits config-apply with selection including runner."""
+    raw = _inno_post_install_request(
+        add_path=False, env_block=False, config_wizard=True,
+        codex_choice="enabled", codex_runner=r"C:\tools\codex.exe",
+    )
+    names, violation = sa._validate_request(raw)
+    assert violation is None and names is not None
+    payload = json.loads(raw)
+    config_op = next(op for op in payload["operations"] if op["operation"] == "config-apply")
+    assert config_op["selection"]["codex"]["enabled"] is True
+    assert config_op["selection"]["codex"]["runner"] == r"C:\tools\codex.exe"
+
+
+def test_slice2_codex_disabled_omits_runner():
+    """Codex disabled must not serialize runner, even if stale text is present."""
+    raw = _inno_post_install_request(
+        add_path=False, env_block=False, config_wizard=True,
+        codex_choice="disabled", codex_runner=r"C:\stale\codex.exe",
+    )
+    names, violation = sa._validate_request(raw)
+    assert violation is None and names is not None
+    payload = json.loads(raw)
+    config_op = next(op for op in payload["operations"] if op["operation"] == "config-apply")
+    assert config_op["selection"]["codex"]["enabled"] is False
+    assert "runner" not in config_op["selection"]["codex"]
+
+
+def test_slice2_unchanged_provider_omitted_from_selection():
+    """unchanged means the provider key is omitted from selection."""
+    raw = _inno_post_install_request(
+        add_path=False, env_block=False, config_wizard=True,
+        codex_choice="enabled", codex_runner=r"C:\x.exe",
+        opencode_choice="unchanged",
+    )
+    payload = json.loads(raw)
+    config_op = next(op for op in payload["operations"] if op["operation"] == "config-apply")
+    assert "codex" in config_op["selection"]
+    assert "opencode_go" not in config_op["selection"]
+
+
+def test_slice2_opencode_disabled_passes_validation():
+    """Explicit opencode_go disabled passes Python validation."""
+    raw = _inno_post_install_request(
+        add_path=False, env_block=False, config_wizard=True,
+        opencode_choice="disabled",
+    )
+    names, violation = sa._validate_request(raw)
+    assert violation is None and names is not None
+    payload = json.loads(raw)
+    config_op = next(op for op in payload["operations"] if op["operation"] == "config-apply")
+    assert config_op["selection"]["opencode_go"]["enabled"] is False
+
+
+def test_slice2_configassist_with_path_env_and_codex_enabled():
+    """Combined: path-add + env-block-apply + config-apply with codex enabled."""
+    raw = _inno_post_install_request(
+        add_path=True, env_block=True, config_wizard=True,
+        codex_choice="enabled", codex_runner=r"C:\tools\codex.exe",
+    )
+    names, violation = sa._validate_request(raw)
+    assert violation is None and names is not None
+    assert names == (
+        ("path-add", True),
+        ("env-block-apply", True),
+        ("config-apply", {"codex": {"enabled": True, "runner": r"C:\tools\codex.exe"}}),
+    )
 
 def test_c1_inno_post_install_request_discover_only_passes_validation():
     """When no user operations are selected, Inno sends discover only."""

@@ -516,12 +516,71 @@ def test_c1_inno_post_install_emits_typed_operation_objects() -> None:
     assert "'\"env-block-apply\"'" not in invoke
 
 
-def test_c1_slice1_no_config_apply_without_explicit_selection() -> None:
-    """Slice 1: configassist is a consent gate only; no config-apply without explicit provider UI."""
+def test_slice2_provider_selection_controls_and_conditional_page() -> None:
+    """Slice 2: provider selection page with tri-state controls, conditional on configassist."""
+    code = code_section(script_text())
     assistant = setup_assistant_text()
+    assert re.search(r"\bCodexChoice\s*:\s*Integer", code)
+    assert re.search(r"\bOpencodeChoice\s*:\s*Integer", code)
+    assert re.search(r"\bCodexRunnerPath\s*:\s*String", code)
+    assert "Unchanged" in code and "Enabled" in code and "Disabled" in code
+    assert "ShouldSkipPage" in code
     invoke = assistant.split("procedure InvokePostCommitAssist", 1)[1].split(
         "procedure InvokeUninstallAssist", 1
     )[0]
-    assert "config-apply" not in invoke
-    assert '"selection"' not in invoke
-    assert '"codex"' not in invoke
+    assert "config-apply" in invoke
+    assert '"selection"' in invoke
+
+
+def test_slice2_invoke_post_commit_assist_takes_provider_parameters() -> None:
+    """Slice 2: InvokePostCommitAssist accepts provider choice parameters."""
+    assistant = setup_assistant_text()
+    sig = assistant.split("procedure InvokePostCommitAssist(", 1)[1].split(")", 1)[0]
+    assert "CodexChoice" in sig
+    assert "OpencodeChoice" in sig
+    assert "CodexRunnerPath" in sig
+
+
+def test_slice2_curstepchanged_passes_provider_choices() -> None:
+    """Slice 2: CurStepChanged passes provider choices to InvokePostCommitAssist."""
+    code = code_section(script_text())
+    commit = code.split("procedure CurStepChanged", 1)[1].split(
+        "procedure DeinitializeSetup", 1
+    )[0]
+    assert "CodexChoice" in commit
+    assert "OpencodeChoice" in commit
+    assert "CodexRunnerPath" in commit
+
+
+def test_slice2_runner_browse_uses_supported_input_file_api() -> None:
+    """Slice 2 correction: TOpenDialog is unsupported; use CreateInputFilePage."""
+    code = code_section(script_text())
+    assert "TOpenDialog" not in code
+    assert "CreateInputFilePage" in code
+    assert "TInputFileWizardPage" in code
+
+
+def test_slice2_is_absolute_path_accepts_drive_and_unc() -> None:
+    """IsAbsolutePath accepts drive-rooted and UNC paths, rejects relative/drive-relative."""
+    code = code_section(script_text())
+    # Find the IsAbsolutePath function and extract its body
+    func_start = code.find("function IsAbsolutePath(const S: String): Boolean;")
+    assert func_start != -1, "IsAbsolutePath function not found"
+    # Extract until the next function/procedure or end of code section
+    func_body = code[func_start:func_start + 1500]  # generous slice
+
+    # Must check for drive-rooted: S[2] = ':' and (S[3] = '\' or S[3] = '/')
+    assert "S[2] = ':'" in func_body
+    assert "S[3] = '\\'" in func_body or 'S[3] = "/"' in func_body
+
+    # Must check for UNC: starts with '\\' and validates server\share structure
+    assert "S[1] = '\\'" in func_body
+    assert "S[2] = '\\'" in func_body
+
+    # Must validate server and share components exist (not just \\)
+    # Look for scanning logic or Pos calls that validate path components
+    has_validation = (
+        ("HasServer" in func_body and "HasShare" in func_body) or
+        ("Pos" in func_body and "Length" in func_body)
+    )
+    assert has_validation, "UNC validation must check server and share components"

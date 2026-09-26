@@ -225,8 +225,25 @@ begin
     SetEnvironmentVariableW(YasbSetupAssistRequestEnvironment, '');
   end;
 end;
-procedure InvokePostCommitAssist(const AddPath, EnvBlock, ConfigWizard: Boolean);
-var OperationsJson: String;
+function YasbSetupAssistEscapeJson(const S: String): String;
+var I: Integer; C: Char;
+begin
+  Result := '';
+  for I := 1 to Length(S) do begin
+    C := S[I];
+    if C = '\' then Result := Result + '\\'
+    else if C = '"' then Result := Result + '\"'
+    else if C = #8 then Result := Result + '\b'
+    else if C = #9 then Result := Result + '\t'
+    else if C = #10 then Result := Result + '\n'
+    else if C = #12 then Result := Result + '\f'
+    else if C = #13 then Result := Result + '\r'
+    else Result := Result + C;
+  end;
+end;
+procedure InvokePostCommitAssist(const AddPath, EnvBlock, ConfigWizard: Boolean;
+  const CodexChoice, OpencodeChoice: Integer; const CodexRunnerPath: String);
+var OperationsJson, SelectionJson: String; HasSelection, First: Boolean;
 begin
   OperationsJson := '[';
   if AddPath then OperationsJson := OperationsJson + '{"operation":"path-add"}';
@@ -234,7 +251,33 @@ begin
     if Length(OperationsJson) > 1 then OperationsJson := OperationsJson + ',';
     OperationsJson := OperationsJson + '{"operation":"env-block-apply","consent":true}';
   end;
-  { Slice 1: configassist is a consent gate only; provider selection deferred to Slice 2. }
+  { Slice 2: emit config-apply only when configassist is selected and at least one provider changes. }
+  if ConfigWizard then begin
+    HasSelection := (CodexChoice <> 0) or (OpencodeChoice <> 0);
+    if HasSelection then begin
+      SelectionJson := '{';
+      First := True;
+      if CodexChoice <> 0 then begin
+        SelectionJson := SelectionJson + '"codex":{"enabled":';
+        if CodexChoice = 1 then SelectionJson := SelectionJson + 'true'
+        else SelectionJson := SelectionJson + 'false';
+        if (CodexChoice = 1) and (CodexRunnerPath <> '') then
+          SelectionJson := SelectionJson + ',"runner":"' + YasbSetupAssistEscapeJson(CodexRunnerPath) + '"';
+        SelectionJson := SelectionJson + '}';
+        First := False;
+      end;
+      if OpencodeChoice <> 0 then begin
+        if not First then SelectionJson := SelectionJson + ',';
+        SelectionJson := SelectionJson + '"opencode_go":{"enabled":';
+        if OpencodeChoice = 1 then SelectionJson := SelectionJson + 'true'
+        else SelectionJson := SelectionJson + 'false';
+        SelectionJson := SelectionJson + '}';
+      end;
+      SelectionJson := SelectionJson + '}';
+      if Length(OperationsJson) > 1 then OperationsJson := OperationsJson + ',';
+      OperationsJson := OperationsJson + '{"operation":"config-apply","selection":' + SelectionJson + '}';
+    end;
+  end;
   if Length(OperationsJson) = 1 then OperationsJson := '[{"operation":"discover"}]' else OperationsJson := OperationsJson + ']';
   YasbSetupAssistRun(ExpandConstant('{app}\yasb-limitora.exe'), OperationsJson);
 end;
