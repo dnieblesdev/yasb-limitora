@@ -606,7 +606,9 @@ def _run_setup_assist(environment: Mapping[str, str], *, local_appdata: str | No
         if not isinstance(resolved, str) or (canonical := _canonical_local_dir(resolved)) is None:
             return 1
         records = _execute(names, environment, canonical, registry)
-        return 0 if all(record["status"] == "ok" for record in records) else 1
+        if not all(record["status"] == "ok" for record in records):
+            return 1
+        return 0
     if not _valid_nonce(environment.get(_NONCE_ENV, "")):
         return 1  # nonce grammar is validated before any filesystem access
     resolved = local_appdata if local_appdata is not None else appdata_resolver()

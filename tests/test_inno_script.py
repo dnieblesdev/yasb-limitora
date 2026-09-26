@@ -3,6 +3,8 @@
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "packaging" / "inno" / "yasb-limitora.iss"
 
@@ -584,3 +586,126 @@ def test_slice2_is_absolute_path_accepts_drive_and_unc() -> None:
         ("Pos" in func_body and "Length" in func_body)
     )
     assert has_validation, "UNC validation must check server and share components"
+
+
+def test_provider_page_combos_assign_parent_before_handle_dependent_properties() -> None:
+    """VCL rule: a control's window handle exists only after Parent is assigned,
+    so handle-dependent properties (Style, Items, ItemIndex) must come after Parent.
+    Violating this order causes 'Control has no parent window' at runtime."""
+    code = code_section(script_text())
+    # Isolate CreateProviderPage body
+    proc_start = code.find("procedure CreateProviderPage;")
+    assert proc_start != -1, "CreateProviderPage not found"
+    # Slice until the next top-level procedure/function
+    proc_body = code[proc_start:]
+    next_boundary = re.search(r"\n(?:function|procedure)\s+\w+", proc_body[10:])
+    if next_boundary:
+        proc_body = proc_body[: 10 + next_boundary.start()]
+
+    for combo_name in ("CodexCombo", "OpencodeCombo"):
+        create_pos = proc_body.find(f"{combo_name} := TNewComboBox.Create(")
+        assert create_pos != -1, f"{combo_name} Create not found in CreateProviderPage"
+        # Find the first Parent assignment for this control after Create
+        parent_pattern = re.compile(
+            rf"\b{re.escape(combo_name)}\.Parent\s*:=",
+        )
+        parent_match = parent_pattern.search(proc_body, create_pos)
+        assert parent_match is not None, f"{combo_name}.Parent assignment not found"
+        parent_pos = parent_match.start()
+        # Check that Style, Items, and ItemIndex assignments on this control
+        # all appear AFTER Parent
+        for prop in ("Style", "Items", "ItemIndex"):
+            prop_pattern = re.compile(
+                rf"\b{re.escape(combo_name)}\.{prop}\b",
+            )
+            prop_match = prop_pattern.search(proc_body, create_pos)
+            if prop_match is not None:
+                assert prop_match.start() > parent_pos, (
+                    f"{combo_name}.{prop} at offset {prop_match.start()} must appear "
+                    f"AFTER {combo_name}.Parent at offset {parent_pos} "
+                    f"(VCL requires Parent before handle-dependent properties)"
+                )
+
+
+# --- Reason channel removed (R1-001 / R1-002 regression guard) ---
+
+def test_s11_no_reason_channel_artifacts_in_installer() -> None:
+    """R1-001 regression: the elevated installer must never load a child-supplied
+    file into memory. All reason-channel artifacts are removed."""
+    assistant = setup_assistant_text()
+    for token in (
+        "_YASB_SETUP_ASSIST_REASON",
+        "YasbSetupAssistReasonEnvironment",
+        "YasbSetupAssistMaxReasonBytes",
+        "YasbSetupAssistReadBoundedReason",
+    ):
+        assert token not in assistant, f"reason-channel artifact still present: {token}"
+    assert "LoadStringFromFile" not in assistant
+
+
+def test_s11_non_zero_exit_log_carries_numeric_exit_code() -> None:
+    """The non-zero-exit log line carries the numeric child exit code."""
+    assistant = setup_assistant_text()
+    run = assistant.split("function YasbSetupAssistRun", 1)[1].split(
+        "procedure InvokePostCommitAssist", 1
+    )[0]
+    matches = re.findall(r".*IntToStr\(ExitCode\).*", run)
+    assert len(matches) == 1, f"expected exactly one IntToStr(ExitCode) log line, found {len(matches)}"
+    assert "non-zero exit" in matches[0]
+
+
+def test_s11_request_env_still_set_and_cleared() -> None:
+    """YasbSetupAssistRun still sets the request env before Exec and clears it
+    in the finally block."""
+    assistant = setup_assistant_text()
+    run = assistant.split("function YasbSetupAssistRun", 1)[1].split(
+        "procedure InvokePostCommitAssist", 1
+    )[0]
+    assert "SetEnvironmentVariableW(YasbSetupAssistRequestEnvironment, RequestJson)" in run
+    assert "SetEnvironmentVariableW(YasbSetupAssistRequestEnvironment, '')" in run
+
+
+# --- Scenario 10: owned-cleanup ---
+
+SCENARIO_DIR = ROOT / "build" / "s11a-lifecycle" / "scenarios"
+
+
+def test_scenario_10_owned_cleanup_shape() -> None:
+    """Scenario 10 establishes PATH ownership first, then cleans up.
+
+    The scenario manifests live in the git-ignored disposable-VM harness under
+    ``build/``, so a checkout without that harness (CI clones the repository
+    alone) can only skip this shape assertion. The harness validates the same
+    manifests locally with ``validate-scenarios.ps1``.
+    """
+    scenario_path = SCENARIO_DIR / "10-owned-cleanup.json"
+    if not scenario_path.is_file():
+        pytest.skip("S11a lifecycle harness is not present in this checkout")
+    import json
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    assert scenario["schema"] == "gentle-ai.yasb-limitora.s11b-scenario/v1"
+    assert scenario["scenario"] == "owned-cleanup"
+    assert scenario["shutdownWhenDone"] is True
+    steps = scenario["steps"]
+    kinds = [s["kind"] for s in steps]
+    # Setup step selects the PATH-recording task
+    setup_steps = [s for s in steps if s["kind"] == "setup"]
+    assert len(setup_steps) >= 1
+    install_setup = setup_steps[0]
+    assert "/TASKS=addtopath" in install_setup["argumentList"]
+    # fixture-state-root step is present
+    assert "fixture-state-root" in kinds
+    fixture = next(s for s in steps if s["kind"] == "fixture-state-root")
+    assert len(fixture["files"]) >= 1
+    # Two capture steps: before and after
+    captures = [s for s in steps if s["kind"] == "capture"]
+    assert len(captures) == 2
+    phases = [c["phase"] for c in captures]
+    assert "before" in phases
+    assert "after" in phases
+    # Uninstall step is present
+    assert "uninstall" in kinds
+    # Dialog answer is declared
+    answers = scenario.get("dialogAnswers", [])
+    assert len(answers) >= 1
+    assert any(a["answer"] == "YES" for a in answers)

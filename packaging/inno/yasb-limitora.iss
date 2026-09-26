@@ -349,22 +349,24 @@ begin
     Caption := 'Codex:'; Top := Y; AutoSize := True; Parent := ProviderPage.Surface;
   end;
   Y := Y + ScaleY(20);
+  { VCL rule: a control's window handle is created when Parent is assigned,
+    so handle-dependent properties (Style, Items, ItemIndex) must come after Parent. }
   CodexCombo := TNewComboBox.Create(ProviderPage);
+  CodexCombo.Parent := ProviderPage.Surface;
   CodexCombo.Style := csDropDownList;
   CodexCombo.Items.Add('Unchanged'); CodexCombo.Items.Add('Enabled'); CodexCombo.Items.Add('Disabled');
   CodexCombo.ItemIndex := 0; CodexCombo.Top := Y; CodexCombo.Width := ScaleX(200);
   CodexCombo.OnChange := @OnCodexComboChange;
-  CodexCombo.Parent := ProviderPage.Surface;
   Y := Y + ScaleY(28);
   with TNewStaticText.Create(ProviderPage) do begin
     Caption := 'OpenCode Go:'; Top := Y; AutoSize := True; Parent := ProviderPage.Surface;
   end;
   Y := Y + ScaleY(20);
   OpencodeCombo := TNewComboBox.Create(ProviderPage);
+  OpencodeCombo.Parent := ProviderPage.Surface;
   OpencodeCombo.Style := csDropDownList;
   OpencodeCombo.Items.Add('Unchanged'); OpencodeCombo.Items.Add('Enabled'); OpencodeCombo.Items.Add('Disabled');
   OpencodeCombo.ItemIndex := 0; OpencodeCombo.Top := Y; OpencodeCombo.Width := ScaleX(200);
-  OpencodeCombo.Parent := ProviderPage.Surface;
 end;
 function CaptureProviderChoices: Boolean;
 begin

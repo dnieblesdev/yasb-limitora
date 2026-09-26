@@ -586,3 +586,10 @@ def test_c1_old_inno_string_operations_are_rejected():
     }).encode()
     names, violation = sa._validate_request(old_request)
     assert violation == "schema-violation" and names is None
+
+
+def test_reason_not_written_when_env_not_set(tmp_path):
+    reason_file = tmp_path / "reason.txt"
+    raw = request_bytes([{"operation": "unknown-op"}])
+    assert sa._run_setup_assist({sa._REQUEST_ENV: raw.decode(), "_YASB_SETUP_ASSIST_REASON": str(reason_file)}) == 1
+    assert not reason_file.exists() and not hasattr(sa, "_REASON_ENV")

@@ -220,7 +220,8 @@ begin
     if not Exec(AssistantExe, YasbSetupAssistSwitch, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) then
     begin YasbSetupAssistLog('assistant process could not be started'); Exit; end;
     Result := (ExitCode = 0);
-    if not Result then YasbSetupAssistLog('assistant reported non-zero exit');
+    if not Result then
+      YasbSetupAssistLog('assistant reported non-zero exit (code ' + IntToStr(ExitCode) + ')');
   finally
     SetEnvironmentVariableW(YasbSetupAssistRequestEnvironment, '');
   end;
