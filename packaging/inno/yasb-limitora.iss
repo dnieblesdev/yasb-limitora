@@ -451,10 +451,14 @@ function ConfirmStateCleanup: Boolean;
 var
   Choice: Integer;
 begin
-  Choice := MsgBox(
+  { B1: a suppressed message box must never block the G1 rollback, which runs this
+    uninstaller with /VERYSILENT /SUPPRESSMSGBOXES /NORESTART. Suppression returns the
+    explicit fail-safe default, which matches the dialog default button: the state root
+    is kept unless a person answers Yes. }
+  Choice := SuppressibleMsgBox(
     'Remove the mutable configuration, cache, and backups in ' +
       ExpandConstant('{localappdata}\yasb-limitora') + '?',
-    mbConfirmation, MB_YESNO or MB_DEFBUTTON2);
+    mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO);
   Result := Choice = IDYES;
 end;
 
@@ -480,10 +484,12 @@ function PromptManualClose: Boolean;
 var
   Choice: Integer;
 begin
-  Choice := MsgBox(
+  { B1: under /SUPPRESSMSGBOXES this returns Cancel, so ManualCloseGate fails closed and
+    the uninstaller aborts instead of waiting for a person who is not there. }
+  Choice := SuppressibleMsgBox(
     'YASB is currently running. Close YASB manually, then choose Retry. ' +
       'yasb-limitora will never close, restart, or manage YASB for you.',
-    mbConfirmation, MB_RETRYCANCEL);
+    mbConfirmation, MB_RETRYCANCEL, IDCANCEL);
   Result := Choice = IDRETRY;
   if Choice = IDCANCEL then
     Result := False;

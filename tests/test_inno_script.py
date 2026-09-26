@@ -105,6 +105,44 @@ def test_consent_booleans_and_default_negative_cleanup() -> None:
     assert "InitializeUninstall" in code
 
 
+def test_uninstall_prompts_are_suppressible_with_fail_safe_defaults() -> None:
+    """B1: an unattended rollback must never block on a prompt only a human can answer.
+
+    The G1 rollback runs the new uninstaller with
+    /VERYSILENT /SUPPRESSMSGBOXES /NORESTART, and InitializeUninstall reaches two
+    prompts through ManualCloseGate. Inno suppresses only SuppressibleMsgBox, so both
+    calls must use it, and each suppressed default must fail safe: keep the state root,
+    and abort the uninstaller instead of waiting for a person who is not there.
+
+    The check walks the uninstaller-reachable prompt path instead of the whole [Code]
+    section: CaptureProviderChoices carries an unrelated setup-time error box that no
+    rollback ever reaches.
+    """
+    code = code_section(script_text())
+    assert code.count("SuppressibleMsgBox(") >= 2
+
+    # Every prompt the uninstaller can reach must be suppressible, or an unattended
+    # rollback waits for a person who is not there.
+    for header in (
+        "function ConfirmStateCleanup: Boolean;",
+        "function PromptManualClose: Boolean;",
+        "function ManualCloseGate(DetectedRunning: Boolean): Boolean;",
+    ):
+        body = code.rsplit(header, 1)[1].split("\nend;", 1)[0]
+        assert not re.search(r"(?<!Suppressible)\bMsgBox\(", body), header
+
+    cleanup = code.rsplit("function ConfirmStateCleanup: Boolean;", 1)[1].split("\nend;", 1)[0]
+    assert "SuppressibleMsgBox(" in cleanup
+    assert "MB_YESNO or MB_DEFBUTTON2" in cleanup
+    assert "IDNO);" in cleanup
+    assert "= IDYES" in cleanup
+
+    manual = code.rsplit("function PromptManualClose: Boolean;", 1)[1].split("\nend;", 1)[0]
+    assert "SuppressibleMsgBox(" in manual
+    assert "MB_RETRYCANCEL" in manual
+    assert "IDCANCEL);" in manual
+    assert "= IDRETRY" in manual
+
 def test_manual_close_retry_cancel_has_no_process_control() -> None:
     text = script_text()
     code = code_section(text)
