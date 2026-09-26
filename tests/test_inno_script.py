@@ -1,7 +1,10 @@
 """Static contract tests for the bounded S10 Inno Setup surface."""
 
+import importlib.util
+import json
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -317,6 +320,24 @@ def test_rollback_does_not_ignore_new_uninstaller_result() -> None:
     assert "Log(" in restore
 
 
+def test_rollback_runs_same_path_new_uninstaller_only_when_owned() -> None:
+    code = code_section(script_text())
+    restore = restore_procedure(code)
+    assert "function HasOwnedNewUninstaller" in code
+    assert "NewUninstallString <> PriorUninstallString" not in restore
+    ownership = restore[:restore.index("Exec(RemoveQuotes(NewUninstallString)")]
+    assert ownership.rfind("HasOwnedNewUninstaller") > ownership.rfind("RegQueryStringValue")
+
+
+def test_owned_failed_quarantine_is_removed_only_after_payload_restore() -> None:
+    restore = restore_procedure(code_section(script_text()))
+    quarantine = restore.index("RenameFile(AppDir, FailedDir)")
+    payload_back = restore.index("RenameFile(EvacuatedOldDir, AppDir)")
+    cleanup = restore.index("DelTree(FailedDir")
+    assert quarantine < payload_back < cleanup
+    assert "DelTree(FailedDir" not in restore[quarantine:payload_back]
+
+
 def test_rollback_restores_payload_before_registry_and_never_mixes_identities() -> None:
     restore = restore_procedure(code_section(script_text()))
     quarantine = restore.index("RenameFile(AppDir, FailedDir)")
@@ -382,11 +403,17 @@ def test_s10_surface_keeps_forbidden_payloads_out_of_installer_script() -> None:
 
 
 ASSISTANT_INCLUDE = ROOT / "packaging" / "inno" / "SetupAssistant.isi"
+SETUP_BUILD_DRIVER = ROOT / "scripts" / "build_setup.py"
 
 
 def setup_assistant_text() -> str:
     assert ASSISTANT_INCLUDE.is_file(), "S11 requires packaging/inno/SetupAssistant.isi"
     return ASSISTANT_INCLUDE.read_text(encoding="utf-8")
+
+
+def setup_build_driver_text() -> str:
+    assert SETUP_BUILD_DRIVER.is_file(), "S11 requires scripts/build_setup.py"
+    return SETUP_BUILD_DRIVER.read_text(encoding="utf-8")
 
 
 def test_s11_includes_setup_assistant_and_uses_env_carried_request() -> None:
@@ -470,15 +497,16 @@ def test_s11_install_assist_runs_after_commit_and_is_nonfatal() -> None:
     assert "RaiseException" not in assist_slice
 
 
-def test_s11_uninstall_dispatches_state_cleanup_only_for_literal_yes() -> None:
+def test_s11_uninstall_dispatches_path_remove_and_state_cleanup_for_literal_yes() -> None:
     code = code_section(script_text())
     assistant = setup_assistant_text()
     assert "InitializeUninstall" in code
     uninstall = assistant.split("procedure InvokeUninstallAssist", 1)[1]
-    # C1: typed operation object with consent field, not separate string arrays
+    # path-remove is always dispatched; state-cleanup joins only with consent
+    assert '{"operation":"path-remove"}' in uninstall
     assert '{"operation":"state-cleanup"' in uninstall
     assert '"consent":"YES"' in uninstall
-    assert uninstall.count("YasbSetupAssistRun(") == 1
+    assert uninstall.count("YasbSetupAssistRun(") == 2
     assert re.search(
         r"(?is)if\s+CleanupConsent\s+then.*?YasbSetupAssistRun\(",
         uninstall,
@@ -709,3 +737,104 @@ def test_scenario_10_owned_cleanup_shape() -> None:
     answers = scenario.get("dialogAnswers", [])
     assert len(answers) >= 1
     assert any(a["answer"] == "YES" for a in answers)
+
+def test_s11_build_driver_validates_frozen_input_and_passes_explicit_iscc_defines() -> None:
+    driver = setup_build_driver_text()
+    assert "ISCC.exe" in driver or "iscc.exe" in driver.lower()
+    assert "yasb-limitora.exe" in driver
+    assert re.search(r"is_file\(\).*yasb-limitora\.exe|yasb-limitora\.exe.*is_file\(\)", driver, re.IGNORECASE | re.DOTALL)
+    assert re.search(r"/DAppVersion=", driver)
+    assert re.search(r"/DSourceDir=", driver)
+    assert re.search(r"/DOutputDir=", driver)
+    assert "BuildError" in driver or "ValueError" in driver
+    assert "stderr" in driver and "returncode" in driver
+
+
+def setup_build_module():
+    spec = importlib.util.spec_from_file_location("s11_build_setup", SETUP_BUILD_DRIVER)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def write_frozen_bundle(root: Path, build_info: str) -> Path:
+    (root / "_internal").mkdir(parents=True)
+    (root / "yasb-limitora.exe").write_bytes(b"MZ")
+    (root / "_internal" / "build-info.json").write_text(build_info, encoding="utf-8")
+    return root
+
+
+def test_s11_build_driver_resolves_caller_relative_paths_before_iscc(tmp_path, monkeypatch) -> None:
+    module = setup_build_module()
+    source = write_frozen_bundle(tmp_path / "frozen", '{"version":"0.2.0"}')
+    output = tmp_path / "output"
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append((command, kwargs))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.chdir(tmp_path)
+    module.run_setup(
+        source_dir=Path("frozen"),
+        output_dir=Path("output"),
+        app_version="0.2.0",
+        repo_root=ROOT,
+        runner=runner,
+    )
+    command, kwargs = calls[0]
+    assert command[2] == f"/DSourceDir={source.resolve()}"
+    assert command[3] == f"/DOutputDir={output.resolve()}"
+    assert kwargs["cwd"] == ROOT.resolve()
+
+
+@pytest.mark.parametrize(
+    ("build_info", "app_version", "reason"),
+    [
+        ("{", "0.2.0", "build_info_invalid"),
+        ("[]", "0.2.0", "build_info_invalid"),
+        ("{}", "0.2.0", "build_info_invalid"),
+        ('{"version":42}', "0.2.0", "build_info_invalid"),
+        ('{"version":""}', "0.2.0", "build_info_invalid"),
+        ('{"version":"0.2.1"}', "0.2.0", "build_info_version_mismatch"),
+    ],
+)
+def test_s11_build_driver_binds_a_bounded_build_info_version(
+    tmp_path, build_info, app_version, reason
+) -> None:
+    module = setup_build_module()
+    source = write_frozen_bundle(tmp_path / "frozen", build_info)
+
+    def runner(*args, **kwargs):
+        raise AssertionError("ISCC must not run for invalid build metadata")
+
+    with pytest.raises(module.BuildError) as error:
+        module.run_setup(
+            source_dir=source,
+            output_dir=tmp_path / "output",
+            app_version=app_version,
+            repo_root=ROOT,
+            runner=runner,
+        )
+    assert error.value.reason_code == reason
+    assert error.value.exit_code == 2
+    assert len(str(error.value)) < 500
+
+
+def test_s11_build_driver_rejects_oversized_build_info_with_precondition_exit(tmp_path) -> None:
+    module = setup_build_module()
+    source = write_frozen_bundle(
+        tmp_path / "frozen", json.dumps({"version": "0.2.0", "padding": "x" * 70000})
+    )
+
+    with pytest.raises(module.BuildError) as error:
+        module.run_setup(
+            source_dir=source,
+            output_dir=tmp_path / "output",
+            app_version="0.2.0",
+            repo_root=ROOT,
+            runner=lambda *args, **kwargs: None,
+        )
+    assert error.value.reason_code == "build_info_invalid"
+    assert error.value.exit_code == 2

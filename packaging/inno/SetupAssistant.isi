@@ -284,5 +284,8 @@ begin
 end;
 procedure InvokeUninstallAssist(const CleanupConsent: Boolean);
 begin
-  if CleanupConsent then YasbSetupAssistRun(ExpandConstant('{app}\yasb-limitora.exe'), '[{"operation":"state-cleanup","consent":"YES"}]');
+  if CleanupConsent then
+    YasbSetupAssistRun(ExpandConstant('{app}\yasb-limitora.exe'), '[{"operation":"path-remove"},{"operation":"state-cleanup","consent":"YES"}]')
+  else
+    YasbSetupAssistRun(ExpandConstant('{app}\yasb-limitora.exe'), '[{"operation":"path-remove"}]');
 end;

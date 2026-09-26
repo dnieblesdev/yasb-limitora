@@ -114,6 +114,19 @@ begin
   Result := FileExists(PriorUninstaller);
 end;
 
+function HasOwnedNewUninstaller(AppDir, UninstallString: string): Boolean;
+var
+  Candidate: string;
+begin
+  Result := False;
+  Candidate := RemoveQuotes(UninstallString);
+  if Candidate = '' then
+    Exit;
+  if not SameText(RemoveBackslash(ExtractFilePath(Candidate)), RemoveBackslash(AppDir)) then
+    Exit;
+  Result := FileExists(Candidate);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   AppDir: string;
@@ -190,9 +203,11 @@ var
 begin
   AppDir := ExpandConstant('{app}');
   FailedDir := AppDir + '{#G1FailedPayloadSuffix}';
-  { Step 1: run the exact new native uninstaller; its result is checked, not ignored. }
+  { Step 1: run the exact new native uninstaller; its result is checked, not ignored.
+    Ownership is path-bound to this transaction's canonical app directory, not to
+    textual inequality with the prior string (same-path upgrades are valid). }
   if RegQueryStringValue(HKCU, G1UninstallKey, 'UninstallString', NewUninstallString)
-     and (NewUninstallString <> '') and (NewUninstallString <> PriorUninstallString) then
+     and HasOwnedNewUninstaller(AppDir, NewUninstallString) then
   begin
     UninstallerRan := Exec(RemoveQuotes(NewUninstallString), '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART',
       ExtractFilePath(RemoveQuotes(NewUninstallString)), SW_HIDE, ewWaitUntilTerminated, ResultCode);
@@ -217,10 +232,8 @@ begin
   end;
   { Step 2: quarantine any residual new payload before touching prior payload or
     prior registry. A stale .failed aborts in PrepareToInstall, so a .failed seen
-    here was established by this transaction and is only deleted or renamed back
+    here was established by this transaction and is only renamed back or removed
     under that ownership. }
-  if FailedQuarantineOwned and DirExists(FailedDir) then
-    DelTree(FailedDir, True, True, True);
   if DirExists(AppDir) then
   begin
     if not RenameFile(AppDir, FailedDir) then
@@ -238,6 +251,13 @@ begin
     Log('G1 rollback: prior payload restoration failed; prior payload remains at ' + EvacuatedOldDir + '; prior registry not re-advertised.');
     Exit;
   end;
+  if FailedQuarantineOwned and DirExists(FailedDir) and
+     (not DelTree(FailedDir, True, True, True)) then
+  begin
+    Log('G1 rollback: owned failed quarantine could not be removed after prior payload restoration; prior registry not re-advertised; recovery evidence retained at ' + FailedDir + '.');
+    Exit;
+  end;
+  FailedQuarantineOwned := False;
   EvacuatedOldDir := '';
   { Step 4: the prior payload is canonical again, so re-advertise the complete
     prior registration verbatim (all values, original types) by importing the
