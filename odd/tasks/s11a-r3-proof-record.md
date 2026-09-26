@@ -13,8 +13,13 @@ Externalize the S11a r3 disposable-VM proof into a tracked document under `docs/
 ## Tasks
 1. [x] Author `docs/release/0.2.0/evidence/s11a-r3-vm-proof-identities.md`: identities, scenario set, gate result, the five limits, and the gate-advisory note.
 2. [x] Cross-link it from `odd/tasks/s11a-setup-assist-security.md`, the ledger that carries the r3 run.
-3. [ ] Verify links, absence of external paths, absence of over-claiming, and `build/` absence from the diff; then one docs work-unit commit on `docs/s11a-r3-proof-record`.
+3. [x] Verify links, absence of external paths, absence of over-claiming, and `build/` absence from the diff; then one docs work-unit commit on `docs/s11a-r3-proof-record`.
 4. [ ] Push and open the PR linking #305 (`type:docs`). User decision; not authorized in this task.
+
+## Outcome
+
+- Work-unit commit: `cd48b0479ff4087a3ebe8546bcbb0b4db48b7c86` (`docs(s11a): record the r3 VM proof identities and its limits`) on `docs/s11a-r3-proof-record`, three paths and 107 insertions: the evidence record, this task record, and one cross-reference line in the S11a ledger.
+- Verification before the commit: both relative links resolve, the new documents carry no external filesystem path, and `build/` is absent from the staged diff.
 
 ## Evidence and verification (2026-09-26)
 Re-verified offline against the retained artifacts and records before writing:
