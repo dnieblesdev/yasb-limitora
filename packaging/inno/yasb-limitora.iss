@@ -232,8 +232,20 @@ begin
   end;
   { Step 2: quarantine any residual new payload before touching prior payload or
     prior registry. A stale .failed aborts in PrepareToInstall, so a .failed seen
-    here was established by this transaction and is only renamed back or removed
-    under that ownership. }
+    here was established by this transaction and is only deleted or renamed back
+    under that ownership. A .failed owned by this transaction blocks the quarantine
+    rename (a directory rename cannot overwrite an existing directory), so the
+    owned quarantine is cleared, checked, before the rename and never after the
+    prior payload is touched. }
+  if FailedQuarantineOwned and DirExists(FailedDir) then
+  begin
+    if not DelTree(FailedDir, True, True, True) then
+    begin
+      Log('G1 rollback: owned failed quarantine could not be removed before re-quarantining the new payload; prior payload recoverable at ' + EvacuatedOldDir + '; prior registry not re-advertised.');
+      Exit;
+    end;
+    FailedQuarantineOwned := False;
+  end;
   if DirExists(AppDir) then
   begin
     if not RenameFile(AppDir, FailedDir) then

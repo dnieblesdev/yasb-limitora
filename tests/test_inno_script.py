@@ -329,13 +329,22 @@ def test_rollback_runs_same_path_new_uninstaller_only_when_owned() -> None:
     assert ownership.rfind("HasOwnedNewUninstaller") > ownership.rfind("RegQueryStringValue")
 
 
-def test_owned_failed_quarantine_is_removed_only_after_payload_restore() -> None:
+def test_owned_failed_quarantine_is_cleared_before_requarantining_the_new_payload() -> None:
     restore = restore_procedure(code_section(script_text()))
-    quarantine = restore.index("RenameFile(AppDir, FailedDir)")
+    requarantine = restore.index("RenameFile(AppDir, FailedDir)")
+    precleanup = restore.index("DelTree(FailedDir")
     payload_back = restore.index("RenameFile(EvacuatedOldDir, AppDir)")
-    cleanup = restore.index("DelTree(FailedDir")
-    assert quarantine < payload_back < cleanup
-    assert "DelTree(FailedDir" not in restore[quarantine:payload_back]
+    # A .failed owned by this transaction blocks the quarantine rename (a directory
+    # rename cannot overwrite an existing directory), so it is cleared before the
+    # rename and never after the prior payload is touched.
+    assert precleanup < requarantine < payload_back
+    guard = restore.rindex("if FailedQuarantineOwned", 0, precleanup)
+    assert guard < precleanup
+    precleanup_block = restore[precleanup:requarantine]
+    assert "Exit;" in precleanup_block and "Log(" in precleanup_block
+    assert "RenameFile(EvacuatedOldDir" not in precleanup_block
+    # The post-restore cleanup of the step-2 quarantine is preserved.
+    assert "DelTree(FailedDir" in restore[payload_back:]
 
 
 def test_rollback_restores_payload_before_registry_and_never_mixes_identities() -> None:
@@ -377,11 +386,13 @@ def test_rollback_failed_quarantine_is_owned_by_the_current_transaction() -> Non
     code = code_section(script_text())
     assert re.search(r"\bFailedQuarantineOwned\s*:\s*Boolean", code)
     restore = restore_procedure(code)
-    # The single .failed deletion is guarded by current-transaction ownership.
-    assert restore.count("DelTree(FailedDir") == 1
-    deltree = restore.index("DelTree(FailedDir")
-    deltree_guard = restore.rindex("if", 0, deltree)
-    assert "FailedQuarantineOwned" in restore[deltree_guard:deltree]
+    # Every .failed deletion is guarded by current-transaction ownership: the
+    # pre-rename clear and the post-restore cleanup of the step-2 quarantine.
+    deltrees = [match.start() for match in re.finditer(r"DelTree\(FailedDir", restore)]
+    assert len(deltrees) == 2
+    for deltree in deltrees:
+        guard = restore.rindex("if FailedQuarantineOwned", 0, deltree)
+        assert guard < deltree
     # Ownership is claimed only after this transaction's quarantine rename succeeds,
     # so the current-transaction rollback still quarantines the failed new tree.
     assert restore.index("FailedQuarantineOwned := True") > restore.index(
