@@ -75,3 +75,32 @@ The universal bootstrap source changed in this update. Any previously saved chec
 2. The checkpoint must contain no runner, scenario, setup executable, fixture payload, ISO/DVD, or scenario-specific material in RAM or on the frozen OS disk. The bootstrap watcher is the only scenario-independent guest harness state; all per-run material arrives through fresh VHDX volumes.
 3. The operator must provide a Hyper-V host with the VM, generic checkpoint, SCSI attachment points, enough VHDX storage, and permission to use `New-VHD`, disk initialization/formatting, checkpoint restore, hot attach/remove, and read-only post-run disk-image mounting. The bootstrap watcher must emit `bootstrap watcher sha256=<digest>` in `bootstrap.log` for the verifier's generic watcher identity gate. No login, network, integration service, or guest channel is required after freeze.
 4. T5 must run the harmless fixture twice from the same checkpoint and record the checkpoint identity plus input/evidence VHDX hashes. This T4 implementation has not performed live VM, checkpoint, or disk mutation and does not constitute live proof.
+
+## C5 silent-uninstall contract
+
+The versioned C5 runner is `guest/run-c5-silent-uninstall.ps1`. It accepts only `-EvidenceRoot` and `-ScenarioPath`; the input root is derived from the scenario path. Stage the generic `fixtures/c5/scenario.json` as `scenario.json`, `fixtures/c5/c5-steps.json` as `c5-steps.json`, `fixtures/c5/expected-artifacts.json` as `expected-artifacts.json`, the rebuilt setup executable as `yasb-limitora-0.2.0-setup.exe`, `guest/capture-state.ps1` as `capture-state.ps1`, and `fixtures/c5/state-root/` as `state-root/`. The root scenario must retain the reusable-vm-run schema; C5-specific schema and steps live in `c5-steps.json`. The runner verifies the setup name, 11,054,574-byte size, SHA-256 `1d58f3618f5b22ddccacc7be2dcf8e3a1e9a90dba57dffe431d8ca8ae6df3394`, and the two 32-byte fixture files before executing the install, fixture staging, before capture, uninstall, and after capture steps. It records only `dialogAnswerAttempted`; absence of dialog answers is not a claim that no dialog was displayed. It never claims state-root deletion.
+
+Use the following commands from the repository root. The dry run validates the reusable host plan without touching Hyper-V or storage:
+
+```powershell
+pwsh -NoProfile -Command "& 'proof-harness/host/run-reusable-vm.ps1' -VmName '<vm-name>' -CheckpointName 'clean-windows-universal-bootstrap-v3' -RunnerPath 'proof-harness/guest/run-c5-silent-uninstall.ps1' -ScenarioPath 'proof-harness/fixtures/c5/scenario.json' -ExpectedArtifactsPath 'proof-harness/fixtures/c5/expected-artifacts.json' -VhdxDirectory '<vhdx-directory>' -EvidenceDirectory '<evidence-directory>' -AdditionalInputPath @('build/c5-rebuild/yasb-limitora-0.2.0-setup.exe','proof-harness/guest/capture-state.ps1','proof-harness/fixtures/c5/c5-steps.json','proof-harness/fixtures/c5/state-root') -DryRun"
+```
+
+A real disposable-VM run uses the same command without `-DryRun` and with the explicit fallback switch because the current host cannot provide a trustworthy read-only VHDX attachment:
+
+```powershell
+pwsh -NoProfile -Command "& 'proof-harness/host/run-reusable-vm.ps1' -VmName '<vm-name>' -CheckpointName 'clean-windows-universal-bootstrap-v3' -RunnerPath 'proof-harness/guest/run-c5-silent-uninstall.ps1' -ScenarioPath 'proof-harness/fixtures/c5/scenario.json' -ExpectedArtifactsPath 'proof-harness/fixtures/c5/expected-artifacts.json' -VhdxDirectory '<vhdx-directory>' -EvidenceDirectory '<evidence-directory>' -AdditionalInputPath @('build/c5-rebuild/yasb-limitora-0.2.0-setup.exe','proof-harness/guest/capture-state.ps1','proof-harness/fixtures/c5/c5-steps.json','proof-harness/fixtures/c5/state-root') -AllowWritableInputIntegrityFallback"
+```
+
+The fallback is integrity-only: it hashes the complete input tree before and after the guest run and detects persistent mutation, but cannot detect a guest that changes bytes and restores them before the post-hash. Never run setup or the uninstaller on the host. `run-reusable-vm.ps1` continues to invoke the generic reusable-evidence verifier for the archive. After that host-level verification, run the dedicated C5 verifier against the complete archive; it loads `archive/input/scenario.json`, `archive/input/c5-steps.json`, and evidence below `archive/evidence/`:
+
+### MAX_PATH recovery note
+
+The current-tree attempt5 host extraction initially failed because a nested target path reached 275 characters, exceeding Windows MAX_PATH. Recovery used a read-only mount followed by a short-path copy; 14/14 evidence-file and 9/9 input byte comparisons then passed, and both offline verifiers passed. The host provenance record remains `overall=failed` for the original extraction failure; this is preserved provenance, not rewritten as a clean orchestration result. The writable-input fallback still cannot detect transient tamper restored before the post-hash. The command strings above are test-pinned and intentionally unchanged.
+
+```powershell
+python proof-harness/host/verify-c5-silent-uninstall.py `
+  '<EvidenceRoot>\runs\run-<id>'
+```
+
+The C5 verifier fails closed on malformed or boolean exit codes, missing generic records, missing captures, changed fixture bytes, an application or uninstall key that remains, unexpected dialog-answer claims, or any setup identity mismatch. These commands are documentation only; this source change does not perform VM, storage, setup, or uninstaller execution.
