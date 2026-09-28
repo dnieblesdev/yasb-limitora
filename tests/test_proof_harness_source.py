@@ -22,9 +22,16 @@ EXPECTED_MIGRATED_SOURCE_PATHS = {
 }
 EXPECTED_AUTHORED_SOURCE_PATHS = {
     "guest/bootstrap-watch.ps1",
+    "guest/run-c5-silent-uninstall.ps1",
     "host/run-reusable-vm.ps1",
     "host/new-run-volumes.ps1",
     "host/verify-reusable-evidence.py",
+    "host/verify-c5-silent-uninstall.py",
+    "fixtures/c5/scenario.json",
+    "fixtures/c5/c5-steps.json",
+    "fixtures/c5/expected-artifacts.json",
+    "fixtures/c5/state-root/config.json",
+    "fixtures/c5/state-root/quota-v2-cache.json",
 }
 EXPECTED_SOURCE_PATHS = EXPECTED_MIGRATED_SOURCE_PATHS | EXPECTED_AUTHORED_SOURCE_PATHS
 
