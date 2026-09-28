@@ -1,0 +1,76 @@
+{
+  "schema": "gentle-ai.yasb-limitora.reusable-vm-harness-source/v1",
+  "sources": [
+    {
+      "path": "guest/capture-state.ps1",
+      "origin": "../yasb-limitora-s11b-reconciled/build/s11b-lifecycle/guest/capture-state.ps1",
+      "size": 10753,
+      "sha256": "3b005ddbcbce16b70532b85237ca426ba560fb901e4c55602d804b015f1d49f7"
+    },
+    {
+      "path": "guest/hold-locked-file.ps1",
+      "origin": "../yasb-limitora-s11b-reconciled/build/s11b-lifecycle/guest/hold-locked-file.ps1",
+      "size": 8147,
+      "sha256": "1ceb2f5b7349295a34e57f443c55726ee80609610b4b88e02747cb6f6334a255"
+    },
+    {
+      "path": "guest/run-setup-uninstall.ps1",
+      "origin": "../yasb-limitora-s11b-reconciled/build/s11b-lifecycle/guest/run-setup-uninstall.ps1",
+      "size": 9537,
+      "sha256": "7ee674369d28712f93df6b9097838cdfe0fe12246411545c14c092a188a15d68"
+    },
+    {
+      "path": "guest/watch-scenarios.ps1",
+      "origin": "../yasb-limitora-s11b-reconciled/build/s11b-lifecycle/guest/watch-scenarios.ps1",
+      "size": 48320,
+      "sha256": "6e3b8340c385b83dc7d9d52755f2fd64450198a0280ab5fae7cbec6ce02ea8c6"
+    },
+    {
+      "path": "host/orchestrate-lifecycle.ps1",
+      "origin": "../yasb-limitora-s11b-reconciled/build/s11b-lifecycle/orchestrate-lifecycle.ps1",
+      "size": 20975,
+      "sha256": "6dd4e0788bec5b04b36da4af5d12e0d12e3460f6162efa21a4e085d52219ed64"
+    },
+    {
+      "path": "host/verify-evidence.py",
+      "origin": "../yasb-limitora-s11a-setup-assist/build/s11a-lifecycle/verify-evidence.py",
+      "size": 14374,
+      "sha256": "c665b44045bd3e2be06d632cb306b4e7bd3136a37b21ad82f0044fa4f75dcbab"
+    },
+    {
+      "path": "host/roundtrip-verify.ps1",
+      "origin": "../yasb-limitora-s11a-setup-assist/build/s11a-lifecycle/roundtrip-verify.ps1",
+      "size": 6000,
+      "sha256": "f034378f124184713ae126ff3911fd59211cfa5d39a098adcc93752db118173a"
+    },
+    {
+      "path": "host/run-reusable-vm.ps1",
+      "origin": "proof-harness/host/run-reusable-vm.ps1",
+      "kind": "authored",
+      "size": 27256,
+      "sha256": "fe18e4fb30d0527b8ebbff31053b06e8c537a8391b3b2fb1851abab2874653dc"
+    },
+    {
+      "path": "host/new-run-volumes.ps1",
+      "origin": "proof-harness/host/new-run-volumes.ps1",
+      "kind": "authored",
+      "size": 12494,
+      "sha256": "e8b86f76e735c2f99068090fa2a66137185c96a93e5eb277288ea459a620d7f0"
+    },
+    {
+      "path": "host/verify-reusable-evidence.py",
+      "origin": "proof-harness/host/verify-reusable-evidence.py",
+      "kind": "authored",
+      "size": 29965,
+      "sha256": "c2b35a76058e9ec3584ecd348f8c75c03d82571d6df72a4e41133571432af387"
+    },
+    {
+      "path": "guest/bootstrap-watch.ps1",
+      "origin": "proof-harness/guest/bootstrap-watch.ps1",
+      "kind": "authored",
+      "securityCritical": true,
+      "size": 24941,
+      "sha256": "35c216859790fb91ae310d39545e7499ceb8361f5624e5c72529fb400d8a80d7"
+    }
+  ]
+}
