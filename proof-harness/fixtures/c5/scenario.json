@@ -1,0 +1,5 @@
+{
+  "schema": "gentle-ai.yasb-limitora.reusable-vm-run/v1",
+  "scenario": "silent-uninstall-with-state-root",
+  "dialogAnswers": []
+}

@@ -1,0 +1,10 @@
+{
+  "schema": "gentle-ai.yasb-limitora.reusable-artifact-manifest/v1",
+  "artifacts": [
+    {
+      "path": "c5-result.json",
+      "size": 801,
+      "sha256": "d86ee568ad34f8386f9fc11b41d051efe28dacc7f0f545c6570a980b2ad705dd"
+    }
+  ]
+}
