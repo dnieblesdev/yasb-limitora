@@ -1,0 +1,33 @@
+{
+  "schema": "gentle-ai.yasb-limitora.c5-silent-uninstall/v1",
+  "scenario": "silent-uninstall-with-state-root",
+  "legacyScenarioSha256": "8aca8127167fc5ec0ec143c563e1b14c1d77bf763c8203d2095bd1c515a37c93",
+  "setup": {
+    "name": "yasb-limitora-0.2.0-setup.exe",
+    "size": 11054574,
+    "sha256": "1d58f3618f5b22ddccacc7be2dcf8e3a1e9a90dba57dffe431d8ca8ae6df3394"
+  },
+  "silentArguments": [
+    "/VERYSILENT",
+    "/SUPPRESSMSGBOXES",
+    "/NORESTART"
+  ],
+  "fixtureStateRoot": "state-root",
+  "fixtureFiles": [
+    {
+      "path": "config.json",
+      "size": 32,
+      "sha256": "e16c422f5a2593dd4bfcc1cf5979cfad382769422953ff10202986be8f0a1795"
+    },
+    {
+      "path": "quota-v2-cache.json",
+      "size": 32,
+      "sha256": "e16c422f5a2593dd4bfcc1cf5979cfad382769422953ff10202986be8f0a1795"
+    }
+  ],
+  "stagedInputs": [
+    "capture-state.ps1",
+    "state-root"
+  ],
+  "dialogAnswers": []
+}
