@@ -1,0 +1,10 @@
+{
+  "schema": "gentle-ai.yasb-limitora.reusable-artifact-manifest/v1",
+  "artifacts": [
+    {
+      "path": "artifact.txt",
+      "size": 23,
+      "sha256": "a65c40af2ddb17e3e5c65e30eb5abe70e0a70e34c02d244cf3c1af3e0ccc9db8"
+    }
+  ]
+}
