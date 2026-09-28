@@ -61,8 +61,8 @@
       "path": "host/verify-reusable-evidence.py",
       "origin": "proof-harness/host/verify-reusable-evidence.py",
       "kind": "authored",
-      "size": 29965,
-      "sha256": "c2b35a76058e9ec3584ecd348f8c75c03d82571d6df72a4e41133571432af387"
+      "size": 30161,
+      "sha256": "957a0330a51c14f3c85c148d58c2ef3d378aaaa373643689420724af35f2acb2"
     },
     {
       "path": "guest/bootstrap-watch.ps1",

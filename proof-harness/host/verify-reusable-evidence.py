@@ -461,9 +461,9 @@ def _validate_reusable_evidence(
         failures.append("done.json schema mismatch")
     if exit_record.get("schema") != "gentle-ai.yasb-limitora.reusable-vm-exit/v1":
         failures.append("exit.json schema mismatch")
-    if done.get("result") != "success" or done.get("runnerExitCode") != 0:
+    if done.get("result") != "success" or type(done.get("runnerExitCode")) is not int or done.get("runnerExitCode") != 0:
         failures.append("guest completion is not a controlled success")
-    if not isinstance(exit_record.get("success"), bool) or not exit_record.get("success") or exit_record.get("exitCode") != 0:
+    if not isinstance(exit_record.get("success"), bool) or not exit_record.get("success") or type(exit_record.get("exitCode")) is not int or exit_record.get("exitCode") != 0:
         failures.append("exit.json is not a successful zero exit")
     if not isinstance(done.get("shutdownRequested"), bool) or not done.get("shutdownRequested") or not isinstance(exit_record.get("shutdownRequested"), bool) or not exit_record.get("shutdownRequested"):
         failures.append("guest did not request clean shutdown")
@@ -475,7 +475,7 @@ def _validate_reusable_evidence(
         failures.append("guest did not attest that input stayed unchanged")
     if done.get("scenario") != exit_record.get("scenario"):
         failures.append("done.json and exit.json scenario identity mismatch")
-    if done.get("runnerExitCode") != exit_record.get("runnerExitCode"):
+    if type(done.get("runnerExitCode")) is not int or type(exit_record.get("runnerExitCode")) is not int or done.get("runnerExitCode") != exit_record.get("runnerExitCode"):
         failures.append("done.json and exit.json runner exit mismatch")
 
     for output_name in ("runner.stdout.txt", "runner.stderr.txt", "bootstrap.log"):

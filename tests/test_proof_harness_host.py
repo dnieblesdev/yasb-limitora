@@ -191,6 +191,19 @@ def test_verifier_rejects_missing_guest_exit_runner_code(tmp_path: Path) -> None
     assert "runner exit mismatch" in result.stdout.lower()
 
 
+@pytest.mark.parametrize("record, field", [("done", "runnerExitCode"), ("exit", "exitCode"), ("exit", "runnerExitCode")])
+@pytest.mark.parametrize("value", [False, "0"])
+def test_verifier_rejects_non_int_exit_codes(tmp_path: Path, record: str, field: str, value: object) -> None:
+    input_root, evidence_root = _make_contract(tmp_path)
+    path = evidence_root / ("done.json" if record == "done" else "exit.json")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data[field] = value
+    path.write_text(json.dumps(data) + "\n", encoding="utf-8")
+    result = _verify(input_root, evidence_root)
+    assert result.returncode != 0
+    assert "VERDICT: FAIL" in result.stdout
+
+
 def test_host_scripts_use_exact_labels_and_no_legacy_media_path() -> None:
     run_text = RUNNER.read_text(encoding="utf-8").lower()
     volume_text = VOLUMES.read_text(encoding="utf-8").lower()
