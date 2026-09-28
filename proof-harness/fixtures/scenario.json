@@ -1,0 +1,16 @@
+{
+  "schema": "gentle-ai.yasb-limitora.reusable-vm-fixture/v1",
+  "scenario": "reusable-smoke",
+  "inputVolumeLabel": "S11BINPUTS",
+  "evidenceVolumeLabel": "S11BEVIDENCE",
+  "runner": {
+    "path": "runner.ps1",
+    "size": 1267,
+    "sha256": "1eb8c3075150dc78e7f5d6ec8342563aa66e38d1150d151adf107ff677161a2b"
+  },
+  "expectedArtifact": {
+    "path": "expected-artifact.txt",
+    "size": 23,
+    "sha256": "a65c40af2ddb17e3e5c65e30eb5abe70e0a70e34c02d244cf3c1af3e0ccc9db8"
+  }
+}
