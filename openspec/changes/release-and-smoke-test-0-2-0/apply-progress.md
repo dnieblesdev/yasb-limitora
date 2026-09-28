@@ -1216,14 +1216,14 @@ Date: 2026-09-21 (local).
 - S11a and S11b remain unchecked because real install/reinstall/upgrade/uninstall lifecycle proof is pending.
 - The S11a/S11b split and the ≤400-line budget for each candidate are preserved.
 
-## S11b — lifecycle closure evidence (RECORDED ON OLD BRANCH; PENDING REBUILD ON THIS BRANCH)
+## S11b — lifecycle closure evidence (HISTORICAL OLD BRANCH; CURRENT-TREE C5 FOLLOW-UP BELOW)
 
 > **Branch reconciliation note.** This section was recorded on the old branch
 > (`feat/s11b-transaction-closeout-reconciled`, head `84ddcb3`). The lifecycle proof, setup hashes,
 > checkpoint identities, and verification results below were produced on that tree and do not describe
-> `feat/s11b-transaction-closeout-v2` (head `e0c2794`). A fresh disposable-VM cycle on an artifact
-> rebuilt from this branch is pending; no proof is claimed for this tree until that rebuild and cycle
-> complete. The historical record is preserved below for continuity.
+> `feat/s11b-transaction-closeout-v2` (head `e0c2794`). The full eight-scenario lifecycle was not
+> rerun on this tree; the historical record is preserved below for continuity. Current-tree C5 attempt5
+> evidence is recorded in the follow-up section below.
 
 Date: 2026-09-23 (local, old branch). This section supersedes the S11a/S11b pending notes above, including the stale
 `pyinstaller_missing` blocker (PyInstaller 6.22.3 is installed and the frozen build plus native compile run).
@@ -1254,12 +1254,12 @@ Date: 2026-09-23 (local, old branch). This section supersedes the S11a/S11b pend
   **correct** outcome — the ownership gate working as designed.
 - **Independent verification (old branch).** Read-only `gentle-ai-verify` returned
   `PASS_WITH_FINDINGS`. Two findings: **C5** — subsequently **PASS with caveats** on the old branch;
-  on this branch the C5 dynamic proof is pending a fresh rebuild. **C10** — mitigated for
+  current-tree attempt5 now independently records **PASS with caveats** for C5. **C10** — mitigated for
   forward-looking runs only.
 - **Status on this branch.** S11a and S11b are NOT marked complete on this branch. The recorded
-  lifecycle proof and C5 dynamic proof were run on payloads built from the old branch, so they
-  establish nothing for this tree. A fresh disposable-VM cycle on an artifact rebuilt from
-  `feat/s11b-transaction-closeout-v2` is pending.
+  lifecycle proof was run on payloads built from the old branch, so it does not establish the full
+  lifecycle for this tree. Current-tree attempt5 establishes C5 PASS with caveats, while the full
+  S11a/S11b lifecycle remains unrerrun and its completion boxes remain unchecked.
 
 ## S11b — verification evidence (SUPERSEDED BY THE SECTION ABOVE)
 
@@ -1268,3 +1268,9 @@ Date: 2026-09-23 (local, old branch). This section supersedes the S11a/S11b pend
 - Native ISCC **6.7.3** compile passes with a temporary minimal frozen bundle.
 - `python scripts/build_frozen_bundle.py` cannot produce a real candidate because PyInstaller **>=6,<7** is not installed; it exits `2` with `pyinstaller_missing`.
 - Therefore actual install/reinstall/upgrade/uninstall lifecycle proof remains pending, and S11b stays unchecked.
+
+## C5 current-tree attempt5 evidence — PASS with caveats
+
+Recovered attempt5 evidence establishes current-tree C5 **PASS with caveats**. Setup `1d58f3618f5b22ddccacc7be2dcf8e3a1e9a90dba57dffe431d8ca8ae6df3394` (11,054,574 B), uninstaller `02431245dfe2a60b55d16f6606929474ef5b8c432339afe73e9070862a390a8c`, and both 32-byte fixtures `e16c422f5a2593dd4bfcc1cf5979cfad382769422953ff10202986be8f0a1795` were observed. The run used checkpoint v3 `3842be2c-a8a3-4cdb-98e2-0905179b999a`, VM `s11b-69c7ff5-20260922-050224-606df2ed`, bootstrap `35c216859790fb91ae310d39545e7499ceb8361f5624e5c72529fb400d8a80d7`, runner `386fd6c3cc859f54c02c6c7db67c27153dba2f91e71ae0416dff805c13d04bc2`, input tree `3b614966581e3d6f8f182ed122c58687dd69f00938a9cf98c8558b184475380b`, and evidence VHDX `8cf289225044fd389ce61c8616557f01d67f107ca75ad0244273c09f06545207` unchanged before/after read-only mounting.
+
+Install/uninstall exited `0`; app and uninstall key were present before and absent after; fixtures survived byte-identically; `dialogAnswerAttempted=false`; no `dialogObserved` or zero-dialog claim is made. Done success, runner exit `0`, input unchanged, shutdown requested, VM Off, and run disks detached were observed. The generic verifier printed `VERDICT: PASS`; the dedicated verifier printed `C5 VERDICT: PASS scenario=silent-uninstall-with-state-root`. Short-path recovery produced 14/14 evidence and 9/9 input byte comparisons. Host provenance remains `overall=failed` because MAX_PATH extraction reached 275 characters; that failure and workaround are preserved. Writable-input transient-tamper and unpinned-uninstaller-hash caveats remain. S11a/S11b completion boxes remain unchecked because the full lifecycle was not rerun.
