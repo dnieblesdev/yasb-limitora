@@ -5,11 +5,9 @@ Close the C5 evidence gap by verifying the B1-fixed installed uninstaller with a
 
 ## Branch reconciliation note
 
-> **This file was carried from the old branch (`feat/s11b-transaction-closeout-reconciled`, head
-> `84ddcb3`). The commit identities, review lineage, and run evidence recorded below were produced on
-> that branch and do not apply to `feat/s11b-transaction-closeout-v2` (head `e0c2794`). The historical
-> record is preserved for continuity; a fresh disposable-VM cycle on an artifact rebuilt from this
-> branch is pending.**
+> **This file preserves the old-branch commit identities, review lineage, and v7 run evidence. Current-tree
+> attempt5 is now recorded in the linked evidence report as PASS with caveats; the old-branch record is
+> historical and is not rewritten as current proof.**
 
 ## Scope and constraints
 - Keep this record high-level; the linked evidence report is the canonical source for technical run details.
@@ -52,4 +50,4 @@ Close the C5 evidence gap by verifying the B1-fixed installed uninstaller with a
 - Primary commit identity on old branch: `7ff9d1acc031a8e4f1ed350dcb403c452e961b30`. Push and PR are not authorized.
 
 ## Current outcome and next step
-C5 is **PASS with caveats** on the old branch. See [the detailed C5 evidence report](../../docs/release/0.2.0/evidence/s11b-c5-silent-uninstall-state-root.md) for the technical record. On this branch (`feat/s11b-transaction-closeout-v2`), the C5 dynamic proof is pending a fresh rebuild and disposable-VM cycle. The old-branch docs commit `7ff9d1acc031a8e4f1ed350dcb403c452e961b30` passed independent pre-commit verification and native review; the equivalent on this branch is pending. ASSESS remained unassessable, but the staged verifier and closed native review passed on the old branch. No push or publication is authorized.
+C5 is **PASS with caveats on the current tree** from recovered attempt5 evidence. See [the detailed C5 evidence report](../../docs/release/0.2.0/evidence/s11b-c5-silent-uninstall-state-root.md) for the technical record. The current-tree result uses setup `1d58f3618f5b22ddccacc7be2dcf8e3a1e9a90dba57dffe431d8ca8ae6df3394`, checkpoint v3 `3842be2c-a8a3-4cdb-98e2-0905179b999a`, runner `386fd6c3cc859f54c02c6c7db67c27153dba2f91e71ae0416dff805c13d04bc2`, and the documented MAX_PATH recovery. The old-branch docs commit `7ff9d1acc031a8e4f1ed350dcb403c452e961b30`, its independent verification, and its native review remain historical. Record verification and native review for this current documentation update remain pending; no push or publication is authorized.

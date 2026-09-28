@@ -1,11 +1,9 @@
 # Zero-touch lifecycle cycle — manifest driver plus resident guest watcher
 
-> **Branch reconciliation note.** This file was carried from the old branch
-> (`feat/s11b-transaction-closeout-reconciled`, head `84ddcb3`). The setup hashes, checkpoint
-> identities, watcher stamps, and payload references recorded below were produced on that tree and do
-> not describe `feat/s11b-transaction-closeout-v2` (head `e0c2794`). A fresh disposable-VM cycle on
-> an artifact rebuilt from this branch is pending; no proof is claimed for this tree until that
-> rebuild and cycle complete. The historical record is preserved below for continuity.
+> **Branch reconciliation note.** This file preserves the old-branch zero-touch lifecycle chronology;
+> its setup hashes, checkpoint identities, watcher stamps, and payload references remain historical.
+> Current-tree attempt5 C5 evidence is recorded below and in the linked detailed report. It does not
+> replace the full S11a/S11b lifecycle, which was not rerun on this tree and remains unchecked.
 >
 
 ## Goal
@@ -157,10 +155,10 @@ commands.
   (`S11B_FAULT_REGISTRY_PHASE_MARKER`, `S11B_FAULT_POST_BOOKKEEPING_MARKER`) intact. Fault ISS sha256
   `56e7c5af…` (registry-phase, 16,314 B) and `0358c0cc…` (post-bookkeeping, 16,056 B).
 - Four setups recompiled from the B1-fixed sources against the unchanged frozen payload (the `69c7ff5` payload identity is from the old branch and does not describe this tree):
-  production `7ff33e5d…` 11,052,514 B (old branch; must be produced by a rebuild on this branch and is not yet recorded); synthetic 0.1.0 `608ba3df…` 11,052,522 B; fault-registry-phase
+  production `7ff33e5d…` 11,052,514 B (historical old-branch identity; current-tree setup `1d58f3618f5b22ddccacc7be2dcf8e3a1e9a90dba57dffe431d8ca8ae6df3394` is recorded in the current-tree attempt5 follow-up); synthetic 0.1.0 `608ba3df…` 11,052,522 B; fault-registry-phase
   `d5583527…` 11,052,627 B; fault-post-bookkeeping `25f11751…` 11,052,571 B. The payload was deliberately
   not rebuilt, so all 109 payload entries keep their payload identities (the `69c7ff5` build commit is from the old branch) and the manifest's setup/README
-  declarations state that split explicitly (`source_commit` was `69c7ff5` on the old branch; on this branch it must be determined by a rebuild).
+  declarations state that split explicitly (`source_commit` was `69c7ff5` on the old branch; the current-tree C5 setup identity is recorded in the attempt5 follow-up).
 - README updated for the set identity (payload (the `69c7ff5` payload identity is from the old branch), B1 fix `355838f`, `packaging/inno/` identical at
   HEAD `49d43a0`, B1-fixed production ISS) and corrected for the checkpoint requirement: a **new**
   checkpoint must be frozen with the watcher running, because the pre-watcher
@@ -353,6 +351,13 @@ checkpoint, so scenario 1 ran from a genuinely clean baseline and the guest's CD
   annotation in the v7 run root (the original v7 extracted log retains its historical identity limitation;
   the post-hoc annotation is not part of the extracted evidence). The ledger section "S11B-3 lifecycle re-run" carries the full record. C5 was subsequently **PASS with caveats**
   (2026-09-24) by the `silent-uninstall-with-state-root` dynamic proof (evidence and caveats in [the C5 evidence report](../../docs/release/0.2.0/evidence/s11b-c5-silent-uninstall-state-root.md)); the original v7 `PASS_WITH_FINDINGS` verdict is unchanged.
+
+## Current-tree C5 attempt5 follow-up — PASS with caveats
+
+Recovered attempt5 evidence establishes current-tree C5 **PASS with caveats** for
+`silent-uninstall-with-state-root`. Setup `1d58f3618f5b22ddccacc7be2dcf8e3a1e9a90dba57dffe431d8ca8ae6df3394` (11,054,574 B) and uninstaller `02431245dfe2a60b55d16f6606929474ef5b8c432339afe73e9070862a390a8c` were exercised with the two byte-identical 32-byte fixtures `e16c422f5a2593dd4bfcc1cf5979cfad382769422953ff10202986be8f0a1795`. The run used checkpoint v3 `3842be2c-a8a3-4cdb-98e2-0905179b999a` in VM `s11b-69c7ff5-20260922-050224-606df2ed`, bootstrap `35c216859790fb91ae310d39545e7499ceb8361f5624e5c72529fb400d8a80d7`, runner `386fd6c3cc859f54c02c6c7db67c27153dba2f91e71ae0416dff805c13d04bc2`, input tree `3b614966581e3d6f8f182ed122c58687dd69f00938a9cf98c8558b184475380b`, and evidence VHDX `8cf289225044fd389ce61c8616557f01d67f107ca75ad0244273c09f06545207` unchanged across read-only mounting.
+
+Install and uninstall exited `0`; app and uninstall key were present before and absent after; fixtures survived byte-identically; `dialogAnswerAttempted=false`; no `dialogObserved` or zero-dialog claim is made. Done success, runner exit `0`, input unchanged, shutdown requested, VM Off, and detached run disks were observed. Generic and dedicated offline verifiers printed PASS; short-path recovery verified 14/14 evidence and 9/9 input byte comparisons. Host provenance remains `overall=failed` because MAX_PATH extraction reached 275 characters; the failure and workaround are preserved. Writable-input transient-tamper, unpinned uninstaller hash, no-zero-dialog, and full-lifecycle-not-rerun caveats remain; v7 `PASS_WITH_FINDINGS` and C7/C10 are unchanged. See [the detailed C5 report](../../docs/release/0.2.0/evidence/s11b-c5-silent-uninstall-state-root.md).
 
 ## Risks
 
