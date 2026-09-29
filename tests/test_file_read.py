@@ -248,10 +248,10 @@ def test_bounded_private_job_and_process_cleanup_are_retained_and_retried(monkey
     monkeypatch.setattr(path_module.multiprocessing, "get_context", lambda method: Context())
     monkeypatch.setitem(path_module.__dict__, "__import__", lambda *args, **kwargs: module)
 
-    if operation == "read":
-        invoke = lambda: path_module._bounded_file_read("C:\\config.json", _context())
-    else:
-        invoke = lambda: path_module._bounded_file_call(lambda: None, (), _context())
+    def invoke():
+        if operation == "read":
+            return path_module._bounded_file_read("C:\\config.json", _context())
+        return path_module._bounded_file_call(lambda: None, (), _context())
     try:
         with pytest.raises(FileError):
             invoke()
@@ -325,7 +325,8 @@ def test_bounded_file_call_authorizes_child_after_private_job_assignment(monkeyp
     monkeypatch.setattr(path_module.multiprocessing, "get_context", lambda method: Context())
     monkeypatch.setitem(path_module.__dict__, "__import__", lambda *args, **kwargs: module)
 
-    callback = lambda: events.append("callback") or b"value"
+    def callback():
+        return events.append("callback") or b"value"
 
     assert path_module._bounded_file_call(callback, (), _context()) == b"value"
     assert events.index("job-assign") < events.index("authorize") < events.index("child-wait") < events.index("callback")
