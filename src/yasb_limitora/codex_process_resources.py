@@ -120,8 +120,10 @@ class _PopenProcessOwner:
         except _PopenTimeoutError:
             timeout, timeout_error = EMERGENCY_CLEANUP_BUDGET_SECONDS, True
         self._state = _PopenState.CLOSING
-        popen = cast(Any, self._popen)
+        popen = self._popen
         try:
+            if popen is None:
+                raise _PopenCleanupError from None
             if popen.poll() is None:
                 popen.terminate()
                 popen.wait(timeout=timeout)
@@ -139,8 +141,10 @@ class _PopenProcessOwner:
         if context.cleanup_ns() <= 0:
             raise _PopenTimeoutError from None
         self._state = _PopenState.CLOSING
-        popen = cast(Any, self._popen)
+        popen = self._popen
         try:
+            if popen is None:
+                raise _PopenCleanupError from None
             if popen.poll() is None:
                 popen.terminate()
                 remaining = context.cleanup_ns()

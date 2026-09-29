@@ -1,0 +1,9 @@
+# Cleanup owner typing after issue #311
+
+Goal: Resolve the two nonblocking review advisories without changing cleanup ordering, ownership, retry, or exception semantics.
+
+- [x] Assess advisories: `_PopenProcessOwner` retains `_popen` through REGISTERED/ADAPTED/BROKEN and clears it only with CLOSED; no confirmed missing-process bug. Supervisor cleanup lambdas obscure captured resources with `Any` casts; readability concern is real.
+- [ ] Clarified both supervisor cleanup paths by passing each captured resource to its closer; removed redundant process casts and made an impossible missing-process state fail with the same sanitized cleanup error and BROKEN transition. Focused pytest 56 passed; full pytest 1044 passed/21 skipped; Ruff and diff check passed. Independent verification unavailable (subagent runtime `MODULE_NOT_FOUND`). The frozen candidate in native review lineage `review-54a40d534c7552eb` was approved with two nonblocking readability suggestions, but its acknowledgement failed without mutation (`native-status-unavailable`, `schema-incompatible`). This task note changed after the candidate was frozen, so that approval does not cover the current tree. No commit, PR, CI, or merge yet.
+- [x] Evaluate follow-up suggestions: the two missing-process guards in `close` and `close_with_deadline` are deliberate local checks with different surrounding timeout behavior; extracting a shared guard would add indirection without removing a state check. Updated this note to distinguish frozen-candidate approval from acknowledgement and current-tree coverage.
+
+Non-goal: redesign resource lifetime or make cleanup fail differently. Existing deterministic tests cover BROKEN retry and cleanup order; refactor has no meaningful behavior RED, so use structural diff audit and focused tests instead.
