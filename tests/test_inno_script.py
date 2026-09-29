@@ -849,6 +849,28 @@ def test_s11_build_driver_resolves_caller_relative_paths_before_iscc(tmp_path, m
     assert kwargs["cwd"] == ROOT.resolve()
 
 
+def test_s11_build_driver_pins_utf8_replacement_decoding_for_iscc_output(tmp_path) -> None:
+    """R4-002: locale decode failures must not escape the bounded build error contract."""
+    module = setup_build_module()
+    source = write_frozen_bundle(tmp_path / "frozen", '{"version":"0.2.0"}')
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append((command, kwargs))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    module.run_setup(
+        source_dir=source,
+        output_dir=tmp_path / "output",
+        app_version="0.2.0",
+        repo_root=ROOT,
+        runner=runner,
+    )
+    _, kwargs = calls[0]
+    assert kwargs["encoding"] == "utf-8"
+    assert kwargs["errors"] == "replace"
+
+
 @pytest.mark.parametrize(
     ("build_info", "app_version", "reason"),
     [
