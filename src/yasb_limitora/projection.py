@@ -56,7 +56,8 @@ _PERIOD_DISPLAY_NAMES = {
     "weekly": "Weekly",
 }
 
-class _TooManyWindows(ValueError): pass
+class _TooManyWindows(ValueError):
+    pass
 _NOT_RUN_TEXT = {
     "disabled": "provider disabled",
     "invalid_configuration": "configuration invalid",

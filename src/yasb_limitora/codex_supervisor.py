@@ -11,7 +11,7 @@ from dataclasses import dataclass as _dataclass
 from enum import Enum as _Enum
 import typing as _typing
 
-from .codex_job_resources import _JobAcquisitionFailure, _acquire_job_owner
+from .codex_job_resources import _JobAcquisitionFailure, _JobOwner, _acquire_job_owner
 from .codex_process_resources import _HelperProcessResources, _PopenProcessOwner
 from ._codex_resource_core import (
     _CloseOutcome,
@@ -102,7 +102,7 @@ class _PipeTransport:
         if type(timeout_seconds) not in (int, float):
             raise _TransportTimeout("invalid_timeout") from None
         try:
-            timeout = float(timeout_seconds)
+            timeout = float(_typing.cast(_typing.Any, timeout_seconds))
         except (ValueError, OverflowError):
             raise _TransportTimeout("invalid_timeout") from None
         if timeout < 0 or not _math.isfinite(timeout):
@@ -628,7 +628,7 @@ class _CodexSupervisor:
         self._nonce: bytes | None = None
         self._terminal_error: Exception | None = None
 
-    def _abort(self, transaction: _AcquisitionTransaction, error: Exception) -> None:
+    def _abort(self, transaction: _AcquisitionTransaction, error: Exception) -> _typing.NoReturn:
         try:
             transaction.rollback()
         except Exception:  # noqa: BLE001 - preserve the failed owner
@@ -742,7 +742,8 @@ class _CodexSupervisor:
                 "stdout": _subprocess.DEVNULL,
                 "stderr": _subprocess.DEVNULL,
             }
-            if _os.name == "nt": popen_kwargs["creationflags"] = _subprocess.CREATE_BREAKAWAY_FROM_JOB
+            if _os.name == "nt":
+                popen_kwargs["creationflags"] = _subprocess.CREATE_BREAKAWAY_FROM_JOB
             if _os.name != "nt":
                 popen_kwargs["pass_fds"] = (gate_read, data_write)
             popen = self._popen_factory(
@@ -756,7 +757,7 @@ class _CodexSupervisor:
             gate._read._close()
             data._write._close()
             process_owner.adapt_native_handle()
-            job = self._job_factory(_Kernel32Api.load() if _os.name == "nt" else None)
+            job = _typing.cast(_JobOwner, self._job_factory(_Kernel32Api.load() if _os.name == "nt" else None))
             job_entry = transaction.add(job.close)
             helper = _HelperProcessResources(process_owner)
             helper.attach_job(job, allow_nested=True)
@@ -815,9 +816,9 @@ class _CodexSupervisor:
                 return
             failures: list[Exception] = []
             for resource, closer in (
-                (self._helper, lambda: self._helper.close(timeout_seconds)),
-                (self._data, lambda: self._data._close(self._owner)),
-                (self._gate, lambda: self._gate._close(self._owner)),
+                (self._helper, lambda: _typing.cast(_typing.Any, self._helper).close(timeout_seconds)),
+                (self._data, lambda: _typing.cast(_typing.Any, self._data)._close(_typing.cast(_OwnerToken, self._owner))),
+                (self._gate, lambda: _typing.cast(_typing.Any, self._gate)._close(_typing.cast(_OwnerToken, self._owner))),
             ):
                 if resource is None:
                     continue

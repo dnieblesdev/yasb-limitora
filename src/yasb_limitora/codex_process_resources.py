@@ -2,7 +2,7 @@
 
 import math
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 from .codex_job_resources import _JobOwner, _JobResourceError
 from .isolation.windows_job import DEFAULT_CLEANUP_BUDGET_SECONDS, EMERGENCY_CLEANUP_BUDGET_SECONDS, INVALID_HANDLE, MAX_CLEANUP_SECONDS
@@ -58,8 +58,10 @@ class _HelperState(str, Enum):
 def _timeout(value: object) -> float:
     if type(value) not in (int, float):
         raise _PopenTimeoutError from None
-    try: seconds = float(value)
-    except (ValueError, OverflowError): raise _PopenTimeoutError from None
+    try:
+        seconds = float(cast(Any, value))
+    except (ValueError, OverflowError):
+        raise _PopenTimeoutError from None
     if not math.isfinite(seconds) or seconds < 0:
         raise _PopenTimeoutError from None
     return min(seconds, MAX_CLEANUP_SECONDS)
@@ -104,7 +106,8 @@ class _PopenProcessOwner:
         if self._native_handle is None:
             return
         release = getattr(self._native_handle, "Close", None) or getattr(self._native_handle, "close", None)
-        if callable(release): release()
+        if callable(release):
+            release()
 
     def close(self, timeout_seconds: object = DEFAULT_CLEANUP_BUDGET_SECONDS) -> None:
         if self._state is _PopenState.CLOSED:
@@ -112,14 +115,16 @@ class _PopenProcessOwner:
         if self._state is _PopenState.CLOSING:
             raise _OwnershipError from None
         timeout_error = False
-        try: timeout = _timeout(timeout_seconds)
+        try:
+            timeout = _timeout(timeout_seconds)
         except _PopenTimeoutError:
             timeout, timeout_error = EMERGENCY_CLEANUP_BUDGET_SECONDS, True
         self._state = _PopenState.CLOSING
+        popen = cast(Any, self._popen)
         try:
-            if self._popen.poll() is None:
-                self._popen.terminate()
-                self._popen.wait(timeout=timeout)
+            if popen.poll() is None:
+                popen.terminate()
+                popen.wait(timeout=timeout)
             self._release_handle()
         except Exception:
             self._state = _PopenState.BROKEN
@@ -134,13 +139,14 @@ class _PopenProcessOwner:
         if context.cleanup_ns() <= 0:
             raise _PopenTimeoutError from None
         self._state = _PopenState.CLOSING
+        popen = cast(Any, self._popen)
         try:
-            if self._popen.poll() is None:
-                self._popen.terminate()
+            if popen.poll() is None:
+                popen.terminate()
                 remaining = context.cleanup_ns()
                 if remaining <= 0:
                     raise _PopenTimeoutError from None
-                self._popen.wait(timeout=remaining / 1_000_000_000)
+                popen.wait(timeout=remaining / 1_000_000_000)
             self._release_handle()
         except Exception:
             self._state = _PopenState.BROKEN
@@ -179,12 +185,14 @@ class _HelperProcessResources:
             raise _OwnershipError from None
         self._state = _HelperState.CLOSING
         if self._job is not None and not self._job_closed:
-            try: self._job.close(timeout_seconds)
+            try:
+                self._job.close(timeout_seconds)
             except Exception:
                 self._state = _HelperState.BROKEN
                 raise
             self._job_closed = True
-        try: self._popen.close(timeout_seconds)
+        try:
+            self._popen.close(timeout_seconds)
         except _ProcessResourceError:
             self._state = _HelperState.CLOSED if self._popen._state is _PopenState.CLOSED else _HelperState.BROKEN
             raise

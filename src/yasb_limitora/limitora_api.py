@@ -223,14 +223,17 @@ def _snapshot_view(provider: ProviderKey, result: StatusSnapshotResult) -> Provi
 
 _FAILURE_EVIDENCE = {ProviderErrorKind.UNAUTHORIZED: OpenCodeFailureEvidence.CREDENTIAL_INVALID, ProviderErrorKind.RATE_LIMITED: OpenCodeFailureEvidence.RATE_LIMITED}
 def _failure_evidence(error: ProviderError) -> OpenCodeFailureEvidence:
-    return OpenCodeFailureEvidence.TIMEOUT if error.kind is ProviderErrorKind.TRANSPORT and error.safe_message in _TRANSPORT_TIMEOUT_MESSAGES else _FAILURE_EVIDENCE.get(error.kind, OpenCodeFailureEvidence.UNAVAILABLE)
+    if error.kind is ProviderErrorKind.TRANSPORT and error.safe_message in _TRANSPORT_TIMEOUT_MESSAGES:
+        return OpenCodeFailureEvidence.TIMEOUT
+    return _FAILURE_EVIDENCE.get(error.kind, OpenCodeFailureEvidence.UNAVAILABLE)
 
 
 def _read(provider: ProviderKey, client: StatusClient, evidence: list[OpenCodeFailureEvidence] | None = None) -> ProviderView:
     try:
         result = client.read_status(_REQUEST)
     except TimeoutError:
-        if evidence is not None: evidence.append(OpenCodeFailureEvidence.TIMEOUT)
+        if evidence is not None:
+            evidence.append(OpenCodeFailureEvidence.TIMEOUT)
         return _error(provider, SafeErrorCode.TIMEOUT)
     except ProviderError as error:
         code = SafeErrorCode.TIMEOUT if error.kind is ProviderErrorKind.TRANSPORT and error.safe_message in _TRANSPORT_TIMEOUT_MESSAGES else SafeErrorCode.PROVIDER_ERROR
