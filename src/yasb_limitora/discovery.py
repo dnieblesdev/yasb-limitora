@@ -41,30 +41,43 @@ class FsView(Protocol):
 class RealFs:
     """The real metadata-only filesystem view backed by os.lstat/os.path."""
     @staticmethod
-    def is_dir(path: str) -> bool: return os.path.isdir(path)
+    def is_dir(path: str) -> bool:
+        return os.path.isdir(path)
+
     @staticmethod
     def is_reparse(path: str) -> bool:
-        try: return bool(getattr(os.lstat(path), "st_file_attributes", 0) & _REPARSE_ATTR)
-        except OSError: return False
+        try:
+            return bool(getattr(os.lstat(path), "st_file_attributes", 0) & _REPARSE_ATTR)
+        except OSError:
+            return False
+
     @staticmethod
     def file_kind(path: str) -> str:
-        try: entry = os.lstat(path)
-        except FileNotFoundError: return "missing"
-        except OSError: return "unreadable"
-        if getattr(entry, "st_file_attributes", 0) & _REPARSE_ATTR: return "unreadable"
+        try:
+            entry = os.lstat(path)
+        except FileNotFoundError:
+            return "missing"
+        except OSError:
+            return "unreadable"
+        if getattr(entry, "st_file_attributes", 0) & _REPARSE_ATTR:
+            return "unreadable"
         return "file" if stat.S_ISREG(entry.st_mode) else ("dir" if stat.S_ISDIR(entry.st_mode) else "unreadable")
 
 REAL_FS = RealFs()
 
 def _canonical_local_dir(value: object) -> str | None:
     """Return the canonical absolute local Windows directory form, or None when unsafe."""
-    if not isinstance(value, str) or not value.strip(): return None
+    if not isinstance(value, str) or not value.strip():
+        return None
     text = value.replace("/", "\\")
-    if text.startswith("\\"): return None  # UNC, \\.\ device, or \\?\ extended prefix
+    if text.startswith("\\"):
+        return None  # UNC, \\.\ device, or \\?\ extended prefix
     drive, tail = ntpath.splitdrive(text)
-    if len(drive) != 2 or drive[1] != ":" or not drive[0].isalpha() or not tail.startswith("\\"): return None
+    if len(drive) != 2 or drive[1] != ":" or not drive[0].isalpha() or not tail.startswith("\\"):
+        return None
     parts = [part for part in tail.split("\\") if part]
-    if not parts or ".." in tail.split("\\"): return None  # drive/root directory or traversal
+    if not parts or ".." in tail.split("\\"):
+        return None  # drive/root directory or traversal
     return drive + "\\" + "\\".join(parts)
 
 def _components_safe(path: str, fs: FsView) -> bool:
@@ -74,8 +87,10 @@ def _components_safe(path: str, fs: FsView) -> bool:
     for part in [piece for piece in tail.split("\\") if piece]:
         prefix += part
         if fs.is_dir(prefix):
-            if fs.is_reparse(prefix): return False
-        elif fs.file_kind(prefix) != "missing": return False
+            if fs.is_reparse(prefix):
+                return False
+        elif fs.file_kind(prefix) != "missing":
+            return False
         prefix += "\\"
     return True
 
@@ -87,7 +102,8 @@ def resolve_config_home(env: Mapping[str, str], *, fs: FsView = REAL_FS) -> Conf
         safe = canonical is not None and _components_safe(canonical, fs)
         return ConfigHome(HOME_RESOLVED if safe else HOME_UNSAFE, canonical if safe else None, "YASB_CONFIG_HOME")
     profile = _canonical_local_dir(env.get("USERPROFILE"))
-    if profile is None or not _components_safe(profile, fs): return ConfigHome(HOME_UNRESOLVED, None, None)
+    if profile is None or not _components_safe(profile, fs):
+        return ConfigHome(HOME_UNRESOLVED, None, None)
     home = profile + "\\.config\\yasb"
     return ConfigHome(HOME_RESOLVED, home, "USERPROFILE") if _components_safe(home, fs) else ConfigHome(HOME_UNSAFE, None, "USERPROFILE")
 
@@ -101,13 +117,16 @@ def scan_known_directories(env: Mapping[str, str], *, fs: FsView = REAL_FS) -> t
     hits = []
     for key, parts in _KNOWN_DIRS:
         candidate = ntpath.join(env[key], *parts) if env.get(key) else ""
-        if candidate and fs.is_dir(candidate): hits.append("directory:" + candidate)
+        if candidate and fs.is_dir(candidate):
+            hits.append("directory:" + candidate)
     return tuple(hits)
 
 def scan_uninstall_registry() -> tuple[tuple[str, ...], bool]:
     """Bounded read-only probe 1: HKCU/HKLM uninstall display-name scan; (evidence, errored)."""
-    try: import winreg
-    except ImportError: return (), True
+    try:
+        import winreg
+    except ImportError:
+        return (), True
     hits: list[str] = []
     errored = False
     for hive, label in ((winreg.HKEY_CURRENT_USER, "HKCU"), (winreg.HKEY_LOCAL_MACHINE, "HKLM")):
@@ -117,12 +136,18 @@ def scan_uninstall_registry() -> tuple[tuple[str, ...], bool]:
                     try:
                         with winreg.OpenKey(key, winreg.EnumKey(key, index)) as sub:
                             display = str(winreg.QueryValueEx(sub, "DisplayName")[0])
-                            if "yasb" not in display.casefold(): continue
-                            try: hits.append(f"registry:{label}:{display}@" + str(winreg.QueryValueEx(sub, "InstallLocation")[0]))
-                            except OSError: hits.append(f"registry:{label}:{display}")
-                    except OSError: continue
-        except FileNotFoundError: continue  # a hive without uninstall entries is not a probe error
-        except OSError: errored = True
+                            if "yasb" not in display.casefold():
+                                continue
+                            try:
+                                hits.append(f"registry:{label}:{display}@" + str(winreg.QueryValueEx(sub, "InstallLocation")[0]))
+                            except OSError:
+                                hits.append(f"registry:{label}:{display}")
+                    except OSError:
+                        continue
+        except FileNotFoundError:
+            continue  # a hive without uninstall entries is not a probe error
+        except OSError:
+            errored = True
     return tuple(hits), errored
 
 class _ProcessEntry32W(ctypes.Structure):
@@ -133,29 +158,35 @@ class _ProcessEntry32W(ctypes.Structure):
 
 def snapshot_processes() -> tuple[tuple[int, str], ...]:
     """Fresh bounded CreateToolhelp32Snapshot enumeration; opens no process handle."""
-    if os.name != "nt": raise SnapshotError("unsupported_platform")
+    if os.name != "nt":
+        raise SnapshotError("unsupported_platform")
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.CreateToolhelp32Snapshot.argtypes, kernel32.CreateToolhelp32Snapshot.restype = [ctypes.c_uint32] * 2, ctypes.c_void_p
     kernel32.Process32FirstW.argtypes = kernel32.Process32NextW.argtypes = [ctypes.c_void_p, ctypes.POINTER(_ProcessEntry32W)]
     kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
     handle = kernel32.CreateToolhelp32Snapshot(_TH32CS_SNAPPROCESS, 0)
-    if not handle or handle == _INVALID_HANDLE: raise SnapshotError("snapshot_failed")
+    if not handle or handle == _INVALID_HANDLE:
+        raise SnapshotError("snapshot_failed")
     try:
         entry = _ProcessEntry32W()
         entry.dwSize = ctypes.sizeof(_ProcessEntry32W)
-        if not kernel32.Process32FirstW(handle, ctypes.byref(entry)): raise SnapshotError("snapshot_failed")
+        if not kernel32.Process32FirstW(handle, ctypes.byref(entry)):
+            raise SnapshotError("snapshot_failed")
         entries: list[tuple[int, str]] = []
         while len(entries) < _MAX_SNAPSHOT_ENTRIES:
             entries.append((int(entry.th32ProcessID), str(entry.szExeFile)))
-            if not kernel32.Process32NextW(handle, ctypes.byref(entry)): break
+            if not kernel32.Process32NextW(handle, ctypes.byref(entry)):
+                break
         return tuple(entries)
     finally:
         kernel32.CloseHandle(handle)
 
 def probe_running_yasb(*, snapshot: SnapshotFn = snapshot_processes) -> RunningProbe:
     """Fresh exact-name probe (§5.2); snapshot failure is inconclusive, never clear."""
-    try: entries = tuple(snapshot())
-    except Exception: return RunningProbe("inconclusive", ())  # noqa: BLE001 - failure must not claim YASB is closed
+    try:
+        entries = tuple(snapshot())
+    except Exception:
+        return RunningProbe("inconclusive", ())  # noqa: BLE001 - failure must not claim YASB is closed
     matches = tuple((pid, name) for pid, name in entries if str(name).casefold() in YASB_PROCESS_NAMES)
     return RunningProbe("running" if matches else "clear", matches)
 
@@ -172,11 +203,18 @@ def discover(env: Mapping[str, str] | None = None, *, fs: FsView = REAL_FS,
     home = resolve_config_home(inherited, fs=fs)
     env_state = classify_env_file(home.path, fs=fs) if home.path is not None else None
     reasons = ["registry-probe-failed"] * registry_errored + ["process-snapshot-failed"] * (probe.status == "inconclusive")
-    if reasons: outcome = OUTCOME_INCONCLUSIVE
-    elif not evidence: outcome = OUTCOME_ABSENT
-    elif home.state != HOME_RESOLVED: outcome, _ = OUTCOME_INCONCLUSIVE, reasons.append("config-home-" + home.state)
-    elif env_state == ENV_UNSAFE: outcome, _ = OUTCOME_INCONCLUSIVE, reasons.append("env-file-unsafe-unreadable")
-    else: outcome = OUTCOME_DETECTED
+    if reasons:
+        outcome = OUTCOME_INCONCLUSIVE
+    elif not evidence:
+        outcome = OUTCOME_ABSENT
+    elif home.state != HOME_RESOLVED:
+        outcome = OUTCOME_INCONCLUSIVE
+        reasons.append("config-home-" + home.state)
+    elif env_state == ENV_UNSAFE:
+        outcome = OUTCOME_INCONCLUSIVE
+        reasons.append("env-file-unsafe-unreadable")
+    else:
+        outcome = OUTCOME_DETECTED
     return DiscoveryReport(outcome, evidence, home.state, home.path, env_state, probe.status, tuple(reasons))
 
 
