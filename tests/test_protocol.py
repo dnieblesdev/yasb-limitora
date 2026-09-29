@@ -2,6 +2,9 @@ import io
 import struct
 
 import pytest  # pyright: ignore[reportMissingImports] - optional test dependency is present at runtime
+import yasb_limitora.isolation as isolation
+import yasb_limitora.isolation.fakes as isolation_fakes
+import yasb_limitora.isolation.protocol as isolation_protocol
 
 from yasb_limitora import (
     ProviderKey,
@@ -31,6 +34,38 @@ from yasb_limitora.isolation import (
     write_frame,
 )
 from yasb_limitora.isolation.protocol import read_frame_with_deadline
+
+
+_ISOLATION_PUBLIC_EXPORTS = (
+    "ProviderExecutor",
+    "ScriptedOutcome",
+    "ScriptedProviderExecutor",
+    "CONTROL_MAX_BYTES",
+    "RESPONSE_MAX_BYTES",
+    "ProtocolError",
+    "ProtocolErrorCode",
+    "ProtocolSession",
+    "contained_message",
+    "decode_frame",
+    "encode_frame",
+    "error_message",
+    "go_message",
+    "message_view",
+    "read_frame",
+    "read_frame_with_deadline",
+    "ready_message",
+    "result_message",
+    "write_frame",
+    "write_frame_with_deadline",
+)
+
+
+def test_isolation_facade_exports_complete_public_contract() -> None:
+    assert tuple(isolation.__all__) == _ISOLATION_PUBLIC_EXPORTS
+    for name in _ISOLATION_PUBLIC_EXPORTS[:3]:
+        assert getattr(isolation, name) is getattr(isolation_fakes, name)
+    for name in _ISOLATION_PUBLIC_EXPORTS[3:]:
+        assert getattr(isolation, name) is getattr(isolation_protocol, name)
 
 
 class Transport:
@@ -73,6 +108,22 @@ def test_frame_rejects_eof_trailing_and_oversized_data() -> None:
         with pytest.raises(ProtocolError) as error:
             decode_frame(struct.pack(">I", limit + 1) + b"x", limit=limit)
         assert error.value.code is ProtocolErrorCode.OVERSIZE
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        {"type": "contained", "nonce": ""},
+        {"type": "contained", "nonce": "n" * 129},
+        {"type": "result", "nonce": "n", "provider": "unknown", "state": "success"},
+    ],
+)
+def test_validation_preserves_nonce_and_provider_rejections(message: dict[str, object]) -> None:
+    with pytest.raises(ProtocolError) as error:
+        encode_frame(message)
+    assert error.value.code is ProtocolErrorCode.INVALID_MESSAGE
+
+
 def test_partial_read_exhausts_deadline_with_decreasing_budgets() -> None:
     reader = Transport(encode_frame(contained_message("n")), deadline=True)
     with pytest.raises(ProtocolError) as error:

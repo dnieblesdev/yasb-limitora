@@ -58,7 +58,8 @@ def _validate(message: object) -> dict[str, Any]:
         raise ProtocolError(ProtocolErrorCode.INVALID_MESSAGE)
     if not isinstance(message.get("type"), str) or not isinstance(message.get("nonce"), str):
         raise ProtocolError(ProtocolErrorCode.INVALID_MESSAGE)
-    kind, nonce = message["type"], _nonce(message["nonce"])
+    kind = message["type"]
+    _nonce(message["nonce"])
     allowed = {
         "contained": {"type", "nonce"}, "ready": {"type", "nonce"}, "go": {"type", "nonce"},
         "result": {"type", "nonce", "provider", "state", "display_label", "error"},
@@ -74,7 +75,7 @@ def _validate(message: object) -> dict[str, Any]:
     result = dict(message)
     if kind == "result":
         try:
-            provider = ProviderKey(result["provider"])
+            ProviderKey(result["provider"])
             state = ProviderState(result["state"])
         except (TypeError, ValueError):
             raise ProtocolError(ProtocolErrorCode.INVALID_MESSAGE) from None

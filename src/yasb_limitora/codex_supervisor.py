@@ -21,7 +21,6 @@ from ._codex_resource_core import (
     _IndeterminateCleanupError,
     _IpcPair,
     _OwnerToken,
-    _OwnedEndpoint,
     _StaleGenerationError,
     _new_endpoint_spec,
     _new_ipc_pair,
@@ -48,7 +47,6 @@ class _TransportTimeout(_TransportError):
 def _peek_named_pipe(fd: int) -> tuple[int, bool]:
     """Return available bytes and EOF state for a native named pipe."""
     try:
-        import ctypes
         import msvcrt
 
         return _peek_named_pipe_handle(msvcrt.get_osfhandle(fd))

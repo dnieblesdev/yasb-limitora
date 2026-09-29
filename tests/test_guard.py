@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 import pytest
 
 from yasb_limitora.deadline import DeadlineContext
