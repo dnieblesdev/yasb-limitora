@@ -816,14 +816,14 @@ class _CodexSupervisor:
                 return
             failures: list[Exception] = []
             for resource, closer in (
-                (self._helper, lambda: _typing.cast(_typing.Any, self._helper).close(timeout_seconds)),
-                (self._data, lambda: _typing.cast(_typing.Any, self._data)._close(_typing.cast(_OwnerToken, self._owner))),
-                (self._gate, lambda: _typing.cast(_typing.Any, self._gate)._close(_typing.cast(_OwnerToken, self._owner))),
+                (self._helper, lambda helper: helper.close(timeout_seconds)),
+                (self._data, lambda data: data._close(_typing.cast(_OwnerToken, self._owner))),
+                (self._gate, lambda gate: gate._close(_typing.cast(_OwnerToken, self._owner))),
             ):
                 if resource is None:
                     continue
                 try:
-                    closer()
+                    closer(resource)
                 except Exception as error:  # noqa: BLE001 - retry bounded cleanup
                     failures.append(error)
                 terminal = self._terminal_for(resource)
@@ -896,14 +896,14 @@ class _CodexSupervisor:
                 return
             failures: list[Exception] = []
             for resource, closer in (
-                (self._helper, lambda: self._helper.close_with_deadline(context)),
-                (self._data, lambda: self._data._close(self._owner)),
-                (self._gate, lambda: self._gate._close(self._owner)),
+                (self._helper, lambda helper: helper.close_with_deadline(context)),
+                (self._data, lambda data: data._close(_typing.cast(_OwnerToken, self._owner))),
+                (self._gate, lambda gate: gate._close(_typing.cast(_OwnerToken, self._owner))),
             ):
                 if resource is None:
                     continue
                 try:
-                    closer()
+                    closer(resource)
                 except Exception as error:
                     failures.append(error)
                 terminal = self._terminal_for(resource)
