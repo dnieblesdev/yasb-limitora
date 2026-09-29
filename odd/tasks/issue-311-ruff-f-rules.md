@@ -8,8 +8,8 @@ Route: multi-file writer for T1; dedicated work-unit commit per task. Test-first
 
 Tasks:
 - [x] F1: Removed five ordinary unused imports from codex_process_resources.py, codex_supervisor.py, test_guard.py, test_windows_job.py. Writer and independent verifier: scoped F401 and configured Ruff pass; full pytest 1039 passed, 21 skipped; diff check clean. Import surfaces and ctypes callee checked. Commit: aae840b. Native review review-007cb645e02906b7 approved and acknowledged.
-- [x] F2: Preserved all 20 facade re-exports through explicit `__all__`, with exact membership and identity regression test. Focused protocol tests: 21 passed; scoped F401/configured Ruff pass; full pytest 1040 passed, 21 skipped; independent verification and diff check passed. Work-unit commit follows.
-- [ ] F3: Enable F401 in project lint once all findings are resolved; check CI command and full suite; commit.
+- [x] F2: Preserved all 20 facade re-exports through explicit `__all__`, with exact membership and identity regression test. Focused protocol tests: 21 passed; scoped F401/configured Ruff pass; full pytest 1040 passed, 21 skipped; independent verification and diff check passed. Commit: 02ab35b. Native review review-ed7179e3fc138455 approved and acknowledged.
+- [x] F3: Enabled F401 for the entire tree with no exclusions. Independent check: configured Ruff and isolated F401 both pass; full pytest 1040 passed, 21 skipped; diff check passed. Work-unit commit follows.
 - [ ] F4: Retain both validation calls while dropping F841 bindings, add/confirm focused regression tests, then enable F841; check full suite; commit.
 
-Current: F2 verified; F3 next. Remote CI remains pending until PR. Forecast <150 authored changed lines across all tasks; revisit if projected PR slice crosses 400.
+Current: F3 verified; F4 next. Remote CI remains pending until PR. Forecast <150 authored changed lines across all tasks; revisit if projected PR slice crosses 400.
