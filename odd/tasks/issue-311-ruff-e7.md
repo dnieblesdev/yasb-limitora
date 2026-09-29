@@ -8,8 +8,8 @@ Delivery: sequential stacked-to-main PRs, no PR merges a red lint gate; Refs #31
 
 Tasks:
 - [x] E731: Three assigned lambdas replaced with two named functions; E731 gated. Commit 54ae9f0, native review approved/acknowledged, PR #323 merged as 49cb059 with ruff/native-proof green; main synced. Focused 16 and full pytest 1044 passed/21 skipped.
-- [ ] E702: Split all 93 semicolon findings in tests and windows-job source, preserving ordering/control flow; enabled E702 at zero. Independent verifier: configured/E702 lint clean, full pytest 1044 passed/21 skipped, diff check clean, statement-level audit passed. Candidate 256 changed lines including this doc (<400). Commit/review/PR/CI/merge/sync pending.
-- [ ] E701 tests: Expand same-line suites in tests, keep E701 off until remaining source is clean. Focused/full tests, commit, review, PR, CI, merge, sync.
+- [x] E702: Split 93 semicolon findings, preserving statement order; E702 gated. Commit 38f38f2, native review approved/acknowledged, PR #324 merged as 3375f92 with ruff/native-proof green; main synced. Full pytest 1044 passed/21 skipped, 258 changed lines (<400).
+- [ ] E701 tests: Expanded all 52 same-line suites in five test files; E701 remains disabled while 92 source findings remain. Independent verifier: test-scope E701 and configured Ruff clean, full pytest 1044 passed/21 skipped, diff check and line-by-line pairing clean. Candidate <400 changed lines. Commit/review/PR/CI/merge/sync pending.
 - [ ] E701 source: Expand same-line suites in source, protect Windows job ownership/control flow; add E701 at zero, full checks. Split into PRs if >400; final PR uses Closes #311 after CI, merge and sync.
 
-Current: E731 delivered; E702 implementation locally verified on chore/issue-311-ruff-e702 from main 49cb059. Delivery pending; E701 census must be refreshed after E702 merge.
+Current: E731 and E702 delivered. E701 tests locally verified on chore/issue-311-ruff-e701-tests from main 3375f92; delivery pending. Keep E701 disabled until 92 remaining source findings are resolved.

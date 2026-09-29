@@ -22,7 +22,8 @@ class Api:
         return not self.flags.get("limit_fail")
     def open_process(self, pid, access):
         self.calls.append(("open", pid, access))
-        if self.flags.get("open_error"): raise OSError("secret")
+        if self.flags.get("open_error"):
+            raise OSError("secret")
         return "process"
     def is_process_in_job(self, process, job):
         self.calls.append(("in_job", process, job))
@@ -55,12 +56,14 @@ def test_legacy_open_process_exact_args_and_exception_cleanup() -> None:
     boundary.assign_process(42)
     assert ("open", 42, PROCESS_ACCESS) in api.calls
     error_api = Api(open_error=True)
-    with pytest.raises(JobError) as error: WindowsJobBoundary(api=error_api).assign_process(42)
+    with pytest.raises(JobError) as error:
+        WindowsJobBoundary(api=error_api).assign_process(42)
     assert error.value.code is JobErrorCode.INTERNAL_ERROR and error_api.closed == ["job"]
 
 def test_job_setup_failure_returns_reachable_owner_for_retry() -> None:
     api = Api(limit_fail=True, close_fail=True)
-    with pytest.raises(r._JobAcquisitionFailure) as error: r._acquire_job_owner(api)
+    with pytest.raises(r._JobAcquisitionFailure) as error:
+        r._acquire_job_owner(api)
     owner = error.value.owner
     assert owner is not None and owner._handle == "job" and "terminate" in api.calls and repr(error.value) == "<_JobAcquisitionFailure>"
     api.flags["close_fail"] = False
@@ -84,7 +87,8 @@ def test_borrowed_handle_assignment_uses_exact_handle_and_never_closes_it() -> N
 def test_borrowed_pre_post_failure_never_closes_caller_handle(flags: dict[str, object]) -> None:
     api, borrowed = Api(**flags), object()
     boundary = WindowsJobBoundary(api=api)
-    with pytest.raises(JobError): boundary.assign_borrowed_handle(borrowed)
+    with pytest.raises(JobError):
+        boundary.assign_borrowed_handle(borrowed)
     assert borrowed not in api.closed
     if flags.get("assign_fail"):
         assert "terminate_process" not in api.calls
@@ -95,7 +99,8 @@ def test_assigned_borrowed_cleanup_waits_exact_handle_and_retries_job_close() ->
     api, borrowed = Api(close_fail_once=True), object()
     boundary = WindowsJobBoundary(api=api)
     boundary.assign_borrowed_handle(borrowed)
-    with pytest.raises(JobError): boundary.close(1.0)
+    with pytest.raises(JobError):
+        boundary.close(1.0)
     assert boundary.process is borrowed and boundary.borrowed_process and borrowed not in api.closed
     boundary.close(1.0)
     boundary.close(1.0)
@@ -108,7 +113,8 @@ def test_invalid_timeout_uses_emergency_cleanup_and_surfaces_timeout(value: obje
     api = Api()
     boundary = WindowsJobBoundary(api=api)
     boundary.assign_process(1)
-    with pytest.raises(JobError) as error: boundary.close(value)
+    with pytest.raises(JobError) as error:
+        boundary.close(value)
     assert error.value.code is JobErrorCode.TIMEOUT and boundary.state.value == "closed"
 
 def test_custom_float_is_rejected_without_invocation_and_wrapper_closes_consistently() -> None:
@@ -120,7 +126,8 @@ def test_custom_float_is_rejected_without_invocation_and_wrapper_closes_consiste
     api, borrowed, value = Api(), object(), SecretFloat()
     owner = r._JobOwner(WindowsJobBoundary(api=api))
     owner.assign_borrowed_handle(borrowed)
-    with pytest.raises(JobError) as error: owner.close(value)
+    with pytest.raises(JobError) as error:
+        owner.close(value)
     assert not value.called and str(error.value) == "timeout" and owner._state is r._OwnerState.CLOSED
     assert "terminate" in api.calls and any(call[0] == "wait" and call[1] is borrowed for call in api.calls if isinstance(call, tuple)) and "query" in api.calls and api.closed == ["job"]
     assert DEFAULT_CLEANUP_BUDGET_SECONDS == 2.0

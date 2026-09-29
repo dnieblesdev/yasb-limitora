@@ -248,7 +248,8 @@ def _malformed_window(source, **mutations):
         WindowKind.COMMERCIAL_QUOTA, "account", "weekly", "plus", ValueAvailability.KNOWN,
         SourceMetadata(source), _quantity("100"), _quantity("25"), _quantity("75"), observed_at,
     )
-    for field, value in mutations.items(): object.__setattr__(window, field, value)
+    for field, value in mutations.items():
+        object.__setattr__(window, field, value)
     return window
 
 
@@ -711,7 +712,8 @@ def test_rich_decoder_scrubs_untrusted_malformed_window_evidence(source, field, 
     window = payload["snapshot"]["windows"][0]
     window["source_id"] = source
     window[field] = value
-    if field == "reset_at": window["plan_id"] = {"invalid": True}
+    if field == "reset_at":
+        window["plan_id"] = {"invalid": True}
 
     decoded = _decode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
 
@@ -876,7 +878,8 @@ def test_concurrent_cleanup_ownership_is_atomic():
     import threading
     started, release, created, fail = threading.Event(), threading.Event(), [], [True]
     def close(timeout):
-        if fail[0]: raise RuntimeError("private cleanup detail")
+        if fail[0]:
+            raise RuntimeError("private cleanup detail")
     def factory(**kwargs):
         created.append(1)
         return SimpleNamespace(acquire=lambda: (started.set(), release.wait()), close=close)
@@ -905,7 +908,8 @@ def test_ready_trailing_data_fails_before_dispatch():
     transport = _PersistentTransport(1, 2, peek=lambda fd: next(peeks), read=lambda fd, size: b"READY:n", nonblocking=True)
     rejected = []
     def acquire():
-        try: transport.read_frame(expected_size=7)
+        try:
+            transport.read_frame(expected_size=7)
         except _TransportError:
             rejected.append(True)
             raise

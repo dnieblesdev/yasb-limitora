@@ -16,18 +16,21 @@ class Process:
     @property
     def _handle(self):
         self.handle_reads += 1
-        if self.flags.get("adapt_fail"): raise RuntimeError("secret-handle")
+        if self.flags.get("adapt_fail"):
+            raise RuntimeError("secret-handle")
         return self._real_handle
     def poll(self):
         self.events.append("poll")
         return None if self.alive else 0
     def terminate(self):
         self.events.append("terminate")
-        if self.flags.get("terminate_fail"): raise OSError("secret-terminate")
+        if self.flags.get("terminate_fail"):
+            raise OSError("secret-terminate")
         self.alive = False
     def wait(self, timeout):
         self.events.append("wait")
-        if self.flags.get("wait_fail"): raise TimeoutError("secret-wait")
+        if self.flags.get("wait_fail"):
+            raise TimeoutError("secret-wait")
         self.alive = False
 
 
@@ -58,7 +61,8 @@ def test_adaptation_failure_keeps_owner_for_direct_terminate_wait_cleanup() -> N
     events: list[str] = []
     process = Process(events, adapt_fail=True)
     owner = r._PopenProcessOwner.register(process)
-    with pytest.raises(r._PopenAdaptationError) as error: owner.adapt_native_handle()
+    with pytest.raises(r._PopenAdaptationError) as error:
+        owner.adapt_native_handle()
     owner.close(1.0)
     assert owner._state is r._PopenState.CLOSED and events == ["poll", "terminate", "wait"] and "secret" not in str(error.value)
 
@@ -69,7 +73,8 @@ def test_direct_cleanup_retains_exact_popen_for_retry(failure: str) -> None:
     process = Process(events, **{failure: True})
     owner = r._PopenProcessOwner.register(process)
     handle = owner.adapt_native_handle()
-    with pytest.raises(r._PopenCleanupError): owner.close(1.0)
+    with pytest.raises(r._PopenCleanupError):
+        owner.close(1.0)
     assert owner._popen is process and owner._native_handle is handle and owner._state is r._PopenState.BROKEN
     process.flags[failure] = False
     owner.close(1.0)
@@ -89,7 +94,8 @@ def test_exact_handle_adapts_without_pid_reopen_and_timeout_secret_is_not_coerce
             self.called = True
             raise RuntimeError("secret-timeout")
     value = SecretFloat()
-    with pytest.raises(r._PopenTimeoutError) as error: owner.close(value)
+    with pytest.raises(r._PopenTimeoutError) as error:
+        owner.close(value)
     assert not value.called and str(error.value) == "timeout" and owner._state is r._PopenState.CLOSED
 
 
@@ -109,11 +115,13 @@ def test_attach_requires_adaptation_and_only_once() -> None:
     owner = r._PopenProcessOwner.register(process)
     aggregate = r._HelperProcessResources(owner)
     job = Job(events)
-    with pytest.raises(r._OwnershipError): aggregate.attach_job(job)
+    with pytest.raises(r._OwnershipError):
+        aggregate.attach_job(job)
     handle = owner.adapt_native_handle()
     aggregate.attach_job(job)
     assert events == [("assign", handle)]
-    with pytest.raises(r._OwnershipError): aggregate.attach_job(Job(events))
+    with pytest.raises(r._OwnershipError):
+        aggregate.attach_job(Job(events))
 
 
 def test_job_closes_first_and_failed_job_retains_both_for_retry() -> None:
@@ -124,7 +132,8 @@ def test_job_closes_first_and_failed_job_retains_both_for_retry() -> None:
     job = Job(events, fail_once=True)
     aggregate = r._HelperProcessResources(owner)
     aggregate.attach_job(job)
-    with pytest.raises(r._ProcessResourceError): aggregate.close(1.0)
+    with pytest.raises(r._ProcessResourceError):
+        aggregate.close(1.0)
     assert owner._popen is process and owner._native_handle is handle and events == [("assign", handle), "job"]
     aggregate.close(1.0)
     aggregate.close(1.0)

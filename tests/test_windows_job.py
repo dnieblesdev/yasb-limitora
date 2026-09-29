@@ -30,21 +30,24 @@ class FakeApi:
         return not self.flags.get("inherit_fail")
     def enable_kill_on_close(self, handle):
         self.calls.append("limit")
-        if self.flags.get("limit_error"): raise OSError("secret kernel path PID=999999")
+        if self.flags.get("limit_error"):
+            raise OSError("secret kernel path PID=999999")
         return not self.flags.get("limit_fail")
     def open_process(self, pid, access):
         self.calls.append(("open", pid, access))
         return None if self.flags.get("open_fail") else "process"
     def is_process_in_job(self, process, job):
         self.calls.append(("in_job", job))
-        if job is None: return bool(self.flags.get("nested"))
+        if job is None:
+            return bool(self.flags.get("nested"))
         return not self.flags.get("post_check_fail")
     def assign(self, job, process):
         self.calls.append("assign")
         return not self.flags.get("assign_fail")
     def query_active(self, job):
         self.calls.append("query")
-        if self.flags.get("query_fail"): raise JobError(JobErrorCode.INTERNAL_ERROR)
+        if self.flags.get("query_fail"):
+            raise JobError(JobErrorCode.INTERNAL_ERROR)
         return self.active_values.pop(0) if self.active_values else 0
     def terminate(self, job):
         self.calls.append("terminate")
@@ -53,7 +56,8 @@ class FakeApi:
         self.calls.append("terminate_process")
         return not self.flags.get("terminate_process_fail")
     def wait(self, handle, timeout_ms):
-        if self.flags.get("advance_clock"): self.flags["advance_clock"].value += 0.01
+        if self.flags.get("advance_clock"):
+            self.flags["advance_clock"].value += 0.01
         self.calls.append(("wait", handle, timeout_ms))
         return self.wait_results.pop(0) if self.wait_results else self.flags.get("wait_result", WAIT_OBJECT_0)
     def close(self, handle):
@@ -75,7 +79,8 @@ def test_abi_structures_and_non_windows_fail_closed() -> None:
     assert ctypes.sizeof(EXTENDED_LIMIT_INFO) == EXTENDED_LIMIT_INFO.ProcessMemoryLimit.offset + 4 * pointer
     assert JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION == 1 and JOB_OBJECT_EXTENDED_LIMIT_INFORMATION == 9
     if os.name != "nt":
-        with pytest.raises(JobError) as error: WindowsJobBoundary()
+        with pytest.raises(JobError) as error:
+            WindowsJobBoundary()
         assert error.value.code is JobErrorCode.UNSUPPORTED_PLATFORM
 def test_access_mask_and_containment_order_before_authorization() -> None:
     api = FakeApi()
@@ -113,12 +118,16 @@ def test_nested_assignment_is_explicitly_opt_in_and_post_checked() -> None:
 ])
 def test_each_containment_check_failure_cleans_and_never_authorizes(flags: dict[str, object], code: JobErrorCode) -> None:
     api = FakeApi(**flags)
-    if flags.get("query_fail"): api.flags["query_fail"] = False
+    if flags.get("query_fail"):
+        api.flags["query_fail"] = False
     job = boundary(api)
-    if flags.get("query_fail"): api.flags["query_fail"] = True
-    with pytest.raises(JobError) as error: job.assign_process(999999)
+    if flags.get("query_fail"):
+        api.flags["query_fail"] = True
+    with pytest.raises(JobError) as error:
+        job.assign_process(999999)
     assert error.value.code is code
-    with pytest.raises(JobError): job.authorize()
+    with pytest.raises(JobError):
+        job.authorize()
     assert "terminate" in api.calls
 def test_success_cleanup_terminates_waits_accounts_and_is_idempotent() -> None:
     clock = BudgetClock()
@@ -134,13 +143,17 @@ def test_success_cleanup_terminates_waits_accounts_and_is_idempotent() -> None:
 @pytest.mark.parametrize("flags, code, closed, retry", [({"terminate_fail": True}, CLEANUP_ERROR, ["process"], True), ({"query_fail": True}, CLEANUP_ERROR, ["process"], False), ({"wait_result": WAIT_FAILED}, CLEANUP_ERROR, [], False), ({"wait_result": WAIT_TIMEOUT, "active_values": [1] * 200}, JobErrorCode.TIMEOUT, [], True)])
 def test_cleanup_failures_retain_failed_ownership(flags: dict[str, object], code: JobErrorCode, closed: list[str], retry: bool) -> None:
     api = FakeApi(**flags)
-    if flags.get("query_fail"): api.flags["query_fail"] = False
+    if flags.get("query_fail"):
+        api.flags["query_fail"] = False
     job = boundary(api)
     job.assign_process(1)
-    if flags.get("query_fail"): api.flags["query_fail"] = True
-    with pytest.raises(JobError) as error: job.close(0.05)
+    if flags.get("query_fail"):
+        api.flags["query_fail"] = True
+    with pytest.raises(JobError) as error:
+        job.close(0.05)
     assert error.value.code is code and api.closed == closed and job.state is JobState.BROKEN and (flags.get("wait_result") != WAIT_TIMEOUT or job.process == "process") and (not flags.get("terminate_fail") or job.job == "job")
-    with pytest.raises(JobError): job.assign_process(2)
+    with pytest.raises(JobError):
+        job.assign_process(2)
     assert not any(call[1] == 2 for call in api.calls if isinstance(call, tuple) and call[0] == "open")
     if retry:
         api.flags.update(terminate_fail=False, wait_result=WAIT_OBJECT_0)
@@ -148,21 +161,24 @@ def test_cleanup_failures_retain_failed_ownership(flags: dict[str, object], code
         job.close(1.0)
         assert job.state is JobState.CLOSED
     if not retry:
-        with pytest.raises(JobError): job.close(0.05)
+        with pytest.raises(JobError):
+            job.close(0.05)
     assert api.closed.count("process") <= 1 and api.closed.count("job") <= 1
 @pytest.mark.parametrize("value", [-1, float("nan"), float("inf"), float("-inf")])
 def test_invalid_cleanup_timeout_still_cleans_and_maps_to_timeout(value: float) -> None:
     api = FakeApi(active_values=[1, 0])
     job = boundary(api)
     job.assign_process(1)
-    with pytest.raises(JobError) as error: job.close(value)
+    with pytest.raises(JobError) as error:
+        job.close(value)
     assert error.value.code is JobErrorCode.TIMEOUT and "terminate" in api.calls and api.closed == ["process", "job"]
 @pytest.mark.parametrize("handle", ["process", "job"])
 def test_close_handle_failure_retains_only_failed_ownership_for_retry(handle: str) -> None:
     api = FakeApi(active_values=[1, 0, 0], close_fail_once=handle)
     job = boundary(api)
     job.assign_process(1)
-    with pytest.raises(JobError): job.close(1.0)
+    with pytest.raises(JobError):
+        job.close(1.0)
     assert job.state is not JobState.CLOSED and getattr(job, handle) == handle
     job.close(1.0)
     assert job.state is JobState.CLOSED and api.closed.count(handle) == 2
@@ -170,11 +186,13 @@ def test_close_handle_failure_retains_only_failed_ownership_for_retry(handle: st
     assert api.closed.count(other) == 1
 def test_partial_setup_uses_process_termination_before_assignment_and_redacts_os_details() -> None:
     api = FakeApi(limit_error=True)
-    with pytest.raises(JobError) as error: boundary(api)
+    with pytest.raises(JobError) as error:
+        boundary(api)
     assert error.value.code is JobErrorCode.INTERNAL_ERROR and api.closed == ["job"] and "999999" not in str(error.value) and "secret" not in str(error.value)
 def test_unassigned_partial_failure_closes_target_handle_without_terminating_target() -> None:
     api = FakeApi(assign_fail=True, terminate_process_fail=True)
     job = boundary(api)
-    with pytest.raises(JobError): job.assign_process(1)
+    with pytest.raises(JobError):
+        job.assign_process(1)
     assert "terminate_process" not in api.calls
     assert job.state is JobState.CLOSED and job.process is None and api.closed == ["process", "job"]
