@@ -108,6 +108,22 @@ def test_frame_rejects_eof_trailing_and_oversized_data() -> None:
         with pytest.raises(ProtocolError) as error:
             decode_frame(struct.pack(">I", limit + 1) + b"x", limit=limit)
         assert error.value.code is ProtocolErrorCode.OVERSIZE
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        {"type": "contained", "nonce": ""},
+        {"type": "contained", "nonce": "n" * 129},
+        {"type": "result", "nonce": "n", "provider": "unknown", "state": "success"},
+    ],
+)
+def test_validation_preserves_nonce_and_provider_rejections(message: dict[str, object]) -> None:
+    with pytest.raises(ProtocolError) as error:
+        encode_frame(message)
+    assert error.value.code is ProtocolErrorCode.INVALID_MESSAGE
+
+
 def test_partial_read_exhausts_deadline_with_decreasing_budgets() -> None:
     reader = Transport(encode_frame(contained_message("n")), deadline=True)
     with pytest.raises(ProtocolError) as error:
