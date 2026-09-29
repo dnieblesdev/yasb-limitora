@@ -95,6 +95,14 @@ checkout root (the checkout pins `limitora[opencode-go]==0.3.1`). See
 [`docs/windows-json.md`](docs/windows-json.md) for `.env`, reload, precedence,
 security, bounded errors, cache refresh, and manual YASB procedures.
 
+For local linting, install the exact pinned Ruff release and run it from the
+checkout root:
+
+```powershell
+py -m pip install "ruff==0.16.9"
+python -m ruff check .
+```
+
 ## Documentation map
 
 - [`docs/roadmap.md`](docs/roadmap.md): official 0.2 R1-R11 order and gates.

@@ -103,3 +103,4 @@ unredacted*
 # Local tooling
 .atl/
 .codegraph/
+.ruff_cache/
