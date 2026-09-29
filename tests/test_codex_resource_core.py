@@ -33,7 +33,8 @@ def test_pair_closes_reverse_order_and_retries_only_retry_outcomes() -> None:
     pair = r._new_ipc_pair(spec(5, generation, closer("read")), spec(6, generation, closer("write")), owner, registry)
     with pytest.raises(r._CleanupError): pair._close(owner)
     assert events == ["write", "read"] and pair._state is r._PairState.BROKEN
-    pair._close(owner); pair._close(owner)
+    pair._close(owner)
+    pair._close(owner)
     assert events == ["write", "read", "write"] and pair._state is r._PairState.CLOSED and pair._read._spec is None and pair._write._spec is None
 
 
