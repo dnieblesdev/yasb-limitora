@@ -119,7 +119,8 @@ def test_uninstall_prompts_are_suppressible_with_fail_safe_defaults() -> None:
     rollback ever reaches.
     """
     code = code_section(script_text())
-    assert code.count("SuppressibleMsgBox(") >= 2
+    # Exactly the two rollback-reachable prompts; each is pinned per function below.
+    assert code.count("SuppressibleMsgBox(") == 2
 
     # Every prompt the uninstaller can reach must be suppressible, or an unattended
     # rollback waits for a person who is not there.
@@ -365,6 +366,15 @@ def test_rollback_runs_same_path_new_uninstaller_only_when_owned() -> None:
     assert "NewUninstallString <> PriorUninstallString" not in restore
     ownership = restore[:restore.index("Exec(RemoveQuotes(NewUninstallString)")]
     assert ownership.rfind("HasOwnedNewUninstaller") > ownership.rfind("RegQueryStringValue")
+    guard = restore.index("and HasOwnedNewUninstaller(AppDir, NewUninstallString) then")
+    guarded_begin = restore.index("begin", guard)
+    exec_at = restore.index("Exec(RemoveQuotes(NewUninstallString)")
+    assert guarded_begin < exec_at < restore.index("\n  end;", guarded_begin)
+    owned = code.rsplit("function HasOwnedNewUninstaller", 1)[1].split("\nend;", 1)[0]
+    assert "Candidate := RemoveQuotes(UninstallString);" in owned
+    assert owned.index("if Candidate = '' then") < owned.index("Exit;") < owned.index("SameText(")
+    assert "SameText(RemoveBackslash(ExtractFilePath(Candidate)), RemoveBackslash(AppDir))" in owned
+    assert "Result := FileExists(Candidate);" in owned
 
 
 def test_owned_failed_quarantine_is_cleared_before_requarantining_the_new_payload() -> None:
@@ -791,7 +801,8 @@ def test_s11_build_driver_validates_frozen_input_and_passes_explicit_iscc_define
     driver = setup_build_driver_text()
     assert "ISCC.exe" in driver or "iscc.exe" in driver.lower()
     assert "yasb-limitora.exe" in driver
-    assert re.search(r"is_file\(\).*yasb-limitora\.exe|yasb-limitora\.exe.*is_file\(\)", driver, re.IGNORECASE | re.DOTALL)
+    assert 'executable = source_dir / "yasb-limitora.exe"' in driver
+    assert "if not _regular_file(executable):" in driver
     assert re.search(r"/DAppVersion=", driver)
     assert re.search(r"/DSourceDir=", driver)
     assert re.search(r"/DOutputDir=", driver)
@@ -836,6 +847,28 @@ def test_s11_build_driver_resolves_caller_relative_paths_before_iscc(tmp_path, m
     assert command[2] == f"/DSourceDir={source.resolve()}"
     assert command[3] == f"/DOutputDir={output.resolve()}"
     assert kwargs["cwd"] == ROOT.resolve()
+
+
+def test_s11_build_driver_pins_utf8_replacement_decoding_for_iscc_output(tmp_path) -> None:
+    """R4-002: locale decode failures must not escape the bounded build error contract."""
+    module = setup_build_module()
+    source = write_frozen_bundle(tmp_path / "frozen", '{"version":"0.2.0"}')
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append((command, kwargs))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    module.run_setup(
+        source_dir=source,
+        output_dir=tmp_path / "output",
+        app_version="0.2.0",
+        repo_root=ROOT,
+        runner=runner,
+    )
+    _, kwargs = calls[0]
+    assert kwargs["encoding"] == "utf-8"
+    assert kwargs["errors"] == "replace"
 
 
 @pytest.mark.parametrize(

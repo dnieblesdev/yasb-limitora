@@ -77,8 +77,9 @@ proof: the rollback Execs the new uninstaller with `/VERYSILENT /SUPPRESSMSGBOXE
   `7ff33e5dc847e05b02f1d3789200c5c0c435af37b729247c0b9380a42eea8f35`. The pre-fix production setup was
   11,052,467 bytes (`ba1aea2c...`), so the change is present in the compiled artifact and the Pascal
   compiles. The temporary output was deleted without executing the setup.
-- **Footprint.** 36 insertions / 4 deletions: `packaging/inno/yasb-limitora.iss` (+14/-4) and
-  `tests/test_inno_script.py` (+26).
+- **Footprint.** 36 insertions / 4 deletions: `packaging/inno/yasb-limitora.iss` (+10/-4) and
+  `tests/test_inno_script.py` (+26). The merged PR #310 diff totals +166/-4 across three files, with
+  the two code files accounting for +48/-4 after review additions.
 - **Not proven here.** The end-to-end absence of the hang inside a VM. That needs a new frozen build,
   new setups, a new input-set custody identity, and a lifecycle re-run (at least scenario 5), which
   remains pending for a separate decision.
