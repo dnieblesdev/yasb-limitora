@@ -4,7 +4,7 @@ import math
 from enum import Enum
 from typing import Any
 
-from .codex_job_resources import _JobOwner, _JobResourceError, _OwnerState
+from .codex_job_resources import _JobOwner, _JobResourceError
 from .isolation.windows_job import DEFAULT_CLEANUP_BUDGET_SECONDS, EMERGENCY_CLEANUP_BUDGET_SECONDS, INVALID_HANDLE, MAX_CLEANUP_SECONDS
 
 __all__: tuple[str, ...] = ()
