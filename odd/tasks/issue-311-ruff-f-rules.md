@@ -7,9 +7,9 @@ Census on f07f5ce: 25 F401 (5 ordinary imports, 20 isolation facade re-exports) 
 Route: multi-file writer for T1; dedicated work-unit commit per task. Test-first does not apply to import-only removal (no meaningful behavioral RED); verify scoped lint and tests. Changes to protocol validation require behavior tests first if applicable.
 
 Tasks:
-- [x] F1: Removed five ordinary unused imports from codex_process_resources.py, codex_supervisor.py, test_guard.py, test_windows_job.py. Writer and independent verifier: scoped F401 and configured Ruff pass; full pytest 1039 passed, 21 skipped; diff check clean. Import surfaces and ctypes callee checked. Commit: pending in this work-unit closure.
-- [ ] F2: Preserve isolation public re-exports explicitly and resolve 20 facade F401 without API regression; check public imports/tests; commit.
+- [x] F1: Removed five ordinary unused imports from codex_process_resources.py, codex_supervisor.py, test_guard.py, test_windows_job.py. Writer and independent verifier: scoped F401 and configured Ruff pass; full pytest 1039 passed, 21 skipped; diff check clean. Import surfaces and ctypes callee checked. Commit: aae840b. Native review review-007cb645e02906b7 approved and acknowledged.
+- [x] F2: Preserved all 20 facade re-exports through explicit `__all__`, with exact membership and identity regression test. Focused protocol tests: 21 passed; scoped F401/configured Ruff pass; full pytest 1040 passed, 21 skipped; independent verification and diff check passed. Work-unit commit follows.
 - [ ] F3: Enable F401 in project lint once all findings are resolved; check CI command and full suite; commit.
 - [ ] F4: Retain both validation calls while dropping F841 bindings, add/confirm focused regression tests, then enable F841; check full suite; commit.
 
-Current: F1 verified; F2 next. Remote CI remains pending until PR. Forecast <150 authored changed lines across all tasks; revisit if projected PR slice crosses 400.
+Current: F2 verified; F3 next. Remote CI remains pending until PR. Forecast <150 authored changed lines across all tasks; revisit if projected PR slice crosses 400.
