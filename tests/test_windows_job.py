@@ -22,27 +22,40 @@ class FakeApi:
         self.flags, self.closed, self.calls = flags, [], []
         self.active_values, self.wait_results = list(flags.get("active_values", [1, 0])), list(flags.get("wait_results", []))
 
-    def create_job(self): self.calls.append("create"); return None if self.flags.get("create_fail") else "job"
-    def make_non_inheritable(self, handle): self.calls.append("inherit"); return not self.flags.get("inherit_fail")
+    def create_job(self):
+        self.calls.append("create")
+        return None if self.flags.get("create_fail") else "job"
+    def make_non_inheritable(self, handle):
+        self.calls.append("inherit")
+        return not self.flags.get("inherit_fail")
     def enable_kill_on_close(self, handle):
         self.calls.append("limit")
         if self.flags.get("limit_error"): raise OSError("secret kernel path PID=999999")
         return not self.flags.get("limit_fail")
-    def open_process(self, pid, access): self.calls.append(("open", pid, access)); return None if self.flags.get("open_fail") else "process"
+    def open_process(self, pid, access):
+        self.calls.append(("open", pid, access))
+        return None if self.flags.get("open_fail") else "process"
     def is_process_in_job(self, process, job):
         self.calls.append(("in_job", job))
         if job is None: return bool(self.flags.get("nested"))
         return not self.flags.get("post_check_fail")
-    def assign(self, job, process): self.calls.append("assign"); return not self.flags.get("assign_fail")
+    def assign(self, job, process):
+        self.calls.append("assign")
+        return not self.flags.get("assign_fail")
     def query_active(self, job):
         self.calls.append("query")
         if self.flags.get("query_fail"): raise JobError(JobErrorCode.INTERNAL_ERROR)
         return self.active_values.pop(0) if self.active_values else 0
-    def terminate(self, job): self.calls.append("terminate"); return not self.flags.get("terminate_fail")
-    def terminate_process(self, process): self.calls.append("terminate_process"); return not self.flags.get("terminate_process_fail")
+    def terminate(self, job):
+        self.calls.append("terminate")
+        return not self.flags.get("terminate_fail")
+    def terminate_process(self, process):
+        self.calls.append("terminate_process")
+        return not self.flags.get("terminate_process_fail")
     def wait(self, handle, timeout_ms):
         if self.flags.get("advance_clock"): self.flags["advance_clock"].value += 0.01
-        self.calls.append(("wait", handle, timeout_ms)); return self.wait_results.pop(0) if self.wait_results else self.flags.get("wait_result", WAIT_OBJECT_0)
+        self.calls.append(("wait", handle, timeout_ms))
+        return self.wait_results.pop(0) if self.wait_results else self.flags.get("wait_result", WAIT_OBJECT_0)
     def close(self, handle):
         self.closed.append(handle)
         if self.flags.get("close_fail_once") == handle:
@@ -108,7 +121,8 @@ def test_each_containment_check_failure_cleans_and_never_authorizes(flags: dict[
     with pytest.raises(JobError): job.authorize()
     assert "terminate" in api.calls
 def test_success_cleanup_terminates_waits_accounts_and_is_idempotent() -> None:
-    clock = BudgetClock(); api = FakeApi(active_values=[1, 0], wait_results=[WAIT_TIMEOUT, WAIT_OBJECT_0], advance_clock=clock)
+    clock = BudgetClock()
+    api = FakeApi(active_values=[1, 0], wait_results=[WAIT_TIMEOUT, WAIT_OBJECT_0], advance_clock=clock)
     job = boundary(api, clock)
     job.assign_process(1)
     job.close(1.0)
@@ -129,7 +143,8 @@ def test_cleanup_failures_retain_failed_ownership(flags: dict[str, object], code
     with pytest.raises(JobError): job.assign_process(2)
     assert not any(call[1] == 2 for call in api.calls if isinstance(call, tuple) and call[0] == "open")
     if retry:
-        api.flags.update(terminate_fail=False, wait_result=WAIT_OBJECT_0); api.active_values = [0]
+        api.flags.update(terminate_fail=False, wait_result=WAIT_OBJECT_0)
+        api.active_values = [0]
         job.close(1.0)
         assert job.state is JobState.CLOSED
     if not retry:

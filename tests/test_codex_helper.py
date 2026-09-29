@@ -221,7 +221,8 @@ def test_adapter_preserves_snapshot_state_freshness_windows_and_safe_sources():
 
 @pytest.mark.parametrize("source,outcome", ((SourceMetadata("future-source"), ProviderOutcome.SNAPSHOT), (None, ProviderOutcome.EXECUTION_ERROR), (object(), ProviderOutcome.EXECUTION_ERROR)))
 def test_adapter_requires_source_metadata_and_normalizes_unknown_source(source, outcome):
-    result = _snapshot(); object.__setattr__(result.snapshot, "source", source)
+    result = _snapshot()
+    object.__setattr__(result.snapshot, "source", source)
     view = CodexLimitoraAdapter(lambda config: SimpleNamespace(read_status=lambda request: result)).read(("C:\\codex.exe",))
     assert view.outcome is outcome
     assert (view.snapshot.source_id if view.snapshot is not None else view.error.code) is (None if outcome is ProviderOutcome.SNAPSHOT else SafeErrorCode.INVALID_PROVIDER_DATA)
@@ -659,7 +660,8 @@ def test_rich_decoder_rejects_malformed_or_contradictory_worker_output(mutation)
     elif mutation == "quantity":
         value["snapshot"]["windows"][0]["limit"]["value"] = "1.00"
     elif mutation in ("trusted_reset", "trusted_plan"):
-        value["snapshot"]["windows"][0]["reset_at"] = "not-a-timestamp" if mutation == "trusted_reset" else value["snapshot"]["windows"][0]["reset_at"]; value["snapshot"]["windows"][0]["plan_id"] = {"invalid": True} if mutation == "trusted_plan" else value["snapshot"]["windows"][0]["plan_id"]
+        value["snapshot"]["windows"][0]["reset_at"] = "not-a-timestamp" if mutation == "trusted_reset" else value["snapshot"]["windows"][0]["reset_at"]
+        value["snapshot"]["windows"][0]["plan_id"] = {"invalid": True} if mutation == "trusted_plan" else value["snapshot"]["windows"][0]["plan_id"]
     else:
         value["state"] = "safe_error"
         value["error"] = {"code": "provider_error"}
@@ -880,9 +882,14 @@ def test_concurrent_cleanup_ownership_is_atomic():
         return SimpleNamespace(acquire=lambda: (started.set(), release.wait()), close=close)
     executor = CodexHelperExecutor(factory)
     barrier, results = threading.Barrier(2), [None, None]
-    def work(index): barrier.wait(); results.__setitem__(index, executor.run(("C:\\codex.exe",)))
+    def work(index):
+        barrier.wait()
+        results.__setitem__(index, executor.run(("C:\\codex.exe",)))
     threads = [threading.Thread(target=work, args=(index,)) for index in range(2)]
-    [thread.start() for thread in threads]; started.wait(); release.set(); [thread.join() for thread in threads]
+    [thread.start() for thread in threads]
+    started.wait()
+    release.set()
+    [thread.join() for thread in threads]
     assert len(created) == 1 and all(result.error.code is SafeErrorCode.INTERNAL_ERROR for result in results)
     pending = executor._pending_supervisor
     assert pending is not None
@@ -899,7 +906,9 @@ def test_ready_trailing_data_fails_before_dispatch():
     rejected = []
     def acquire():
         try: transport.read_frame(expected_size=7)
-        except _TransportError: rejected.append(True); raise
+        except _TransportError:
+            rejected.append(True)
+            raise
         raise AssertionError("trailing READY was accepted")
     supervisor = SimpleNamespace(acquire=acquire, close=lambda timeout: None)
     result = CodexHelperExecutor(lambda **kwargs: supervisor).run(("C:\\codex.exe",))
