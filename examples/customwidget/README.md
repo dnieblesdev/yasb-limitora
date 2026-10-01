@@ -1,14 +1,16 @@
 # Limitora CustomWidget example
 
 This directory is a copy-ready **YASB CustomWidget** example for the sole current
-JSON contract. It invokes `yasb-limitora` without selector
-negotiation and adds no widget runtime, provider logic, quota calculations, or
-CSS state machine.
+JSON contract. Its quick path below is for a checkout/development installation;
+it invokes `yasb-limitora` without selector negotiation and adds no widget
+runtime, provider logic, quota calculations, or CSS state machine. It is not a
+verified guide to the installer's no-PATH integration route.
 
 ## Quick path
 
-1. From the checkout root, install the unpublished package with
-   `py -m pip install -e .`.
+1. For checkout/development use, install the unpublished package from the
+   checkout root with `py -m pip install -e .`. This is not the end-user
+   installer route.
 2. Create or select the separate Limitora JSON at
    `%LOCALAPPDATA%\yasb-limitora\config.json` (or select an explicit
    `YASB_LIMITORA_CONFIG` path) with `"opencode_go": {"enabled": true}` and no
@@ -28,9 +30,13 @@ CSS state machine.
    restart YASB and confirm that the selected label and tooltip show the CLI output.
 
 The installation advice is provisional. It is not an R11 release, packaging,
-or automatic-installation contract. The command in the YAML is the real CLI;
-the JSON files in `fixtures/` are validation-only documents and are not
-executable commands.
+or automatic-installation contract. The bare command in the YAML requires YASB
+to inherit a `PATH` containing the checkout's installed console script. G2a
+selected M6 for feasibility only; G2b's installed-candidate confirmation remains
+pending, so this example makes no claim that the installer provides verified
+no-PATH YASB integration. The command in the YAML is the real CLI; the JSON
+files in `fixtures/` are validation-only documents and are not executable
+commands.
 
 The bare `yasb-limitora` command depends on YASB inheriting the updated user
 `PATH`; restart YASB after installing or changing PATH. `.env` reload uses

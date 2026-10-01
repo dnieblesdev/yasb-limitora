@@ -10,8 +10,9 @@ normative reference is [`specifications/json-output.md`](specifications/json-out
 ## Quick path
 
 1. Use native Windows 10 or 11. WSL is not the production runtime or proof environment.
-2. Install Python and the checkout runtime from the repository root. The
-   `yasb-limitora` package is not published to PyPI:
+2. For checkout/development use, install Python and the runtime from the
+   repository root. This editable install is not the end-user installer route;
+   the `yasb-limitora` package is not published to PyPI:
 
    ```powershell
    py -m pip install --upgrade pip
@@ -233,15 +234,19 @@ compact/alternate labels and tooltip. Native widget code, popovers, tabs,
 interactive progress, dynamic state CSS, and subprocess termination are not
 part of this runtime boundary.
 
-### Executable discovery
+### Executable discovery for the checkout example
 
 The bare `yasb-limitora` command in the documented
-`run_cmd: "yasb-limitora"` form requires YASB
-to inherit a user `PATH` that contains the installed console script. After
+`run_cmd: "yasb-limitora"` form requires YASB to inherit a user `PATH` that
+contains the console script from the checkout's editable installation. After
 installing or changing that user `PATH`, restart YASB so its process receives
-the updated environment. A fully qualified executable may be used locally as a
-diagnostic or workaround when investigating PATH inheritance; machine-specific
-paths must not be published in configuration, documentation, or issue logs.
+the updated environment. This describes the checkout/development route, not
+installer-assisted no-PATH behavior. G2a selected M6 for feasibility, but the
+installed-candidate confirmation G2b remains pending; this page does not claim
+that no-PATH behavior is verified for a released candidate. A fully qualified executable
+may be used locally as a diagnostic or workaround when investigating PATH
+inheritance; machine-specific paths must not be published in configuration,
+documentation, or issue logs.
 
 ## Manual native YASB acceptance
 
