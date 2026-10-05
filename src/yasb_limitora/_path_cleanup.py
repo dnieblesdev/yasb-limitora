@@ -103,27 +103,45 @@ def _owned(recorded: str) -> tuple[str, str, int] | None:
         return None
     if not isinstance(data, dict) or set(data) != {"element", "path", "type"}:
         return None
-    if not isinstance(data["element"], str) or not isinstance(data["path"], str) or data["type"] not in {REG_SZ, REG_EXPAND_SZ}:
+    if (
+        not isinstance(data["element"], str)
+        or not data["element"]
+        or not isinstance(data["path"], str)
+        or type(data["type"]) is not int
+        or data["type"] not in {REG_SZ, REG_EXPAND_SZ}
+    ):
         return None
     return data["element"], data["path"], data["type"]
 
 
 def append_user_path(registry: UserPathRegistry, element: str) -> Outcome:
-    """Append verbatim with bounded optimistic retry and rollback-safe bookkeeping."""
+    """Add the selected install route, correcting only a provably owned final route."""
     for _attempt in range(2):
         current = registry.read_user_path()
-        value, value_type = _safe_path(current) or ("", REG_EXPAND_SZ)
-        if _safe_path(current) is None and current is not None:
+        safe = _safe_path(current)
+        if safe is None and current is not None:
             return Outcome(False, "path-value-unsafe")
+        value, value_type = safe or ("", REG_EXPAND_SZ)
         if element in value.split(";"):
-            return Outcome(False, "path-element-present")
+            return Outcome(False)
+
+        recorded = registry.read_recorded_element()
+        owned = _owned(recorded or "")
+        if recorded is not None and owned is None:
+            return Outcome(False, "path-record-invalid")
+        if owned is not None:
+            old_element, expected_value, expected_type = owned
+            parts = value.split(";")
+            if current != (expected_value, expected_type) or not parts or parts[-1] != old_element:
+                return Outcome(False, "path-ownership-changed")
+            value = ";".join(parts[:-1])
         changed = value + ";" + element
         if not registry.compare_and_write_user_path(current, changed, value_type):
             continue
         try:
             registry.write_recorded_element(_record(element, changed, value_type))
         except OSError:
-            if not registry.compare_and_write_user_path((changed, value_type), value, value_type):
+            if not registry.compare_and_write_user_path((changed, value_type), current[0] if current else "", value_type):
                 return Outcome(False, "path-bookkeeping-rollback-failed")
             return Outcome(False, "path-bookkeeping-failed")
         registry.notify_environment_changed()
@@ -132,15 +150,17 @@ def append_user_path(registry: UserPathRegistry, element: str) -> Outcome:
 
 
 def remove_recorded_user_path(registry: UserPathRegistry) -> Outcome:
-    """Remove only a still-owned append; any external PATH edit fails closed."""
+    """Remove only a still-owned append; absent/unowned routes are successful no-ops."""
     owned = _owned(registry.read_recorded_element() or "")
     if owned is None:
-        return Outcome(False, "path-record-missing")
+        return Outcome(False)
     element, expected_value, expected_type = owned
     current = registry.read_user_path()
     if current is None:
-        return Outcome(False, "path-value-missing")
+        return Outcome(False)
     if current != (expected_value, expected_type):
+        if element not in current[0].split(";"):
+            return Outcome(False)
         return Outcome(False, "path-ownership-changed")
     parts = expected_value.split(";")
     if not parts or parts[-1] != element:
@@ -168,16 +188,24 @@ def _remove_path_and_cleanup_state(registry: UserPathRegistry, state_dir: str) -
     recorded = registry.read_recorded_element()
     owned = _owned(recorded or "")
     if owned is None:
-        return Outcome(False, "path-record-missing"), Outcome(False, "state-record-missing")
+        return Outcome(False), Outcome(False, "state-record-missing")
     element, expected_value, expected_type = owned
-    current = registry.read_user_path()
-    if current is None:
-        return Outcome(False, "path-value-missing"), Outcome(False, "path-remove-failed")
-    if current != (expected_value, expected_type):
-        refusal = Outcome(False, "path-ownership-changed")
-        return refusal, Outcome(False, "path-remove-failed")
     parts = expected_value.split(";")
     if not parts or parts[-1] != element:
+        refusal = Outcome(False, "path-ownership-changed")
+        return refusal, Outcome(False, "path-remove-failed")
+    current = registry.read_user_path()
+    if current != (expected_value, expected_type):
+        route_present = current is not None and element in current[0].split(";")
+        if not route_present:
+            # Leave PATH untouched; state cleanup must revalidate the same record and absence.
+            state_result = cleanup_literal_state(
+                registry,
+                state_dir,
+                expected_record=recorded,
+                require_route_absent=True,
+            )
+            return Outcome(False), state_result
         refusal = Outcome(False, "path-ownership-changed")
         return refusal, Outcome(False, "path-remove-failed")
     changed = ";".join(parts[:-1])
@@ -213,16 +241,44 @@ def _remove_path_and_cleanup_state(registry: UserPathRegistry, state_dir: str) -
     return Outcome(True), Outcome(True)
 
 
-def cleanup_literal_state(registry: UserPathRegistry, state_dir: str) -> Outcome:
-    """Delete only owned literal state through the native primitive; refuses without registry proof."""
+def cleanup_literal_state(
+    registry: UserPathRegistry,
+    state_dir: str,
+    *,
+    expected_record: str | None = None,
+    require_route_absent: bool = False,
+) -> Outcome:
+    """Delete state with a live PATH record, without changing PATH."""
     from . import _native_state_cleanup
 
     if not os.path.isabs(state_dir):
         return Outcome(False, "state-path-unsafe")
-    owned = _owned(registry.read_recorded_element() or "")
+    recorded = registry.read_recorded_element()
+    if expected_record is not None and recorded != expected_record:
+        return Outcome(False, "path-ownership-changed")
+    owned = _owned(recorded or "")
     if owned is None:
         return Outcome(False, "state-record-missing")
-    if not _native_state_cleanup.delete_directory(state_dir):
+    element, expected_value, expected_type = owned
+    parts = expected_value.split(";")
+    if not parts or parts[-1] != element:
+        return Outcome(False, "path-ownership-changed")
+    expected_path = (expected_value, expected_type)
+    current = registry.read_user_path()
+    route_present = current is not None and element in current[0].split(";")
+    # Drift is safe only when the recorded element is already absent; never remove it
+    # from a changed PATH.
+    if (require_route_absent and route_present) or (
+        not require_route_absent and current != expected_path and route_present
+    ):
+        return Outcome(False, "path-ownership-changed")
+    if registry.read_recorded_element() != recorded or registry.read_user_path() != current:
+        return Outcome(False, "path-ownership-changed")
+    try:
+        deleted = _native_state_cleanup.delete_directory(state_dir)
+    except OSError:
+        deleted = False
+    if not deleted:
         return Outcome(False, "state-delete-failed")
     try:
         registry.clear_recorded_element()
