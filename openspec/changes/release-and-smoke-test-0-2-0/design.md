@@ -501,14 +501,34 @@ uninstall choice (§3.4); its result transport is outside state and is cleaned s
 | `[Tasks]` entry | `Name: "addtopath"`, `Flags: unchecked`, description states it is optional and not required for YASB |
 | Scope | `HKCU\Environment` `Path` only; System PATH is never read or written |
 | Executor | The frozen assist entrypoint, not Inno Pascal (§4.1) |
-| Algorithm | Read the current `REG_EXPAND_SZ`/`REG_SZ` value verbatim; if the exact program directory is already present as a path element, do nothing; otherwise append `;<dir>` to the verbatim string and write it back with the original value type |
+| Algorithm | Read `REG_EXPAND_SZ`/`REG_SZ` verbatim; an exact existing destination is a successful no-op without adopting ownership; otherwise append `;<dir>` preserving empty elements and the original value type |
 | Never | Parse PATH into a list and rejoin it; normalize case or separators; drop empty elements; expand `%VAR%`; truncate |
 | Record | The exact appended element is stored under the app's uninstall registry key so removal is precise |
 | Removal | On uninstall, the assist removes exactly that recorded element, again by verbatim string surgery, and broadcasts `WM_SETTINGCHANGE` |
 | Disclosure | Installer text and `MIGRATION.md` state that a PATH change takes effect only in newly started processes and that YASB must be restarted by the user for direct CLI discovery — while YASB integration itself never depends on PATH |
 
-**Cleanup task (destructive, default-negative).** Inno provides no uninstall-page checkbox, so
-cleanup is an explicit confirmation with **No** as the default button:
+**PATH route correction and uninstall consent (approved NEW PATH update).** The `addtopath`
+task remains optional and unchecked. A correct destination already present is a successful no-op
+and does not create or replace ownership data. If it is absent, a related old route may be corrected
+only when the app's existing ownership record is valid, its full PATH value and registry type exactly
+match the live value, and its recorded element is the final PATH element. The selected `addtopath`
+task is the explicit consent for replacing that one proven-owned old element with the current
+installation directory. Missing, malformed, stale, or changed proof fails closed; PATH membership
+alone never establishes ownership.
+
+Interactive uninstall presents a `removePATH` checkbox, checked by default, after the manual-close
+gate; Cancel aborts. Silent uninstall skips the custom modal and retains the checked default for
+unattended rollback. The checkbox requests removal but is never ownership proof: the helper removes
+only the still-owned recorded element. A missing or unowned route is a successful no-op; a changed
+route still present is refused. When `removePATH` is unchecked, no `path-remove` operation is sent.
+If state cleanup is separately confirmed, its operation revalidates the record and stable live
+PATH without mutating PATH. It accepts either the exact recorded route or a route already absent;
+a changed PATH that still contains the recorded route fails closed. Bookkeeping clears only after
+successful deletion. When both options are selected, retain the exact S11 `path-remove` +
+`state-cleanup` transaction whenever the owned route remains present.
+
+**Cleanup task (destructive, default-negative).** State cleanup remains a separate explicit
+confirmation with **No** as the default button:
 
 - Presented only during uninstall, after the running-YASB preflight.
 - Wording names the exact directory that would be deleted and states that configuration, cache,
@@ -527,7 +547,7 @@ cleanup is an explicit confirmation with **No** as the default button:
 
 | Alternative | Verdict | Reason |
 | --- | --- | --- |
-| Custom `TNewCheckBox` uninstall page | Rejected | Adds a wizard-page implementation and its own test surface for one boolean; the default-negative confirmation is equally explicit and far smaller |
+| Custom `TNewCheckBox` uninstall page for state cleanup | Rejected | The default-negative confirmation remains the smaller, explicit choice for destructive state cleanup; this rejection does not apply to the separately approved `removePATH` consent modal |
 | `Flags: unchecked` task shown at install time to pre-authorize future deletion | Rejected | Pre-authorizing destruction of data that does not yet exist inverts the spec's "only when the user explicitly selects it" |
 
 ## 4. Configuration-assistance boundary: application-owned helper vs Inno Pascal

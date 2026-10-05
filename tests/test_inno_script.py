@@ -94,7 +94,7 @@ def test_g1_selected_lifecycle_is_pre_install_evacuation_only() -> None:
 def test_consent_booleans_and_default_negative_cleanup() -> None:
     text = script_text()
     code = code_section(text)
-    for name in ("AddToPathConsent", "EnvBlockConsent", "ConfigWizardConsent", "CleanupConsent"):
+    for name in ("AddToPathConsent", "EnvBlockConsent", "ConfigWizardConsent", "CleanupConsent", "RemovePathConsent"):
         assert re.search(rf"\b{name}\s*:\s*Boolean", code)
     assert "WizardIsTaskSelected('addtopath')" in code
     assert "WizardIsTaskSelected('envassist')" in code
@@ -119,11 +119,13 @@ def test_uninstall_prompts_are_suppressible_with_fail_safe_defaults() -> None:
     rollback ever reaches.
     """
     code = code_section(script_text())
-    # Exactly the two rollback-reachable prompts; each is pinned per function below.
+    # Existing consent and manual-close prompts remain suppressible; PATH uses a custom modal.
     assert code.count("SuppressibleMsgBox(") == 2
 
-    # Every prompt the uninstaller can reach must be suppressible, or an unattended
-    # rollback waits for a person who is not there.
+    # Every message box reachable in silent rollback remains suppressible. The only custom
+    # PATH checkbox form must return before creation when UninstallSilent is true.
+    path_consent = code.rsplit("function ConfirmRemovePath: Boolean;", 1)[1].split("\nend;", 1)[0]
+    assert path_consent.index("if UninstallSilent then") < path_consent.index("CreateCustomForm(")
     for header in (
         "function ConfirmStateCleanup: Boolean;",
         "function PromptManualClose: Boolean;",
@@ -311,9 +313,11 @@ def test_manual_close_gate_wires_uninstall_and_retry_reprobes() -> None:
     assert "function ManualCloseGate(DetectedRunning: Boolean): Boolean; forward;" in code
     uninstall = code.split("function InitializeUninstall: Boolean;", 1)[1].split("\nend;", 1)[0]
     gate = uninstall.index("if not ManualCloseGate(YasbDetectedRunning) then")
-    consent = uninstall.index("CleanupConsent := ConfirmStateCleanup")
-    assert gate < consent
-    assert "Result := False" in uninstall[gate:consent] and "Exit;" in uninstall[gate:consent]
+    default_path = uninstall.index("RemovePathConsent := True")
+    path_consent = uninstall.index("if not ConfirmRemovePath then")
+    cleanup_consent = uninstall.index("CleanupConsent := ConfirmStateCleanup")
+    assert gate < default_path < path_consent < cleanup_consent
+    assert "Result := False" in uninstall[gate:default_path] and "Exit;" in uninstall[gate:default_path]
     body = code.rsplit("function ManualCloseGate(DetectedRunning: Boolean): Boolean;", 1)[1].split("\nend;", 1)[0]
     assert "while DetectedRunning do" in body
     assert "DetectedRunning := YasbDetectedRunning" in body
@@ -560,16 +564,38 @@ def test_s11_uninstall_dispatches_path_remove_and_state_cleanup_for_literal_yes(
     code = code_section(script_text())
     assistant = setup_assistant_text()
     assert "InitializeUninstall" in code
+    assert "CheckBox.Checked := True" in code
+    assert "CheckBox.Caption := 'Remove only the installer-owned PATH entry'" in code
+    assert "CreateCustomForm(ScaleX(340), ScaleY(120), False, False)" in code
+    assert "OkButton.Default := True" in code and "CancelButton.Cancel := True" in code
+    assert "Form.ActiveControl := OkButton" in code
+    assert "Form.ClientWidth :=" not in code and "Form.ClientHeight :=" not in code
+    assert "Form.DefaultButton" not in code and "Form.CancelButton" not in code
+    assert "if UninstallSilent then" in code
+    assert "RemovePathConsent := True" in code
+    assert "CleanupConsent := ConfirmStateCleanup" in code
     uninstall = assistant.split("procedure InvokeUninstallAssist", 1)[1]
-    # path-remove is always dispatched; state-cleanup joins only with consent
     assert '{"operation":"path-remove"}' in uninstall
     assert '{"operation":"state-cleanup"' in uninstall
     assert '"consent":"YES"' in uninstall
-    assert uninstall.count("YasbSetupAssistRun(") == 2
-    assert re.search(
-        r"(?is)if\s+CleanupConsent\s+then.*?YasbSetupAssistRun\(",
-        uninstall,
-    )
+    assert "RemovePathConsent" in uninstall and "CleanupConsent" in uninstall
+    assert "if Length(OperationsJson) = 1 then Exit" in uninstall
+    assert uninstall.count("YasbSetupAssistRun(") == 1
+    assert "RemovePathConsent, CleanupConsent" in uninstall
+    path_append = uninstall.index("if RemovePathConsent then")
+    cleanup_append = uninstall.index("if CleanupConsent then")
+    no_operations = uninstall.index("if Length(OperationsJson) = 1 then Exit")
+    helper_call = uninstall.index("YasbSetupAssistRun(")
+    assert path_append < cleanup_append < no_operations < helper_call
+    assert "if RemovePathConsent then" in uninstall
+    assert "if CleanupConsent then" in uninstall
+    assert "if Length(OperationsJson) = 1 then Exit" in uninstall
+    assert "RemovePathConsent := True" in code and "UninstallSilent" in code
+
+
+def test_addtopath_task_discloses_correction_of_recorded_route() -> None:
+    task = next(line for line in script_text().splitlines() if 'Name: "addtopath"' in line)
+    assert "may correct a previously installer-recorded route" in task
 
 
 def test_c1_inno_request_has_no_choices_key() -> None:
@@ -596,7 +622,8 @@ def test_c1_inno_post_install_emits_typed_operation_objects() -> None:
     invoke = assistant.split("procedure InvokePostCommitAssist", 1)[1].split(
         "procedure InvokeUninstallAssist", 1
     )[0]
-    # Each operation is a JSON object with an "operation" key
+    # Each operation is a JSON object with an "operation" key; PATH correction requires opt-in.
+    assert "if AddPath then OperationsJson := OperationsJson + '{\"operation\":\"path-add\"}'" in invoke
     assert '{"operation":"path-add"}' in invoke
     assert '{"operation":"env-block-apply"' in invoke
     assert '"consent":true' in invoke
