@@ -114,6 +114,132 @@ def test_removal_refuses_external_identical_element_after_owned_append():
     assert registry.value == r"A;C:\bin;C:\bin" and registry.notifications == 1
 
 
+def _batch_registry():
+    registry = FakeRegistry("A")
+    assert cleanup.append_user_path(registry, r"C:\bin").changed
+    return registry
+
+
+def test_batch_missing_record_refuses_before_path_or_native_cleanup(monkeypatch):
+    import yasb_limitora._native_state_cleanup as nsc
+
+    registry = FakeRegistry("A")
+    monkeypatch.setattr(nsc, "delete_directory", lambda _path: pytest.fail("native cleanup bypassed record gate"))
+    path_result, state_result = cleanup._remove_path_and_cleanup_state(registry, r"C:\state")
+
+    assert path_result.reason == "path-record-missing"
+    assert state_result.reason == "state-record-missing"
+    assert registry.writes == [] and registry.notifications == 0
+
+
+def test_batch_native_failure_restores_path_conditionally_and_keeps_record(monkeypatch):
+    import yasb_limitora._native_state_cleanup as nsc
+
+    registry = _batch_registry()
+    monkeypatch.setattr(nsc, "delete_directory", lambda _path: False)
+    path_result, state_result = cleanup._remove_path_and_cleanup_state(registry, r"C:\state")
+
+    assert not path_result.changed and path_result.reason == "state-delete-failed"
+    assert not state_result.changed and state_result.reason == "state-delete-failed"
+    assert registry.value == r"A;C:\bin" and registry.recorded is not None
+    assert registry.notifications == 3  # append, provisional remove, conditional restore
+
+
+def test_batch_restore_failure_does_not_overwrite_external_path(monkeypatch):
+    import yasb_limitora._native_state_cleanup as nsc
+
+    registry = _batch_registry()
+    calls = 0
+    compare = registry.compare_and_write_user_path
+
+    def compare_with_external_restore(expected, value, value_type):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            registry.value = "EXTERNAL"
+            return False
+        return compare(expected, value, value_type)
+
+    registry.compare_and_write_user_path = compare_with_external_restore
+    monkeypatch.setattr(nsc, "delete_directory", lambda _path: False)
+    path_result, state_result = cleanup._remove_path_and_cleanup_state(registry, r"C:\state")
+
+    assert path_result.changed and state_result.reason == "path-restore-failed"
+    assert registry.value == "EXTERNAL" and registry.recorded is not None
+    assert registry.notifications == 2  # append and the only actual removal
+
+
+def test_batch_revalidates_live_record_and_path_before_native_cleanup(monkeypatch):
+    import yasb_limitora._native_state_cleanup as nsc
+
+    class ReplacingRegistry(FakeRegistry):
+        def __init__(self):
+            super().__init__("A")
+            self.replace_after_remove = False
+            self.path_edit_after_remove = False
+
+        def compare_and_write_user_path(self, expected, value, value_type):
+            changed = super().compare_and_write_user_path(expected, value, value_type)
+            if changed and self.replace_after_remove:
+                self.recorded = cleanup._record(r"C:\other", "A;C:\other", value_type)
+            if changed and self.path_edit_after_remove:
+                self.value = value + ";EXTERNAL"
+            return changed
+
+    for replacement, path_edit in ((True, False), (False, True)):
+        registry = ReplacingRegistry()
+        assert cleanup.append_user_path(registry, r"C:\bin").changed
+        registry.replace_after_remove = replacement
+        registry.path_edit_after_remove = path_edit
+        native_called = False
+
+        def native_delete(_path):
+            nonlocal native_called
+            native_called = True
+            return True
+
+        monkeypatch.setattr(nsc, "delete_directory", native_delete)
+        path_result, state_result = cleanup._remove_path_and_cleanup_state(registry, r"C:\state")
+
+        assert path_result.changed and state_result.reason == "path-ownership-changed"
+        assert not native_called and registry.recorded is not None
+
+
+def test_batch_cas_failure_refuses_without_native_cleanup(monkeypatch):
+    import yasb_limitora._native_state_cleanup as nsc
+
+    registry = _batch_registry()
+    registry.compare_failures = 1
+    monkeypatch.setattr(nsc, "delete_directory", lambda _path: pytest.fail("native cleanup bypassed CAS"))
+    path_result, state_result = cleanup._remove_path_and_cleanup_state(registry, r"C:\state")
+
+    assert path_result.reason == "path-concurrency-unsafe"
+    assert state_result.reason == "path-remove-failed"
+    assert registry.recorded is not None and registry.notifications == 1
+
+
+def test_batch_clear_failure_reports_bookkeeping_without_restoring_deleted_state(monkeypatch):
+    import yasb_limitora._native_state_cleanup as nsc
+
+    registry = _batch_registry()
+    clear_calls = 0
+    clear = registry.clear_recorded_element
+
+    def clear_once():
+        nonlocal clear_calls
+        clear_calls += 1
+        registry.clear_failure = True
+        clear()
+
+    registry.clear_recorded_element = clear_once
+    monkeypatch.setattr(nsc, "delete_directory", lambda _path: True)
+    path_result, state_result = cleanup._remove_path_and_cleanup_state(registry, r"C:\state")
+
+    assert path_result.changed and state_result.reason == "state-bookkeeping-failed"
+    assert clear_calls == 1 and registry.value == "A" and registry.recorded is not None
+    assert registry.notifications == 2
+
+
 # --- S07-B: literal-state cleanup through native delete with registry ownership proof ---
 
 

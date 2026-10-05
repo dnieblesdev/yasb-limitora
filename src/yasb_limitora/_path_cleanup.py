@@ -158,6 +158,61 @@ def remove_recorded_user_path(registry: UserPathRegistry) -> Outcome:
     return Outcome(True)
 
 
+def _remove_path_and_cleanup_state(registry: UserPathRegistry, state_dir: str) -> tuple[Outcome, Outcome]:
+    """Compose the exact uninstall batch without consuming its shared ownership record early."""
+    from . import _native_state_cleanup
+
+    if not os.path.isabs(state_dir):
+        refusal = Outcome(False, "state-path-unsafe")
+        return Outcome(False, "path-transaction-aborted"), refusal
+    recorded = registry.read_recorded_element()
+    owned = _owned(recorded or "")
+    if owned is None:
+        return Outcome(False, "path-record-missing"), Outcome(False, "state-record-missing")
+    element, expected_value, expected_type = owned
+    current = registry.read_user_path()
+    if current is None:
+        return Outcome(False, "path-value-missing"), Outcome(False, "path-remove-failed")
+    if current != (expected_value, expected_type):
+        refusal = Outcome(False, "path-ownership-changed")
+        return refusal, Outcome(False, "path-remove-failed")
+    parts = expected_value.split(";")
+    if not parts or parts[-1] != element:
+        refusal = Outcome(False, "path-ownership-changed")
+        return refusal, Outcome(False, "path-remove-failed")
+    changed = ";".join(parts[:-1])
+    if not registry.compare_and_write_user_path(current, changed, expected_type):
+        refusal = Outcome(False, "path-concurrency-unsafe")
+        return refusal, Outcome(False, "path-remove-failed")
+    registry.notify_environment_changed()
+
+    # The record and the post-CAS PATH are both live proofs; neither cached proof may
+    # authorize native deletion after a concurrent replacement.
+    if registry.read_recorded_element() != recorded or registry.read_user_path() != (changed, expected_type):
+        return Outcome(True), Outcome(False, "path-ownership-changed")
+    try:
+        deleted = _native_state_cleanup.delete_directory(state_dir)
+    except OSError:
+        deleted = False
+    if not deleted:
+        try:
+            restored = registry.compare_and_write_user_path(
+                (changed, expected_type), expected_value, expected_type
+            )
+        except OSError:
+            restored = False
+        if restored:
+            registry.notify_environment_changed()
+            refusal = Outcome(False, "state-delete-failed")
+            return refusal, refusal
+        return Outcome(True), Outcome(False, "path-restore-failed")
+    try:
+        registry.clear_recorded_element()
+    except OSError:
+        return Outcome(True), Outcome(False, "state-bookkeeping-failed")
+    return Outcome(True), Outcome(True)
+
+
 def cleanup_literal_state(registry: UserPathRegistry, state_dir: str) -> Outcome:
     """Delete only owned literal state through the native primitive; refuses without registry proof."""
     from . import _native_state_cleanup
