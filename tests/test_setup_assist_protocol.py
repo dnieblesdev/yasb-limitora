@@ -167,6 +167,49 @@ def test_schema_violations_refuse_and_preserve_request_bytes(tmp_path, raw, reas
     result = result_of(root)
     assert set(result) == {"schema", "status", "operations"} and result["status"] == "refused" and result["operations"][0]["reason"] == reason
 
+def test_path_add_correction_consent_schema_is_boolean_and_default_false():
+    names, violation = sa._validate_request(request_bytes([{"operation": "path-add"}]))
+    assert violation is None and names == (("path-add", False),)
+    for consent in (True, False):
+        names, violation = sa._validate_request(
+            request_bytes([{"operation": "path-add", "correctionConsent": consent}])
+        )
+        assert violation is None and names == (("path-add", consent),)
+    for consent in ("true", 1, None):
+        names, violation = sa._validate_request(
+            request_bytes([{"operation": "path-add", "correctionConsent": consent}])
+        )
+        assert names is None and violation == "schema-violation"
+
+
+def test_path_add_correction_execution_requires_the_validated_specific_consent(tmp_path, monkeypatch):
+    target = ntpath.join(str(tmp_path), "installed")
+    monkeypatch.setattr(sa.sys, "executable", ntpath.join(target, "yasb-limitora.exe"))
+
+    def owned_registry():
+        fake = BatchRegistry()
+        fake.value = r"A;C:\old"
+        fake.recorded = sa._path_cleanup._record(r"C:\old", fake.value, 2)
+        return fake
+
+    denied = owned_registry()
+    la, root = transport(tmp_path, request_bytes([{"operation": "path-add"}]))
+    assert run(la, registry=denied) == 1
+    assert result_of(root)["operations"] == [
+        {"operation": "path-add", "status": "refused", "reason": "path-correction-consent-required"}
+    ]
+    assert denied.value == r"A;C:\old" and denied.notifications == 0
+
+    allowed = owned_registry()
+    la, root = transport(
+        tmp_path / "allowed",
+        request_bytes([{"operation": "path-add", "correctionConsent": True}]),
+    )
+    assert run(la, registry=allowed) == 0
+    assert result_of(root)["operations"] == [{"operation": "path-add", "status": "ok"}]
+    assert allowed.value == "A;" + target and allowed.notifications == 1
+
+
 def test_path_operation_uses_explicit_fake_and_never_constructs_real_registry(tmp_path, monkeypatch):
     class FakeRegistry:
         value, recorded, notifications = "A", None, 0
@@ -404,13 +447,14 @@ def test_uninstall_batch_reuses_live_record_for_path_and_state_cleanup(tmp_path,
     assert fake.notifications == 2
 
 
-def test_uninstall_batch_with_absent_owned_route_cleans_state_without_path_mutation(tmp_path, monkeypatch):
+def test_uninstall_batch_with_absent_owned_route_nops_path_but_refuses_state_cleanup(tmp_path, monkeypatch):
     import yasb_limitora._native_state_cleanup as nsc
     cleanup_mod = __import__("yasb_limitora._path_cleanup", fromlist=["_path_cleanup"])
 
     fake = BatchRegistry()
     assert cleanup_mod.append_user_path(fake, r"C:\bin").changed
     fake.value = "A"
+    recorded = fake.recorded
     notifications = fake.notifications
     deleted: list[str] = []
     monkeypatch.setattr(nsc, "delete_directory", lambda path: (deleted.append(path), True)[1])
@@ -419,14 +463,13 @@ def test_uninstall_batch_with_absent_owned_route_cleans_state_without_path_mutat
         request_bytes([{"operation": "path-remove"}, {"operation": "state-cleanup", "consent": "YES"}]),
     )
 
-    assert run(la, registry=fake) == 0
+    assert run(la, registry=fake) == 1
     assert result_of(root)["operations"] == [
         {"operation": "path-remove", "status": "ok"},
-        {"operation": "state-cleanup", "status": "ok"},
+        {"operation": "state-cleanup", "status": "refused", "reason": "path-ownership-changed"},
     ]
-    assert fake.value == "A" and fake.recorded is None
-    assert fake.notifications == notifications
-    assert deleted == [ntpath.join(str(la), "yasb-limitora")]
+    assert fake.value == "A" and fake.recorded == recorded
+    assert fake.notifications == notifications and deleted == []
 
 
 def test_state_cleanup_only_keeps_path_and_consumes_record_after_cleanup(tmp_path, monkeypatch):
@@ -626,6 +669,7 @@ def _inno_post_install_request(
     add_path: bool,
     env_block: bool,
     config_wizard: bool = False,
+    correction_consent: bool = False,
     codex_choice: str = "unchanged",
     opencode_choice: str = "unchanged",
     codex_runner: str = "",
@@ -636,7 +680,10 @@ def _inno_post_install_request(
     """
     ops: list[dict[str, object]] = []
     if add_path:
-        ops.append({"operation": "path-add"})
+        path_operation: dict[str, object] = {"operation": "path-add"}
+        if correction_consent:
+            path_operation["correctionConsent"] = True
+        ops.append(path_operation)
     if env_block:
         ops.append({"operation": "env-block-apply", "consent": True})
     if config_wizard:
@@ -663,7 +710,18 @@ def test_c1_inno_post_install_request_with_path_and_env_passes_validation():
     raw = _inno_post_install_request(add_path=True, env_block=True)
     names, violation = sa._validate_request(raw)
     assert violation is None and names is not None
-    assert names == (("path-add", True), ("env-block-apply", True))
+    assert names == (("path-add", False), ("env-block-apply", True))
+
+def test_c1_inno_post_install_request_with_explicit_correction_consent_passes_validation():
+    raw = _inno_post_install_request(
+        add_path=True, env_block=False, correction_consent=True,
+    )
+    names, violation = sa._validate_request(raw)
+    assert violation is None and names == (("path-add", True),)
+    assert json.loads(raw)["operations"] == [
+        {"operation": "path-add", "correctionConsent": True}
+    ]
+
 
 def test_slice2_all_unchanged_falls_back_to_discover():
     """When all provider choices are unchanged, configassist uses discover fallback."""
@@ -737,7 +795,7 @@ def test_slice2_configassist_with_path_env_and_codex_enabled():
     names, violation = sa._validate_request(raw)
     assert violation is None and names is not None
     assert names == (
-        ("path-add", True),
+        ("path-add", False),
         ("env-block-apply", True),
         ("config-apply", {"codex": {"enabled": True, "runner": r"C:\tools\codex.exe"}}),
     )

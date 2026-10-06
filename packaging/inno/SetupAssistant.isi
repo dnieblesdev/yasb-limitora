@@ -242,12 +242,15 @@ begin
     else Result := Result + C;
   end;
 end;
-procedure InvokePostCommitAssist(const AddPath, EnvBlock, ConfigWizard: Boolean;
+procedure InvokePostCommitAssist(const AddPath, CorrectOwnedPath, EnvBlock, ConfigWizard: Boolean;
   const CodexChoice, OpencodeChoice: Integer; const CodexRunnerPath: String);
 var OperationsJson, SelectionJson: String; HasSelection, First: Boolean;
 begin
   OperationsJson := '[';
-  if AddPath then OperationsJson := OperationsJson + '{"operation":"path-add"}';
+  if AddPath and CorrectOwnedPath then
+    OperationsJson := OperationsJson + '{"operation":"path-add","correctionConsent":true}'
+  else if AddPath then
+    OperationsJson := OperationsJson + '{"operation":"path-add"}';
   if EnvBlock then begin
     if Length(OperationsJson) > 1 then OperationsJson := OperationsJson + ',';
     OperationsJson := OperationsJson + '{"operation":"env-block-apply","consent":true}';

@@ -71,14 +71,18 @@ def test_no_modify_no_repair_are_hkcu_registry_values() -> None:
         assert 'ValueType: dword' in line and 'ValueData: "1"' in line
 
 
-def test_optional_user_path_task_is_unchecked_and_not_required_for_yasb() -> None:
+def test_optional_user_path_and_correction_tasks_are_separate_and_unchecked() -> None:
     text = script_text()
     tasks = re.search(r"(?ms)^\[Tasks\]\s*(.*?)(?=^\[|\Z)", text)
     assert tasks is not None
     addtopath = re.search(r'(?m)^Name:\s*"addtopath";.*$', tasks.group(1))
-    assert addtopath is not None
+    correction = re.search(r'(?m)^Name:\s*"correctownedpath";.*$', tasks.group(1))
+    assert addtopath is not None and correction is not None
     assert re.search(r"Flags:\s*unchecked", addtopath.group(0), re.IGNORECASE)
+    assert re.search(r"Flags:\s*unchecked", correction.group(0), re.IGNORECASE)
     assert "not required for YASB" in addtopath.group(0)
+    assert "may correct" not in addtopath.group(0)
+    assert "explicit" in correction.group(0).lower() and "addtopath" in correction.group(0).lower()
 
 
 def test_g1_selected_lifecycle_is_pre_install_evacuation_only() -> None:
@@ -94,9 +98,10 @@ def test_g1_selected_lifecycle_is_pre_install_evacuation_only() -> None:
 def test_consent_booleans_and_default_negative_cleanup() -> None:
     text = script_text()
     code = code_section(text)
-    for name in ("AddToPathConsent", "EnvBlockConsent", "ConfigWizardConsent", "CleanupConsent", "RemovePathConsent"):
+    for name in ("AddToPathConsent", "CorrectOwnedPathConsent", "EnvBlockConsent", "ConfigWizardConsent", "CleanupConsent", "RemovePathConsent"):
         assert re.search(rf"\b{name}\s*:\s*Boolean", code)
     assert "WizardIsTaskSelected('addtopath')" in code
+    assert "CorrectOwnedPathConsent := AddToPathConsent and WizardIsTaskSelected('correctownedpath') and not WizardSilent;" in code
     assert "WizardIsTaskSelected('envassist')" in code
     assert "WizardIsTaskSelected('configassist')" in code
     assert "ExpandConstant('{localappdata}\\yasb-limitora')" in code
@@ -593,9 +598,10 @@ def test_s11_uninstall_dispatches_path_remove_and_state_cleanup_for_literal_yes(
     assert "RemovePathConsent := True" in code and "UninstallSilent" in code
 
 
-def test_addtopath_task_discloses_correction_of_recorded_route() -> None:
-    task = next(line for line in script_text().splitlines() if 'Name: "addtopath"' in line)
-    assert "may correct a previously installer-recorded route" in task
+def test_correction_consent_is_specific_and_disabled_for_silent_setup() -> None:
+    code = code_section(script_text())
+    capture = code.split("function CaptureInstallConsent", 1)[1].split("end;", 1)[0]
+    assert "CorrectOwnedPathConsent := AddToPathConsent and WizardIsTaskSelected('correctownedpath') and not WizardSilent;" in capture
 
 
 def test_c1_inno_request_has_no_choices_key() -> None:
@@ -622,8 +628,10 @@ def test_c1_inno_post_install_emits_typed_operation_objects() -> None:
     invoke = assistant.split("procedure InvokePostCommitAssist", 1)[1].split(
         "procedure InvokeUninstallAssist", 1
     )[0]
-    # Each operation is a JSON object with an "operation" key; PATH correction requires opt-in.
-    assert "if AddPath then OperationsJson := OperationsJson + '{\"operation\":\"path-add\"}'" in invoke
+    # Correction is emitted only through its independent explicit consent.
+    assert "if AddPath and CorrectOwnedPath then" in invoke
+    assert '{"operation":"path-add","correctionConsent":true}' in invoke
+    assert "else if AddPath then" in invoke
     assert '{"operation":"path-add"}' in invoke
     assert '{"operation":"env-block-apply"' in invoke
     assert '"consent":true' in invoke
@@ -655,6 +663,7 @@ def test_slice2_invoke_post_commit_assist_takes_provider_parameters() -> None:
     assert "CodexChoice" in sig
     assert "OpencodeChoice" in sig
     assert "CodexRunnerPath" in sig
+    assert "CorrectOwnedPath" in sig
 
 
 def test_slice2_curstepchanged_passes_provider_choices() -> None:
@@ -666,6 +675,7 @@ def test_slice2_curstepchanged_passes_provider_choices() -> None:
     assert "CodexChoice" in commit
     assert "OpencodeChoice" in commit
     assert "CodexRunnerPath" in commit
+    assert "CorrectOwnedPathConsent" in commit
 
 
 def test_slice2_runner_browse_uses_supported_input_file_api() -> None:

@@ -114,8 +114,13 @@ def _owned(recorded: str) -> tuple[str, str, int] | None:
     return data["element"], data["path"], data["type"]
 
 
-def append_user_path(registry: UserPathRegistry, element: str) -> Outcome:
-    """Add the selected install route, correcting only a provably owned final route."""
+def append_user_path(
+    registry: UserPathRegistry,
+    element: str,
+    *,
+    correction_consent: bool = False,
+) -> Outcome:
+    """Add the selected route; replacing an owned old route requires separate consent."""
     for _attempt in range(2):
         current = registry.read_user_path()
         safe = _safe_path(current)
@@ -134,6 +139,8 @@ def append_user_path(registry: UserPathRegistry, element: str) -> Outcome:
             parts = value.split(";")
             if current != (expected_value, expected_type) or not parts or parts[-1] != old_element:
                 return Outcome(False, "path-ownership-changed")
+            if not correction_consent:
+                return Outcome(False, "path-correction-consent-required")
             value = ";".join(parts[:-1])
         changed = value + ";" + element
         if not registry.compare_and_write_user_path(current, changed, value_type):
@@ -198,12 +205,11 @@ def _remove_path_and_cleanup_state(registry: UserPathRegistry, state_dir: str) -
     if current != (expected_value, expected_type):
         route_present = current is not None and element in current[0].split(";")
         if not route_present:
-            # Leave PATH untouched; state cleanup must revalidate the same record and absence.
+            # PATH removal is a no-op; state cleanup separately rejects the stale snapshot.
             state_result = cleanup_literal_state(
                 registry,
                 state_dir,
                 expected_record=recorded,
-                require_route_absent=True,
             )
             return Outcome(False), state_result
         refusal = Outcome(False, "path-ownership-changed")
@@ -246,7 +252,6 @@ def cleanup_literal_state(
     state_dir: str,
     *,
     expected_record: str | None = None,
-    require_route_absent: bool = False,
 ) -> Outcome:
     """Delete state with a live PATH record, without changing PATH."""
     from . import _native_state_cleanup
@@ -265,14 +270,9 @@ def cleanup_literal_state(
         return Outcome(False, "path-ownership-changed")
     expected_path = (expected_value, expected_type)
     current = registry.read_user_path()
-    route_present = current is not None and element in current[0].split(";")
-    # Drift is safe only when the recorded element is already absent; never remove it
-    # from a changed PATH.
-    if (require_route_absent and route_present) or (
-        not require_route_absent and current != expected_path and route_present
-    ):
+    if current != expected_path:
         return Outcome(False, "path-ownership-changed")
-    if registry.read_recorded_element() != recorded or registry.read_user_path() != current:
+    if registry.read_recorded_element() != recorded or registry.read_user_path() != expected_path:
         return Outcome(False, "path-ownership-changed")
     try:
         deleted = _native_state_cleanup.delete_directory(state_dir)

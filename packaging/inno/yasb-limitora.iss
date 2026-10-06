@@ -39,7 +39,8 @@ SolidCompression=yes
 WizardStyle=modern
 
 [Tasks]
-Name: "addtopath"; Description: "Add yasb-limitora to the user PATH (optional; not required for YASB; may correct a previously installer-recorded route)"; Flags: unchecked
+Name: "addtopath"; Description: "Add yasb-limitora to the user PATH (optional; not required for YASB)"; Flags: unchecked
+Name: "correctownedpath"; Description: "Explicitly allow correction of a previously installer-recorded user PATH route (requires addtopath; ignored for silent installs)"; Flags: unchecked
 Name: "envassist"; Description: "Allow the optional commented YASB environment assistance"; Flags: unchecked
 Name: "configassist"; Description: "Allow the optional provider configuration wizard"; Flags: unchecked
 
@@ -55,6 +56,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\{{55D37
 
 var
   AddToPathConsent: Boolean;
+  CorrectOwnedPathConsent: Boolean;
   EnvBlockConsent: Boolean;
   ConfigWizardConsent: Boolean;
   CleanupConsent: Boolean;
@@ -310,7 +312,7 @@ begin
     EvacuatedOldDir := '';
   end;
   if CurStep = ssPostInstall then
-    InvokePostCommitAssist(AddToPathConsent, EnvBlockConsent, ConfigWizardConsent, CodexChoice, OpencodeChoice, CodexRunnerPath);
+    InvokePostCommitAssist(AddToPathConsent, CorrectOwnedPathConsent, EnvBlockConsent, ConfigWizardConsent, CodexChoice, OpencodeChoice, CodexRunnerPath);
 end;
 
 procedure DeinitializeSetup;
@@ -416,6 +418,7 @@ end;
 procedure InitializeWizard;
 begin
   AddToPathConsent := False;
+  CorrectOwnedPathConsent := False;
   EnvBlockConsent := False;
   ConfigWizardConsent := False;
   CleanupConsent := False;
@@ -428,6 +431,7 @@ end;
 function CaptureInstallConsent: Boolean;
 begin
   AddToPathConsent := WizardIsTaskSelected('addtopath');
+  CorrectOwnedPathConsent := AddToPathConsent and WizardIsTaskSelected('correctownedpath') and not WizardSilent;
   EnvBlockConsent := WizardIsTaskSelected('envassist');
   ConfigWizardConsent := WizardIsTaskSelected('configassist');
   Result := True;

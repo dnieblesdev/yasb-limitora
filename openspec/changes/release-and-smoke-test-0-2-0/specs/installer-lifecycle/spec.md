@@ -75,15 +75,20 @@ Uninstall MUST preserve `%LOCALAPPDATA%\\yasb-limitora` configuration, cache, an
 
 The optional `addtopath` install choice MUST remain unchecked by default. If the exact current
 installation directory is already a PATH element, install assistance MUST complete successfully
-without adding a duplicate or adopting PATH ownership. A related incorrect route MAY be corrected
-only after explicit `addtopath` consent and only when the product ownership record proves the exact
-live PATH value/type and identifies the related route as its final element; absent, malformed, or
+without adding a duplicate or adopting PATH ownership. Replacing a related old route MUST require
+a separate, unchecked `correctownedpath` choice as well as `addtopath`; `addtopath` alone MUST NOT
+authorize correction. The effective correction consent MUST be false for silent installs, even if
+task names are supplied. Correction also requires a valid product ownership record proving the exact
+live PATH value/type and identifying the related route as its final element; absent, malformed, or
 stale proof MUST fail closed without mutation.
 
 Uninstall MUST present a `removePATH` checkbox checked by default (silent uninstall keeps this
 default without displaying UI). Unchecking it MUST preserve PATH. Checking it MUST remove only a
 still-owned recorded route; an absent route is a successful no-op, and the checkbox MUST NOT
-authorize deletion of a foreign or unowned element.
+authorize deletion of a foreign or unowned element. Separately consented state cleanup MUST require
+the exact recorded live PATH value/type and unchanged ownership record before deleting state. Any
+PATH snapshot mismatch, including an already-absent recorded route, MUST preserve both state and
+bookkeeping; PATH removal remains an independent no-op when the route is absent.
 
 #### Scenario: Existing correct PATH entry is accepted without adoption
 
@@ -92,16 +97,18 @@ authorize deletion of a foreign or unowned element.
 - THEN setup assistance succeeds without changing PATH
 - AND it does not create or replace the ownership record for that pre-existing element
 
-#### Scenario: A recorded incorrect route is corrected only with consent
+#### Scenario: A recorded incorrect route is corrected only with separate interactive consent
 
 - GIVEN the product has a valid ownership record matching the exact live PATH value/type and final
   element for a previous installation directory
 - AND the current installation directory is not already in PATH
-- WHEN the user selects `addtopath`
+- WHEN the interactive user selects both `addtopath` and `correctownedpath`
 - THEN only that proven-owned final element is replaced with the current installation directory
 - AND the updated ownership record describes the resulting PATH
-- WHEN the user does not select `addtopath`
-- THEN no PATH correction is attempted
+- WHEN the user selects `addtopath` without `correctownedpath`
+- THEN no PATH correction is attempted and the old PATH value and ownership record remain unchanged
+- WHEN setup is silent, even if both task names are supplied
+- THEN correction consent is false and the old route is not replaced
 
 #### Scenario: Uninstall preserves PATH when unchecked
 
@@ -111,12 +118,14 @@ authorize deletion of a foreign or unowned element.
 - AND if state cleanup is separately confirmed, the state-cleanup operation runs without removing
   PATH and clears the record only after successful deletion
 
-#### Scenario: State cleanup proceeds after the owned route was already removed
+#### Scenario: State cleanup refuses when the live PATH snapshot differs
 
-- GIVEN a valid product ownership record exists but its recorded PATH route is already absent
+- GIVEN a valid product ownership record exists but the live PATH value or registry type differs
+  from the recorded snapshot, including when its recorded route is already absent
 - WHEN the user explicitly selects state cleanup, with `removePATH` either checked or unchecked
-- THEN cleanup removes state without changing the live PATH
-- AND the ownership record is cleared only after successful state deletion
+- THEN state and the ownership record remain unchanged and state cleanup is refused
+- AND PATH is not modified by state cleanup
+- BUT a separate `removePATH` request for the already-absent route may still succeed as a no-op
 
 #### Scenario: Uninstall never removes an unowned PATH entry
 
