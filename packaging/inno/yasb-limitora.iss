@@ -88,6 +88,10 @@ var
 
 const
   G1UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{55D372A6-1DA5-41BE-B7AB-65CAB362E620}_is1';
+  YasbRegErrorSuccess = 0;
+  YasbRegKeyQueryValue = $0001; { KEY_QUERY_VALUE only; this probe is read-only. }
+  YasbRegTypeString = 1;
+  YasbRegTypeExpandString = 2;
 
 var
   EvacuatedOldDir: string;
@@ -96,6 +100,16 @@ var
   PriorUninstallString: string;
   PriorInstallLocation: string;
   FailedQuarantineOwned: Boolean;
+
+function YasbRegOpenKeyExW(hKey: LongWord; lpSubKey: String;
+  ulOptions, samDesired: LongWord; var phkResult: LongWord): LongInt;
+  external 'RegOpenKeyExW@advapi32.dll stdcall';
+function YasbRegQueryValueExW(hKey: LongWord; lpValueName: String;
+  lpReserved: LongWord; var lpType: LongWord; lpData: LongWord;
+  var lpcbData: LongWord): LongInt;
+  external 'RegQueryValueExW@advapi32.dll stdcall';
+function YasbRegCloseKey(hKey: LongWord): LongInt;
+  external 'RegCloseKey@advapi32.dll stdcall';
 
 { R4-001: the manual-close gate and its read-only running probe are defined at
   the bottom of this section; forward declarations let the hooks above call them. }
@@ -484,10 +498,10 @@ end;
 { Decode the helper's canonical record only for local disclosure. This is not ownership proof;
   setup-assist revalidates the full PATH snapshot and registry type before it can mutate PATH. }
 function YasbSetupAssistParsePathRecord(const S: String; var RecordedRoute,
-  RecordedPath: String): Boolean;
+  RecordedPath: String; var RecordedType: Integer): Boolean;
 var P, ValueType: Integer; Key: String;
 begin
-  Result := False; RecordedRoute := ''; RecordedPath := '';
+  Result := False; RecordedRoute := ''; RecordedPath := ''; RecordedType := 0;
   if Length(S) > YasbSetupAssistMaxResultBytes then Exit;
   P := 1; YasbSetupAssistSkipSpace(S, P);
   if (P > Length(S)) or (S[P] <> '{') then Exit;
@@ -518,6 +532,49 @@ begin
   if (P > Length(S)) or (S[P] <> '}') then Exit;
   Inc(P); YasbSetupAssistSkipSpace(S, P);
   Result := (P > Length(S)) and (ValueType in [1, 2]);
+  if Result then RecordedType := ValueType;
+end;
+
+function YasbSetupAssistReadPathValueType(var ValueType: Integer): Boolean;
+var KeyHandle, NativeType, DataSize: LongWord; Status, CloseStatus: LongInt;
+begin
+  Result := False; ValueType := 0; KeyHandle := 0;
+  Status := YasbRegOpenKeyExW(HKCU, 'Environment', 0,
+    YasbRegKeyQueryValue, KeyHandle);
+  if Status <> YasbRegErrorSuccess then Exit;
+  try
+    NativeType := 0; DataSize := 0;
+    { A null lpData makes this a read-only metadata query; do not fetch or write PATH bytes here. }
+    Status := YasbRegQueryValueExW(KeyHandle, 'Path', 0, NativeType, 0, DataSize);
+    if Status <> YasbRegErrorSuccess then Exit;
+    if (NativeType <> YasbRegTypeString) and
+      (NativeType <> YasbRegTypeExpandString) then Exit;
+    if DataSize < 2 then Exit;
+    ValueType := NativeType;
+    Result := True;
+  finally
+    CloseStatus := YasbRegCloseKey(KeyHandle);
+    if CloseStatus <> YasbRegErrorSuccess then begin
+      ValueType := 0;
+      Result := False;
+    end;
+  end;
+end;
+
+function YasbSetupAssistHasBidiControl(const Value: String): Boolean;
+var I, Code: Integer;
+begin
+  Result := False;
+  for I := 1 to Length(Value) do begin
+    Code := Ord(Value[I]);
+    if (Code = $061C) or (Code = $200E) or (Code = $200F) or
+      (Code = $202A) or (Code = $202B) or (Code = $202C) or
+      (Code = $202D) or (Code = $202E) or (Code = $2066) or
+      (Code = $2067) or (Code = $2068) or (Code = $2069) then begin
+      Result := True;
+      Exit;
+    end;
+  end;
 end;
 
 function YasbSetupAssistPathHasExactElement(const PathValue, Element: String): Boolean;
@@ -542,13 +599,18 @@ begin
 end;
 
 function ReadRecordedPathRouteForDisplay(var RecordedRoute, CurrentRoute: String): Boolean;
-var RawRecord, RecordedPath: String;
+var RawRecord, RecordedPath: String; RecordedType, CurrentPathType: Integer;
 begin
   Result := False; RecordedRoute := ''; CurrentRoute := '';
   if not RegQueryStringValue(HKCU, G1UninstallKey,
     'yasb-limitora-path-element', RawRecord) then Exit;
-  if not YasbSetupAssistParsePathRecord(RawRecord, RecordedRoute, RecordedPath) then Exit;
+  if not YasbSetupAssistParsePathRecord(RawRecord, RecordedRoute, RecordedPath,
+    RecordedType) then Exit;
+  if not YasbSetupAssistReadPathValueType(CurrentPathType) then Exit;
+  if CurrentPathType <> RecordedType then Exit;
   if not RegQueryStringValue(HKCU, 'Environment', 'Path', CurrentRoute) then Exit;
+  if not YasbSetupAssistReadPathValueType(CurrentPathType) then Exit;
+  if CurrentPathType <> RecordedType then Exit;
   if RecordedPath <> CurrentRoute then Exit;
   if not YasbSetupAssistPathHasFinalElement(CurrentRoute, RecordedRoute) then Exit;
   if YasbSetupAssistPathHasExactElement(CurrentRoute,
@@ -562,6 +624,9 @@ begin
   Result := False;
   if not ReadRecordedPathRouteForDisplay(RecordedRoute, CurrentRoute) then Exit;
   NewRoute := RemoveBackslash(ExpandConstant('{app}'));
+  { Never render bidi formatting controls as raw path text; refuse this preview, do not sanitize. }
+  if YasbSetupAssistHasBidiControl(RecordedRoute) or
+    YasbSetupAssistHasBidiControl(NewRoute) then Exit;
   Result := SuppressibleMsgBox(
     'The installer recorded this prior user PATH route:' + #13#10 +
       RecordedRoute + #13#10#13#10 +

@@ -514,12 +514,22 @@ separate unchecked `correctownedpath` task and `addtopath`; the latter alone nev
 correction. `correctownedpath` is effective only in an interactive install and is serialized as the
 strict boolean `correctionConsent: true`; an omitted flag means false, and silent installs never
 grant it even if task names are supplied. Before asking for that consent, Inno reads only the
-recorded route and recorded PATH string from the HKCU ownership value. When that string matches the
-current raw User PATH, the recorded route is final, and the current destination is absent, a
-default-No prompt names both the exact recorded route and the new destination. This disclosure
-reads no provider/configuration data and is not ownership proof; the helper still revalidates the
-complete record, PATH value, and registry type immediately before mutation. Missing, malformed,
-stale, or changed proof fails closed; PATH membership alone never establishes ownership.
+recorded route, recorded PATH string, and recorded registry type from the HKCU ownership value. It
+queries the live User PATH type through read-only `RegOpenKeyExW(KEY_QUERY_VALUE)` and
+`RegQueryValueExW`, requiring `REG_SZ` or `REG_EXPAND_SZ` to match the recorded type; the type is
+queried on both sides of the raw PATH string read, and any API failure or mismatch suppresses the
+prompt. When the raw string matches the current User PATH, the recorded route is final, and the
+current destination is absent, a default-No prompt names both exact raw routes. If either display
+route contains a Unicode `Bidi_Control` character, no prompt is shown; the paths are not sanitized
+or rewritten. This disclosure reads no provider/configuration data and is not ownership proof; the
+helper still revalidates the complete record, PATH value, and registry type immediately before
+mutation. Missing, malformed, stale, or changed proof fails closed; PATH membership alone never
+establishes ownership. If a valid old-route record still matches the live full PATH value/type and the current destination is absent,
+`path-add` without correction consent returns the bounded operation refusal
+`path-correction-consent-required` before any write. It must preserve both the PATH and record;
+it must not fall through to append the new destination and overwrite old ownership. This applies
+to both interactive decline and silent `addtopath`. With no owned route to replace, ordinary
+`addtopath` may append the destination.
 
 Interactive uninstall presents a `removePATH` checkbox, checked by default, after the manual-close
 gate; Cancel aborts. Silent uninstall skips the custom modal and retains the checked default for
