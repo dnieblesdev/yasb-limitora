@@ -513,10 +513,13 @@ and does not create or replace ownership data. Replacing a related old route req
 separate unchecked `correctownedpath` task and `addtopath`; the latter alone never consents to
 correction. `correctownedpath` is effective only in an interactive install and is serialized as the
 strict boolean `correctionConsent: true`; an omitted flag means false, and silent installs never
-grant it even if task names are supplied. Correction additionally requires a valid existing
-ownership record whose complete PATH value and registry type match live state and whose recorded
-route is the final element. Missing, malformed, stale, or changed proof fails closed; PATH
-membership alone never establishes ownership.
+grant it even if task names are supplied. Before asking for that consent, Inno reads only the
+recorded route and recorded PATH string from the HKCU ownership value. When that string matches the
+current raw User PATH, the recorded route is final, and the current destination is absent, a
+default-No prompt names both the exact recorded route and the new destination. This disclosure
+reads no provider/configuration data and is not ownership proof; the helper still revalidates the
+complete record, PATH value, and registry type immediately before mutation. Missing, malformed,
+stale, or changed proof fails closed; PATH membership alone never establishes ownership.
 
 Interactive uninstall presents a `removePATH` checkbox, checked by default, after the manual-close
 gate; Cancel aborts. Silent uninstall skips the custom modal and retains the checked default for

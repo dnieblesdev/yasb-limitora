@@ -97,15 +97,19 @@ bookkeeping; PATH removal remains an independent no-op when the route is absent.
 - THEN setup assistance succeeds without changing PATH
 - AND it does not create or replace the ownership record for that pre-existing element
 
-#### Scenario: A recorded incorrect route is corrected only with separate interactive consent
+#### Scenario: A recorded incorrect route is disclosed and corrected only with separate interactive consent
 
 - GIVEN the product has a valid ownership record matching the exact live PATH value/type and final
   element for a previous installation directory
 - AND the current installation directory is not already in PATH
 - WHEN the interactive user selects both `addtopath` and `correctownedpath`
-- THEN only that proven-owned final element is replaced with the current installation directory
+- THEN before mutation the installer displays the exact recorded old route and current destination
+  in a default-No confirmation
+- AND only an affirmative answer plus the helper's live full-PATH/type ownership revalidation may
+  replace that proven-owned final element
 - AND the updated ownership record describes the resulting PATH
-- WHEN the user selects `addtopath` without `correctownedpath`
+- WHEN the user declines, selects `addtopath` without `correctownedpath`, or the route cannot be
+  safely identified for display
 - THEN no PATH correction is attempted and the old PATH value and ownership record remain unchanged
 - WHEN setup is silent, even if both task names are supplied
 - THEN correction consent is false and the old route is not replaced
