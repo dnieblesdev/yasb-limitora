@@ -45,6 +45,31 @@ started processes, so restart YASB yourself if you enable the task.
 yasb-limitora **never manages the YASB lifecycle**: starting, stopping, and
 restarting YASB stay manual, owned by you.
 
+## Explicit installer consent arguments
+
+Setup accepts `/CORRECTOWNEDPATH=true` or `/CORRECTOWNEDPATH=false`. Explicit
+correction consent does not select the separate, unchecked `addtopath` task or
+bypass the existing ownership, live PATH type/value, route-preview, or helper
+checks. `/CORRECTOWNEDPATH=true` requires `addtopath` and the same validated
+correction preview; if either prerequisite fails, setup aborts before changes.
+`/CORRECTOWNEDPATH=false` denies correction without showing its consent prompt.
+When omitted, the existing task selection and interactive correction prompt
+remain in effect; silent setup does not grant correction consent by default.
+
+The uninstaller accepts `/REMOVEPATH=true|false` and
+`/CLEANUPSTATE=true|false`. Each explicit value replaces only its matching
+consent prompt. Omitted values retain the existing defaults and prompts: PATH
+removal defaults to consent, while state cleanup remains default-No. Explicit
+values do not bypass the existing helper ownership, value/type, or cleanup
+safety checks.
+
+An explicit `true` grants only its corresponding consent, including in silent
+mode. It does not select other tasks or waive any of the checks above.
+
+Values are case-insensitive `true` or `false`. Duplicate, malformed, or
+wrong-operation consent arguments are rejected before installation or
+uninstallation changes. The fixed error message does not echo argument text.
+
 ## Your state is retained
 
 Configuration, cache, and backups under `%LOCALAPPDATA%\yasb-limitora` are
