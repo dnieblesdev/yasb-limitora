@@ -191,6 +191,63 @@ def test_missing_bookkeeping_never_mutates_or_notifies():
     assert registry.writes == [] and registry.notifications == 0
 
 
+@pytest.mark.parametrize(
+    ("initial", "element", "changed", "final"),
+    [
+        (r"C:\BIN", r"C:\bin", True, r"C:\BIN;C:\bin"),
+        (r"prefixC:\binSuffix", r"C:\bin", True, r"prefixC:\binSuffix;C:\bin"),
+        ('"C:\\bin"', r"C:\bin", True, '"C:\\bin";C:\\bin'),
+        (r"%ROOT%\bin", r"C:\bin", True, r"%ROOT%\bin;C:\bin"),
+        (r"A;C:\bin;C:\bin", r"C:\bin", False, r"A;C:\bin;C:\bin"),
+    ],
+    ids=("case-sensitive", "substring", "quoted", "env-like", "duplicate-tokens"),
+)
+def test_path_identity_is_literal_route_token_comparison(initial, element, changed, final):
+    registry = FakeRegistry(initial, cleanup.REG_SZ)
+
+    result = cleanup.append_user_path(registry, element)
+
+    assert result.changed is changed and result.reason is None
+    assert registry.value == final
+    assert registry.notifications == int(changed)
+    assert (registry.recorded is not None) is changed
+
+
+@pytest.mark.parametrize("value_type", [cleanup.REG_SZ, cleanup.REG_EXPAND_SZ])
+@pytest.mark.parametrize(
+    "initial",
+    ["; A ;;%ROOT%\\bin; ", "  A;  ;B  "],
+    ids=("spaces-and-empty-elements", "leading-trailing-internal-spaces"),
+)
+def test_path_append_preserves_whitespace_and_empty_elements_verbatim(value_type, initial):
+    registry = FakeRegistry(initial, value_type)
+
+    result = cleanup.append_user_path(registry, r"C:\bin")
+
+    assert result.changed and registry.value == initial + r";C:\bin"
+    assert registry.value_type == value_type
+    assert registry.recorded == cleanup._record(r"C:\bin", registry.value, value_type)
+    assert registry.notifications == 1
+
+
+def test_path_bookkeeping_rollback_failure_leaves_external_path_and_no_record():
+    class RollbackFailRegistry(FakeRegistry):
+        def compare_and_write_user_path(self, expected, value, value_type):
+            if expected == (r"A;C:\bin", cleanup.REG_SZ) and value == "A":
+                self.value = r"EXTERNAL;A;C:\bin"
+                return False
+            return super().compare_and_write_user_path(expected, value, value_type)
+
+    registry = RollbackFailRegistry("A", cleanup.REG_SZ)
+    registry.record_failure = True
+
+    result = cleanup.append_user_path(registry, r"C:\bin")
+
+    assert result.reason == "path-bookkeeping-rollback-failed" and not result.changed
+    assert registry.value == r"EXTERNAL;A;C:\bin"
+    assert registry.recorded is None and registry.notifications == 0
+
+
 def test_path_append_retries_without_losing_external_change_and_preserves_type():
     registry = FakeRegistry("A", cleanup.REG_SZ)
     registry.compare_failures = 1
