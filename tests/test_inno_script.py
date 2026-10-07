@@ -101,7 +101,9 @@ def test_consent_booleans_and_default_negative_cleanup() -> None:
     for name in ("AddToPathConsent", "CorrectOwnedPathConsent", "EnvBlockConsent", "ConfigWizardConsent", "CleanupConsent", "RemovePathConsent"):
         assert re.search(rf"\b{name}\s*:\s*Boolean", code)
     assert "WizardIsTaskSelected('addtopath')" in code
-    assert "CorrectOwnedPathConsent := AddToPathConsent and WizardIsTaskSelected('correctownedpath') and not WizardSilent;" in code
+    assert "CorrectOwnedPathConsent := False;" in code
+    assert "AddToPathConsent and WizardIsTaskSelected('correctownedpath') and not WizardSilent" in code
+    assert "CorrectOwnedPathConsent := ConfirmOwnedPathCorrection;" in code
     assert "WizardIsTaskSelected('envassist')" in code
     assert "WizardIsTaskSelected('configassist')" in code
     assert "ExpandConstant('{localappdata}\\yasb-limitora')" in code
@@ -124,8 +126,9 @@ def test_uninstall_prompts_are_suppressible_with_fail_safe_defaults() -> None:
     rollback ever reaches.
     """
     code = code_section(script_text())
-    # Existing consent and manual-close prompts remain suppressible; PATH uses a custom modal.
-    assert code.count("SuppressibleMsgBox(") == 2
+    # The route-specific install consent adds one suppressible prompt; the two uninstall
+    # prompts and their unattended fail-safe defaults remain unchanged.
+    assert code.count("SuppressibleMsgBox(") == 3
 
     # Every message box reachable in silent rollback remains suppressible. The only custom
     # PATH checkbox form must return before creation when UninstallSilent is true.
@@ -601,7 +604,30 @@ def test_s11_uninstall_dispatches_path_remove_and_state_cleanup_for_literal_yes(
 def test_correction_consent_is_specific_and_disabled_for_silent_setup() -> None:
     code = code_section(script_text())
     capture = code.split("function CaptureInstallConsent", 1)[1].split("end;", 1)[0]
-    assert "CorrectOwnedPathConsent := AddToPathConsent and WizardIsTaskSelected('correctownedpath') and not WizardSilent;" in capture
+    assert "CorrectOwnedPathConsent := False;" in capture
+    assert "AddToPathConsent and WizardIsTaskSelected('correctownedpath') and not WizardSilent" in capture
+    assert "ConfirmOwnedPathCorrection" in capture
+
+
+def test_correction_confirmation_identifies_the_exact_recorded_route_before_consent() -> None:
+    code = code_section(script_text())
+    disclosure = code.split("function ConfirmOwnedPathCorrection", 1)[1].split(
+        "function CaptureInstallConsent", 1
+    )[0]
+    assert "ReadRecordedPathRouteForDisplay" in disclosure
+    assert "RegQueryStringValue(HKCU, G1UninstallKey," in code
+    assert "'yasb-limitora-path-element', RawRecord" in code
+    assert "YasbSetupAssistReadPathJsonString" in code
+    assert "Chr(Code) + Chr(LowCode)" in code
+    assert "RecordedRoute" in disclosure and "CurrentRoute" in disclosure
+    assert "RecordedRoute +" in disclosure
+    assert "RecordedPath <> CurrentRoute" in code
+    assert "YasbSetupAssistPathHasFinalElement(CurrentRoute, RecordedRoute)" in code
+    assert "YasbSetupAssistPathHasExactElement(CurrentRoute," in code
+    assert "SuppressibleMsgBox" in disclosure
+    assert "MB_YESNO or MB_DEFBUTTON2" in disclosure and "IDNO" in disclosure
+    assert "config" not in disclosure.lower() and "codex" not in disclosure.lower()
+    assert "opencode" not in disclosure.lower() and "RecordedPath +" not in disclosure
 
 
 def test_c1_inno_request_has_no_choices_key() -> None:

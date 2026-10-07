@@ -428,10 +428,155 @@ begin
   CreateProviderPage;
 end;
 
+function YasbSetupAssistHexDigit(const C: Char): Integer;
+begin
+  Result := -1;
+  if (C >= '0') and (C <= '9') then Result := Ord(C) - Ord('0')
+  else if (C >= 'a') and (C <= 'f') then Result := Ord(C) - Ord('a') + 10
+  else if (C >= 'A') and (C <= 'F') then Result := Ord(C) - Ord('A') + 10;
+end;
+
+function YasbSetupAssistReadPathJsonString(const S: String; var P: Integer;
+  var Text: String): Boolean;
+var C: Char; Code, LowCode, Digit, I: Integer;
+begin
+  Result := False; Text := '';
+  YasbSetupAssistSkipSpace(S, P);
+  if (P > Length(S)) or (S[P] <> '"') then Exit;
+  Inc(P);
+  while P <= Length(S) do begin
+    C := S[P]; Inc(P);
+    if C = '"' then begin Result := Text <> ''; Exit; end;
+    if Ord(C) < 32 then Exit;
+    if C = '\' then begin
+      if P > Length(S) then Exit;
+      C := S[P]; Inc(P);
+      if C in ['"', '\', '/'] then Text := Text + C
+      else if C = 'u' then begin
+        if P + 3 > Length(S) then Exit;
+        Code := 0;
+        for I := 0 to 3 do begin
+          Digit := YasbSetupAssistHexDigit(S[P + I]);
+          if Digit < 0 then Exit;
+          Code := Code * 16 + Digit;
+        end;
+        P := P + 4;
+        if Code < 32 then Exit;
+        if (Code >= $D800) and (Code <= $DBFF) then begin
+          if P + 5 > Length(S) then Exit;
+          if (S[P] <> '\') or (S[P + 1] <> 'u') then Exit;
+          P := P + 2; LowCode := 0;
+          for I := 0 to 3 do begin
+            Digit := YasbSetupAssistHexDigit(S[P + I]);
+            if Digit < 0 then Exit;
+            LowCode := LowCode * 16 + Digit;
+          end;
+          P := P + 4;
+          if (LowCode < $DC00) or (LowCode > $DFFF) then Exit;
+          Text := Text + Chr(Code) + Chr(LowCode);
+        end else if (Code >= $DC00) and (Code <= $DFFF) then Exit
+        else Text := Text + Chr(Code);
+      end else Exit;
+    end else Text := Text + C;
+  end;
+end;
+
+{ Decode the helper's canonical record only for local disclosure. This is not ownership proof;
+  setup-assist revalidates the full PATH snapshot and registry type before it can mutate PATH. }
+function YasbSetupAssistParsePathRecord(const S: String; var RecordedRoute,
+  RecordedPath: String): Boolean;
+var P, ValueType: Integer; Key: String;
+begin
+  Result := False; RecordedRoute := ''; RecordedPath := '';
+  if Length(S) > YasbSetupAssistMaxResultBytes then Exit;
+  P := 1; YasbSetupAssistSkipSpace(S, P);
+  if (P > Length(S)) or (S[P] <> '{') then Exit;
+  Inc(P);
+  if not YasbSetupAssistReadString(S, P, Key) or (Key <> 'element') then Exit;
+  YasbSetupAssistSkipSpace(S, P);
+  if (P > Length(S)) or (S[P] <> ':') then Exit;
+  Inc(P);
+  if not YasbSetupAssistReadPathJsonString(S, P, RecordedRoute) then Exit;
+  YasbSetupAssistSkipSpace(S, P);
+  if (P > Length(S)) or (S[P] <> ',') then Exit;
+  Inc(P);
+  if not YasbSetupAssistReadString(S, P, Key) or (Key <> 'path') then Exit;
+  YasbSetupAssistSkipSpace(S, P);
+  if (P > Length(S)) or (S[P] <> ':') then Exit;
+  Inc(P);
+  if not YasbSetupAssistReadPathJsonString(S, P, RecordedPath) then Exit;
+  YasbSetupAssistSkipSpace(S, P);
+  if (P > Length(S)) or (S[P] <> ',') then Exit;
+  Inc(P);
+  if not YasbSetupAssistReadString(S, P, Key) or (Key <> 'type') then Exit;
+  YasbSetupAssistSkipSpace(S, P);
+  if (P > Length(S)) or (S[P] <> ':') then Exit;
+  Inc(P); YasbSetupAssistSkipSpace(S, P);
+  if (P > Length(S)) or not (S[P] in ['1', '2']) then Exit;
+  ValueType := Ord(S[P]) - Ord('0'); Inc(P);
+  YasbSetupAssistSkipSpace(S, P);
+  if (P > Length(S)) or (S[P] <> '}') then Exit;
+  Inc(P); YasbSetupAssistSkipSpace(S, P);
+  Result := (P > Length(S)) and (ValueType in [1, 2]);
+end;
+
+function YasbSetupAssistPathHasExactElement(const PathValue, Element: String): Boolean;
+var I, Start: Integer;
+begin
+  Result := False; Start := 1;
+  for I := 1 to Length(PathValue) do
+    if PathValue[I] = ';' then begin
+      if Copy(PathValue, Start, I - Start) = Element then begin Result := True; Exit; end;
+      Start := I + 1;
+    end;
+  Result := Copy(PathValue, Start, Length(PathValue) - Start + 1) = Element;
+end;
+
+function YasbSetupAssistPathHasFinalElement(const PathValue, Element: String): Boolean;
+var I, Start: Integer;
+begin
+  Start := 1;
+  for I := 1 to Length(PathValue) do
+    if PathValue[I] = ';' then Start := I + 1;
+  Result := Copy(PathValue, Start, Length(PathValue) - Start + 1) = Element;
+end;
+
+function ReadRecordedPathRouteForDisplay(var RecordedRoute, CurrentRoute: String): Boolean;
+var RawRecord, RecordedPath: String;
+begin
+  Result := False; RecordedRoute := ''; CurrentRoute := '';
+  if not RegQueryStringValue(HKCU, G1UninstallKey,
+    'yasb-limitora-path-element', RawRecord) then Exit;
+  if not YasbSetupAssistParsePathRecord(RawRecord, RecordedRoute, RecordedPath) then Exit;
+  if not RegQueryStringValue(HKCU, 'Environment', 'Path', CurrentRoute) then Exit;
+  if RecordedPath <> CurrentRoute then Exit;
+  if not YasbSetupAssistPathHasFinalElement(CurrentRoute, RecordedRoute) then Exit;
+  if YasbSetupAssistPathHasExactElement(CurrentRoute,
+    RemoveBackslash(ExpandConstant('{app}'))) then Exit;
+  Result := True;
+end;
+
+function ConfirmOwnedPathCorrection: Boolean;
+var RecordedRoute, CurrentRoute, NewRoute: String;
+begin
+  Result := False;
+  if not ReadRecordedPathRouteForDisplay(RecordedRoute, CurrentRoute) then Exit;
+  NewRoute := RemoveBackslash(ExpandConstant('{app}'));
+  Result := SuppressibleMsgBox(
+    'The installer recorded this prior user PATH route:' + #13#10 +
+      RecordedRoute + #13#10#13#10 +
+      'Replace it with the current installation route:' + #13#10 +
+      NewRoute + #13#10#13#10 +
+      'Correction will occur only if the ownership record, complete PATH value, and registry type still match at install time. Continue?',
+    mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES;
+end;
+
 function CaptureInstallConsent: Boolean;
 begin
   AddToPathConsent := WizardIsTaskSelected('addtopath');
-  CorrectOwnedPathConsent := AddToPathConsent and WizardIsTaskSelected('correctownedpath') and not WizardSilent;
+  CorrectOwnedPathConsent := False;
+  if AddToPathConsent and WizardIsTaskSelected('correctownedpath') and not WizardSilent then
+    CorrectOwnedPathConsent := ConfirmOwnedPathCorrection;
   EnvBlockConsent := WizardIsTaskSelected('envassist');
   ConfigWizardConsent := WizardIsTaskSelected('configassist');
   Result := True;
