@@ -43,6 +43,35 @@ def run(la, env=None, **kwargs):
 def result_of(root):
     return json.loads((root / "result.json").read_bytes())
 
+class BatchRegistry:
+    def __init__(self):
+        self.value, self.recorded, self.notifications = "A", None, 0
+
+    def read_user_path(self):
+        return self.value, 2
+
+    def write_user_path(self, value, value_type):
+        self.value = value
+
+    def compare_and_write_user_path(self, expected, value, value_type):
+        if self.read_user_path() != expected:
+            return False
+        self.write_user_path(value, value_type)
+        return True
+
+    def read_recorded_element(self):
+        return self.recorded
+
+    def write_recorded_element(self, element):
+        self.recorded = element
+
+    def clear_recorded_element(self):
+        self.recorded = None
+
+    def notify_environment_changed(self):
+        self.notifications += 1
+
+
 def test_derivation_is_literal_two_input_and_outside_program_and_state_roots():
     assert list(inspect.signature(sa._derive_transport_root).parameters) == ["local_appdata", "nonce"]
     root = sa._derive_transport_root(LOCAL, NONCE)
@@ -286,6 +315,86 @@ def test_state_cleanup_refused_when_native_delete_fails(tmp_path, monkeypatch):
     assert run(la, registry=fake) == 1
     result = result_of(root)
     assert result["operations"] == [{"operation": "state-cleanup", "status": "refused", "reason": "state-delete-failed"}]
+
+def test_uninstall_batch_reuses_live_record_for_path_and_state_cleanup(tmp_path, monkeypatch):
+    import yasb_limitora._native_state_cleanup as nsc
+    cleanup_mod = __import__("yasb_limitora._path_cleanup", fromlist=["_path_cleanup"])
+
+    class FakeRegistry:
+        def __init__(self):
+            self.value, self.recorded, self.notifications = "A", None, 0
+
+        def read_user_path(self):
+            return self.value, 2
+
+        def write_user_path(self, value, value_type):
+            self.value = value
+
+        def compare_and_write_user_path(self, expected, value, value_type):
+            if self.read_user_path() != expected:
+                return False
+            self.write_user_path(value, value_type)
+            return True
+
+        def read_recorded_element(self):
+            return self.recorded
+
+        def write_recorded_element(self, element):
+            self.recorded = element
+
+        def clear_recorded_element(self):
+            self.recorded = None
+
+        def notify_environment_changed(self):
+            self.notifications += 1
+
+    fake = FakeRegistry()
+    assert cleanup_mod.append_user_path(fake, r"C:\bin").changed
+    deleted: list[str] = []
+    monkeypatch.setattr(nsc, "delete_directory", lambda path: (deleted.append(path), True)[1])
+    la, root = transport(
+        tmp_path,
+        request_bytes([{"operation": "path-remove"}, {"operation": "state-cleanup", "consent": "YES"}]),
+    )
+
+    assert run(la, registry=fake) == 0
+    assert result_of(root)["operations"] == [
+        {"operation": "path-remove", "status": "ok"},
+        {"operation": "state-cleanup", "status": "ok"},
+    ]
+    assert fake.value == "A" and fake.recorded is None
+    assert deleted == [ntpath.join(str(la), "yasb-limitora")]
+    assert fake.notifications == 2
+
+
+def test_uninstall_batch_native_failure_returns_partial_and_restores_owned_path(tmp_path, monkeypatch, capsys):
+    import yasb_limitora._native_state_cleanup as nsc
+    cleanup_mod = __import__("yasb_limitora._path_cleanup", fromlist=["_path_cleanup"])
+
+    fake = BatchRegistry()
+    assert cleanup_mod.append_user_path(fake, r"C:\bin").changed
+    monkeypatch.setattr(nsc, "delete_directory", lambda _path: False)
+    request = request_bytes([{"operation": "path-remove"}, {"operation": "state-cleanup", "consent": "YES"}])
+    la, root = transport(tmp_path, request)
+
+    assert run(la, registry=fake) == 1
+    result = result_of(root)
+    assert result["status"] == "partial"
+    assert result["operations"] == [
+        {"operation": "path-remove", "status": "refused", "reason": "state-delete-failed"},
+        {"operation": "state-cleanup", "status": "refused", "reason": "state-delete-failed"},
+    ]
+    assert fake.value == r"A;C:\bin" and fake.recorded is not None
+    assert fake.notifications == 3 and "C:" not in json.dumps(result)
+
+    local_appdata = tmp_path / "env-la"
+    local_appdata.mkdir()
+    assert sa._run_setup_assist(
+        {sa._REQUEST_ENV: request.decode()}, local_appdata=str(local_appdata), registry=fake
+    ) == 1
+    assert capsys.readouterr() == ("", "")
+    assert fake.value == r"A;C:\bin" and fake.recorded is not None
+
 
 # --- TOCTOU: nonce directory substituted by a junction after validation, before each I/O boundary ---
 

@@ -550,7 +550,32 @@ def _write_result(root: str, payload: Mapping[str, object], fs: FsView) -> bool:
 def _execute(names: tuple[tuple[str, object], ...], environment: Mapping[str, str], local_appdata: str,
              registry: _path_cleanup.UserPathRegistry | None = None) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
-    for name, consent in names:
+    skip_next = False
+    for index, (name, consent) in enumerate(names):
+        if skip_next:
+            skip_next = False
+            continue
+        if (
+            name == "path-remove"
+            and index + 1 < len(names)
+            and names[index + 1] == ("state-cleanup", "YES")
+        ):
+            path_registry = registry or _path_cleanup.WindowsUserPathRegistry()
+            path_result, state_result = _path_cleanup._remove_path_and_cleanup_state(
+                path_registry, ntpath.join(local_appdata, "yasb-limitora")
+            )
+            records.extend(
+                [
+                    {"operation": "path-remove", "status": "ok"}
+                    if path_result.changed
+                    else {"operation": "path-remove", "status": "refused", "reason": path_result.reason or "path-unchanged"},
+                    {"operation": "state-cleanup", "status": "ok"}
+                    if state_result.changed
+                    else {"operation": "state-cleanup", "status": "refused", "reason": state_result.reason or "state-unchanged"},
+                ]
+            )
+            skip_next = True
+            continue
         if name == "discover":
             report = discovery.discover(environment)
             records.append({"operation": name, "status": "ok", "facts": {"outcome": report.outcome, "config-home-state": report.config_home_state, "env-file-state": report.env_file_state or "unavailable", "process-status": report.process_status}})
