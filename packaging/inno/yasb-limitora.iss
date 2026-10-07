@@ -40,7 +40,7 @@ WizardStyle=modern
 
 [Tasks]
 Name: "addtopath"; Description: "Add yasb-limitora to the user PATH (optional; not required for YASB)"; Flags: unchecked
-Name: "correctownedpath"; Description: "Explicitly allow correction of a previously installer-recorded user PATH route (requires addtopath; ignored for silent installs)"; Flags: unchecked
+Name: "correctownedpath"; Description: "Explicitly allow correction of a previously installer-recorded user PATH route (requires addtopath; silent setup uses /CORRECTOWNEDPATH=true)"; Flags: unchecked
 Name: "envassist"; Description: "Allow the optional commented YASB environment assistance"; Flags: unchecked
 Name: "configassist"; Description: "Allow the optional provider configuration wizard"; Flags: unchecked
 
@@ -61,6 +61,14 @@ var
   ConfigWizardConsent: Boolean;
   CleanupConsent: Boolean;
   RemovePathConsent: Boolean;
+  CorrectionArgumentProvided: Boolean;
+  CorrectionArgumentValue: Boolean;
+  RemovePathArgumentProvided: Boolean;
+  RemovePathArgumentValue: Boolean;
+  CleanupStateArgumentProvided: Boolean;
+  CleanupStateArgumentValue: Boolean;
+  ConsentArgumentsValid: Boolean;
+  ConsentCaptured: Boolean;
   CodexChoice: Integer;
   OpencodeChoice: Integer;
   CodexRunnerPath: String;
@@ -92,6 +100,10 @@ const
   YasbRegKeyQueryValue = $0001; { KEY_QUERY_VALUE only; this probe is read-only. }
   YasbRegTypeString = 1;
   YasbRegTypeExpandString = 2;
+  YasbConsentArgumentNone = 0;
+  YasbConsentArgumentCorrection = 1;
+  YasbConsentArgumentRemovePath = 2;
+  YasbConsentArgumentCleanupState = 3;
 
 var
   EvacuatedOldDir: string;
@@ -111,10 +123,101 @@ function YasbRegQueryValueExW(hKey: LongWord; lpValueName: String;
 function YasbRegCloseKey(hKey: LongWord): LongInt;
   external 'RegCloseKey@advapi32.dll stdcall';
 
+{ Accept only exact, mode-specific Boolean consent switches. Parsing never logs raw arguments. }
+function ConsentArgumentKind(const ArgumentName: String): Integer;
+begin
+  Result := YasbConsentArgumentNone;
+  if SameText(ArgumentName, 'CORRECTOWNEDPATH') then
+    Result := YasbConsentArgumentCorrection
+  else if SameText(ArgumentName, 'REMOVEPATH') then
+    Result := YasbConsentArgumentRemovePath
+  else if SameText(ArgumentName, 'CLEANUPSTATE') then
+    Result := YasbConsentArgumentCleanupState;
+end;
+
+{ A typo extending a supported switch name is invalid, not an ignored consent request. }
+function ConsentArgumentHasKnownPrefix(const Argument: String): Boolean;
+begin
+  Result := SameText(Copy(Argument, 1, Length('/CORRECTOWNEDPATH')), '/CORRECTOWNEDPATH') or
+    SameText(Copy(Argument, 1, Length('/REMOVEPATH')), '/REMOVEPATH') or
+    SameText(Copy(Argument, 1, Length('/CLEANUPSTATE')), '/CLEANUPSTATE');
+end;
+
+function ParseConsentArguments(IsUninstall: Boolean): Boolean;
+var I, EqualPosition, Kind: Integer;
+  Argument, ArgumentName, ArgumentValue: String; ParsedValue: Boolean;
+begin
+  CorrectionArgumentProvided := False; CorrectionArgumentValue := False;
+  RemovePathArgumentProvided := False; RemovePathArgumentValue := False;
+  CleanupStateArgumentProvided := False; CleanupStateArgumentValue := False;
+  ConsentArgumentsValid := False; Result := False;
+  for I := 1 to ParamCount do begin
+    Argument := ParamStr(I);
+    if Argument <> '' then begin
+      if Argument[1] = '/' then begin
+        EqualPosition := Pos('=', Argument);
+        if EqualPosition > 0 then
+          ArgumentName := Copy(Argument, 2, EqualPosition - 2)
+        else
+          ArgumentName := Copy(Argument, 2, Length(Argument) - 1);
+        Kind := ConsentArgumentKind(ArgumentName);
+        if Kind = YasbConsentArgumentNone then begin
+          if ConsentArgumentHasKnownPrefix(Argument) then Exit;
+        end else begin
+          if EqualPosition = 0 then Exit;
+          if (IsUninstall and (Kind = YasbConsentArgumentCorrection)) or
+            ((not IsUninstall) and (Kind <> YasbConsentArgumentCorrection)) then Exit;
+          ArgumentValue := Copy(Argument, EqualPosition + 1, Length(Argument) - EqualPosition);
+          if SameText(ArgumentValue, 'true') then
+            ParsedValue := True
+          else if SameText(ArgumentValue, 'false') then
+            ParsedValue := False
+          else
+            Exit;
+          case Kind of
+            YasbConsentArgumentCorrection: begin
+              if CorrectionArgumentProvided then Exit;
+              CorrectionArgumentProvided := True;
+              CorrectionArgumentValue := ParsedValue;
+            end;
+            YasbConsentArgumentRemovePath: begin
+              if RemovePathArgumentProvided then Exit;
+              RemovePathArgumentProvided := True;
+              RemovePathArgumentValue := ParsedValue;
+            end;
+            YasbConsentArgumentCleanupState: begin
+              if CleanupStateArgumentProvided then Exit;
+              CleanupStateArgumentProvided := True;
+              CleanupStateArgumentValue := ParsedValue;
+            end;
+          end;
+        end;
+      end;
+    end;
+  end;
+  ConsentArgumentsValid := True;
+  Result := True;
+end;
+
+procedure ShowConsentArgumentError;
+begin
+  SuppressibleMsgBox(
+    'A consent argument is invalid or conflicts with this operation. Check the documented option names, values, and prerequisites.',
+    mbError, MB_OK, IDOK);
+end;
+
+function InitializeSetup: Boolean;
+begin
+  Result := ParseConsentArguments(False);
+  if not Result then
+    ShowConsentArgumentError;
+end;
+
 { R4-001: the manual-close gate and its read-only running probe are defined at
   the bottom of this section; forward declarations let the hooks above call them. }
 function YasbDetectedRunning: Boolean; forward;
 function ManualCloseGate(DetectedRunning: Boolean): Boolean; forward;
+function CaptureInstallConsent: Boolean; forward;
 
 function HasCoherentPriorInstallOwnership(AppDir: string): Boolean;
 var
@@ -155,6 +258,16 @@ var
 begin
   Result := '';
   NeedsRestart := False;
+  if not ConsentArgumentsValid then begin
+    Result := 'Invalid or conflicting consent arguments; setup aborted before changes.';
+    Exit;
+  end;
+  if not ConsentCaptured then begin
+    if not CaptureInstallConsent then begin
+      Result := 'Consent arguments or prerequisites could not be validated; setup aborted before changes.';
+      Exit;
+    end;
+  end;
   AppDir := ExpandConstant('{app}');
   OldDir := AppDir + '{#G1PriorPayloadSuffix}';
   { R4-001: the manual-close gate runs before any registry capture or
@@ -436,6 +549,7 @@ begin
   EnvBlockConsent := False;
   ConfigWizardConsent := False;
   CleanupConsent := False;
+  ConsentCaptured := False;
   CodexChoice := 0;
   OpencodeChoice := 0;
   CodexRunnerPath := '';
@@ -618,8 +732,8 @@ begin
   Result := True;
 end;
 
-function ConfirmOwnedPathCorrection: Boolean;
-var RecordedRoute, CurrentRoute, NewRoute: String;
+function ReadOwnedPathCorrectionPreview(var RecordedRoute, CurrentRoute,
+  NewRoute: String): Boolean;
 begin
   Result := False;
   if not ReadRecordedPathRouteForDisplay(RecordedRoute, CurrentRoute) then Exit;
@@ -627,6 +741,14 @@ begin
   { Never render bidi formatting controls as raw path text; refuse this preview, do not sanitize. }
   if YasbSetupAssistHasBidiControl(RecordedRoute) or
     YasbSetupAssistHasBidiControl(NewRoute) then Exit;
+  Result := True;
+end;
+
+function ConfirmOwnedPathCorrection: Boolean;
+var RecordedRoute, CurrentRoute, NewRoute: String;
+begin
+  Result := False;
+  if not ReadOwnedPathCorrectionPreview(RecordedRoute, CurrentRoute, NewRoute) then Exit;
   Result := SuppressibleMsgBox(
     'The installer recorded this prior user PATH route:' + #13#10 +
       RecordedRoute + #13#10#13#10 +
@@ -637,13 +759,31 @@ begin
 end;
 
 function CaptureInstallConsent: Boolean;
+var RecordedRoute, CurrentRoute, NewRoute: String;
 begin
+  ConsentCaptured := False;
   AddToPathConsent := WizardIsTaskSelected('addtopath');
   CorrectOwnedPathConsent := False;
-  if AddToPathConsent and WizardIsTaskSelected('correctownedpath') and not WizardSilent then
+  { An explicit true replaces only the correction prompt; task selection and the same route preview remain required. }
+  if CorrectionArgumentProvided then begin
+    if CorrectionArgumentValue then begin
+      if not AddToPathConsent then begin
+        ShowConsentArgumentError;
+        Result := False;
+        Exit;
+      end;
+      if not ReadOwnedPathCorrectionPreview(RecordedRoute, CurrentRoute, NewRoute) then begin
+        ShowConsentArgumentError;
+        Result := False;
+        Exit;
+      end;
+    end;
+    CorrectOwnedPathConsent := CorrectionArgumentValue;
+  end else if AddToPathConsent and WizardIsTaskSelected('correctownedpath') and not WizardSilent then
     CorrectOwnedPathConsent := ConfirmOwnedPathCorrection;
   EnvBlockConsent := WizardIsTaskSelected('envassist');
   ConfigWizardConsent := WizardIsTaskSelected('configassist');
+  ConsentCaptured := True;
   Result := True;
 end;
 
@@ -724,21 +864,34 @@ begin
   end;
 end;
 
+{ Explicit uninstall switches replace only their matching consent prompts; neither bypasses the manual-close gate. }
 function InitializeUninstall: Boolean;
 begin
-  { R4-001: the manual-close gate runs before consent, cleanup, or deletion; Cancel aborts. }
+  if not ParseConsentArguments(True) then begin
+    ShowConsentArgumentError;
+    Result := False;
+    Exit;
+  end;
+  { R4-001: the manual-close gate still runs before cleanup or deletion; consent arguments do not bypass it. }
   if not ManualCloseGate(YasbDetectedRunning) then
   begin
     Result := False;
     Exit;
   end;
-  RemovePathConsent := True;
-  if not ConfirmRemovePath then
-  begin
-    Result := False;
-    Exit;
+  if RemovePathArgumentProvided then
+    RemovePathConsent := RemovePathArgumentValue
+  else begin
+    RemovePathConsent := True;
+    if not ConfirmRemovePath then
+    begin
+      Result := False;
+      Exit;
+    end;
   end;
-  CleanupConsent := ConfirmStateCleanup;
+  if CleanupStateArgumentProvided then
+    CleanupConsent := CleanupStateArgumentValue
+  else
+    CleanupConsent := ConfirmStateCleanup;
   Result := True;
 end;
 

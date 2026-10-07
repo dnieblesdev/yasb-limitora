@@ -83,6 +83,7 @@ def test_optional_user_path_and_correction_tasks_are_separate_and_unchecked() ->
     assert "not required for YASB" in addtopath.group(0)
     assert "may correct" not in addtopath.group(0)
     assert "explicit" in correction.group(0).lower() and "addtopath" in correction.group(0).lower()
+    assert "/CORRECTOWNEDPATH=true" in correction.group(0)
 
 
 def test_g1_selected_lifecycle_is_pre_install_evacuation_only() -> None:
@@ -126,9 +127,9 @@ def test_uninstall_prompts_are_suppressible_with_fail_safe_defaults() -> None:
     rollback ever reaches.
     """
     code = code_section(script_text())
-    # The route-specific install consent adds one suppressible prompt; the two uninstall
-    # prompts and their unattended fail-safe defaults remain unchanged.
-    assert code.count("SuppressibleMsgBox(") == 3
+    # The route-specific install consent, generic argument error, and two uninstall
+    # prompts remain suppressible with fail-safe defaults.
+    assert code.count("SuppressibleMsgBox(") == 4
 
     # Every message box reachable in silent rollback remains suppressible. The only custom
     # PATH checkbox form must return before creation when UninstallSilent is true.
@@ -606,7 +607,7 @@ def test_correction_consent_is_specific_and_disabled_for_silent_setup() -> None:
     initialize = code.split("procedure InitializeWizard", 1)[1].split("end;", 1)[0]
     assert "CorrectOwnedPathConsent := False;" in initialize
 
-    capture = code.split("function CaptureInstallConsent", 1)[1].split("end;", 1)[0]
+    capture = code.rsplit("function CaptureInstallConsent", 1)[1].split("\nend;", 1)[0]
     assert "CorrectOwnedPathConsent := False;" in capture
     assert "AddToPathConsent and WizardIsTaskSelected('correctownedpath') and not WizardSilent" in capture
     assert "ConfirmOwnedPathCorrection" in capture
@@ -621,12 +622,77 @@ def test_correction_consent_is_specific_and_disabled_for_silent_setup() -> None:
     assert '{"operation":"path-add"}' in invoke
 
 
+def test_consent_cli_arguments_are_strict_and_rejected_before_mutation() -> None:
+    code = code_section(script_text())
+    parser = code.split("function ParseConsentArguments", 1)[1].split("\nend;", 1)[0]
+    option_map = code.split("function ConsentArgumentKind", 1)[1].split("\nend;", 1)[0]
+    for option in ("CORRECTOWNEDPATH", "REMOVEPATH", "CLEANUPSTATE"):
+        assert option in option_map
+    assert "ParamCount" in parser and "ParamStr(I)" in parser
+    assert "SameText(ArgumentValue, 'true')" in parser
+    assert "SameText(ArgumentValue, 'false')" in parser
+    assert "if CorrectionArgumentProvided then Exit" in parser
+    assert "if RemovePathArgumentProvided then Exit" in parser
+    assert "if CleanupStateArgumentProvided then Exit" in parser
+    assert "IsUninstall" in parser
+    assert "Log(" not in parser
+    error = code.split("procedure ShowConsentArgumentError", 1)[1].split("\nend;", 1)[0]
+    assert "ParamStr" not in error and "ArgumentValue" not in error and "Log(" not in error
+
+    setup = code.split("function InitializeSetup", 1)[1].split("\nend;", 1)[0]
+    assert "ParseConsentArguments(False)" in setup
+    assert "ShowConsentArgumentError" in setup
+    prepare = code.split("function PrepareToInstall", 1)[1].split("\nend;", 1)[0]
+    assert prepare.index("ConsentArgumentsValid") < prepare.index("ManualCloseGate")
+    assert prepare.index("ConsentCaptured") < prepare.index("ManualCloseGate")
+    uninstall = code.split("function InitializeUninstall", 1)[1].split("\nend;", 1)[0]
+    assert uninstall.index("ParseConsentArguments(True)") < uninstall.index("ManualCloseGate")
+    assert "ShowConsentArgumentError" in uninstall
+
+
+def test_explicit_correction_argument_replaces_ui_but_reuses_route_preview() -> None:
+    code = code_section(script_text())
+    preview = code.split("function ReadOwnedPathCorrectionPreview", 1)[1].split(
+        "function ConfirmOwnedPathCorrection", 1
+    )[0]
+    assert "ReadRecordedPathRouteForDisplay" in preview
+    assert "YasbSetupAssistHasBidiControl" in preview
+
+    capture = code.rsplit("function CaptureInstallConsent", 1)[1].split("\nend;", 1)[0]
+    assert "if CorrectionArgumentProvided then" in capture
+    assert "if CorrectionArgumentValue then" in capture
+    assert "if not AddToPathConsent then" in capture
+    assert "ReadOwnedPathCorrectionPreview" in capture
+    assert "CorrectOwnedPathConsent := CorrectionArgumentValue" in capture
+    assert "else if AddToPathConsent and WizardIsTaskSelected('correctownedpath') and not WizardSilent" in capture
+    assert "ConfirmOwnedPathCorrection" in capture
+    prepare = code.split("function PrepareToInstall", 1)[1].split("\nend;", 1)[0]
+    assert "if not ConsentCaptured then" in prepare
+    assert "CaptureInstallConsent" in prepare
+
+
+def test_explicit_uninstall_arguments_replace_only_their_own_prompts() -> None:
+    code = code_section(script_text())
+    uninstall = code.split("function InitializeUninstall", 1)[1].split("\nend;", 1)[0]
+    assert "if RemovePathArgumentProvided then" in uninstall
+    assert "RemovePathConsent := RemovePathArgumentValue" in uninstall
+    assert "if CleanupStateArgumentProvided then" in uninstall
+    assert "CleanupConsent := CleanupStateArgumentValue" in uninstall
+    assert "RemovePathConsent := True" in uninstall
+    assert "ConfirmRemovePath" in uninstall
+    assert "ConfirmStateCleanup" in uninstall
+
+
 def test_correction_confirmation_identifies_the_exact_recorded_route_before_consent() -> None:
     code = code_section(script_text())
+    preview = code.split("function ReadOwnedPathCorrectionPreview", 1)[1].split(
+        "function ConfirmOwnedPathCorrection", 1
+    )[0]
     disclosure = code.split("function ConfirmOwnedPathCorrection", 1)[1].split(
         "function CaptureInstallConsent", 1
     )[0]
-    assert "ReadRecordedPathRouteForDisplay" in disclosure
+    assert "ReadOwnedPathCorrectionPreview" in disclosure
+    assert "ReadRecordedPathRouteForDisplay" in preview
     assert "RegQueryStringValue(HKCU, G1UninstallKey," in code
     assert "'yasb-limitora-path-element', RawRecord" in code
     assert "YasbSetupAssistReadPathJsonString" in code
@@ -686,8 +752,11 @@ def test_path_preview_rejects_bidi_controls_in_both_raw_display_routes() -> None
     disclosure = code.split("function ConfirmOwnedPathCorrection", 1)[1].split(
         "function CaptureInstallConsent", 1
     )[0]
-    assert "YasbSetupAssistHasBidiControl(RecordedRoute)" in disclosure
-    assert "YasbSetupAssistHasBidiControl(NewRoute)" in disclosure
+    preview = code.split("function ReadOwnedPathCorrectionPreview", 1)[1].split(
+        "function ConfirmOwnedPathCorrection", 1
+    )[0]
+    assert "YasbSetupAssistHasBidiControl(RecordedRoute)" in preview
+    assert "YasbSetupAssistHasBidiControl(NewRoute)" in preview
     assert "StringChangeEx" not in disclosure and "RecordedRoute +" in disclosure
 
 
