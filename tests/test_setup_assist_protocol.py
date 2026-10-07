@@ -203,6 +203,43 @@ def test_path_operation_uses_explicit_fake_and_never_constructs_real_registry(tm
     assert result["status"] == "complete" and result["operations"][0] == {"operation": "path-add", "status": "ok"}
     assert fake.notifications == 1 and fake.recorded is not None
 
+def test_preexisting_exact_path_and_unowned_path_remove_are_successful_noops(tmp_path, monkeypatch):
+    fake = BatchRegistry()
+    executable_dir = str(tmp_path / "installed")
+    monkeypatch.setattr(sa.sys, "executable", str(tmp_path / "installed" / "yasb-limitora.exe"))
+    fake.value = "A;" + executable_dir
+    original = fake.value
+    la, root = transport(
+        tmp_path,
+        request_bytes([{"operation": "path-add"}, {"operation": "path-remove"}]),
+    )
+
+    assert run(la, registry=fake) == 0
+    assert result_of(root)["status"] == "complete"
+    assert result_of(root)["operations"] == [
+        {"operation": "path-add", "status": "ok"},
+        {"operation": "path-remove", "status": "ok"},
+    ]
+    assert fake.value == original and fake.recorded is None
+    assert fake.notifications == 0
+
+
+def test_path_remove_of_an_already_absent_owned_route_is_silent_success(tmp_path):
+    cleanup_mod = __import__("yasb_limitora._path_cleanup", fromlist=["_path_cleanup"])
+
+    fake = BatchRegistry()
+    assert cleanup_mod.append_user_path(fake, r"C:\bin").changed
+    recorded = fake.recorded
+    notifications = fake.notifications
+    fake.value = "A"
+    la, root = transport(tmp_path, request_bytes([{"operation": "path-remove"}]))
+
+    assert run(la, registry=fake) == 0
+    assert result_of(root)["operations"] == [{"operation": "path-remove", "status": "ok"}]
+    assert fake.value == "A" and fake.recorded == recorded
+    assert fake.notifications == notifications
+
+
 def test_env_block_choice_requires_explicit_true_consent(tmp_path):
     raw = request_bytes([{"operation": "env-block-apply", "consent": False}])
     la, root = transport(tmp_path, raw)
@@ -365,6 +402,48 @@ def test_uninstall_batch_reuses_live_record_for_path_and_state_cleanup(tmp_path,
     assert fake.value == "A" and fake.recorded is None
     assert deleted == [ntpath.join(str(la), "yasb-limitora")]
     assert fake.notifications == 2
+
+
+def test_uninstall_batch_with_absent_owned_route_cleans_state_without_path_mutation(tmp_path, monkeypatch):
+    import yasb_limitora._native_state_cleanup as nsc
+    cleanup_mod = __import__("yasb_limitora._path_cleanup", fromlist=["_path_cleanup"])
+
+    fake = BatchRegistry()
+    assert cleanup_mod.append_user_path(fake, r"C:\bin").changed
+    fake.value = "A"
+    notifications = fake.notifications
+    deleted: list[str] = []
+    monkeypatch.setattr(nsc, "delete_directory", lambda path: (deleted.append(path), True)[1])
+    la, root = transport(
+        tmp_path,
+        request_bytes([{"operation": "path-remove"}, {"operation": "state-cleanup", "consent": "YES"}]),
+    )
+
+    assert run(la, registry=fake) == 0
+    assert result_of(root)["operations"] == [
+        {"operation": "path-remove", "status": "ok"},
+        {"operation": "state-cleanup", "status": "ok"},
+    ]
+    assert fake.value == "A" and fake.recorded is None
+    assert fake.notifications == notifications
+    assert deleted == [ntpath.join(str(la), "yasb-limitora")]
+
+
+def test_state_cleanup_only_keeps_path_and_consumes_record_after_cleanup(tmp_path, monkeypatch):
+    import yasb_limitora._native_state_cleanup as nsc
+    cleanup_mod = __import__("yasb_limitora._path_cleanup", fromlist=["_path_cleanup"])
+
+    fake = BatchRegistry()
+    assert cleanup_mod.append_user_path(fake, r"C:\bin").changed
+    expected_path = fake.value
+    deleted = []
+    monkeypatch.setattr(nsc, "delete_directory", lambda path: (deleted.append(path), True)[1])
+    la, root = transport(tmp_path, request_bytes([{"operation": "state-cleanup", "consent": "YES"}]))
+
+    assert run(la, registry=fake) == 0
+    assert result_of(root)["operations"] == [{"operation": "state-cleanup", "status": "ok"}]
+    assert fake.value == expected_path and fake.recorded is None
+    assert deleted == [ntpath.join(str(la), "yasb-limitora")]
 
 
 def test_uninstall_batch_native_failure_returns_partial_and_restores_owned_path(tmp_path, monkeypatch, capsys):

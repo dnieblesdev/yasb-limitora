@@ -567,11 +567,11 @@ def _execute(names: tuple[tuple[str, object], ...], environment: Mapping[str, st
             records.extend(
                 [
                     {"operation": "path-remove", "status": "ok"}
-                    if path_result.changed
-                    else {"operation": "path-remove", "status": "refused", "reason": path_result.reason or "path-unchanged"},
+                    if path_result.reason is None
+                    else {"operation": "path-remove", "status": "refused", "reason": path_result.reason},
                     {"operation": "state-cleanup", "status": "ok"}
-                    if state_result.changed
-                    else {"operation": "state-cleanup", "status": "refused", "reason": state_result.reason or "state-unchanged"},
+                    if state_result.reason is None
+                    else {"operation": "state-cleanup", "status": "refused", "reason": state_result.reason},
                 ]
             )
             skip_next = True
@@ -596,7 +596,7 @@ def _execute(names: tuple[tuple[str, object], ...], environment: Mapping[str, st
         elif name in {"path-add", "path-remove"}:
             path_registry = registry or _path_cleanup.WindowsUserPathRegistry()
             result = _path_cleanup.append_user_path(path_registry, os.path.dirname(sys.executable)) if name == "path-add" else _path_cleanup.remove_recorded_user_path(path_registry)
-            records.append({"operation": name, "status": "ok"} if result.changed else {"operation": name, "status": "refused", "reason": result.reason or "path-unchanged"})
+            records.append({"operation": name, "status": "ok"} if result.reason is None else {"operation": name, "status": "refused", "reason": result.reason})
         elif name == "state-cleanup":
             if consent != "YES":
                 records.append({"operation": name, "status": "refused", "reason": "state-consent-required"})
