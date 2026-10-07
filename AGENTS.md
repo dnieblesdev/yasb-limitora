@@ -40,8 +40,13 @@
   obtain plan approval before editing.
 - When pre-existing changes or concurrent sessions are present, propose an
   isolated worktree and obtain approval before proceeding.
-- Preserve other work, including tracked, untracked, and ignored files.
-  Do not reset, clean, discard, or remove worktrees without explicit authorization.
+- Preserve work outside the maintainer-authorized cleanup scope.
+- Destructive operations require maintainer authorization. A direct cleanup
+  request counts as authorization when its targets and scope are clear.
+- If targets or treatment of unpublished local changes are unclear, ask one
+  focused question before deleting.
+- This authorization rule does not imply mandatory backups, evidence retention,
+  or zero-loss certification.
 - Avoid unrelated refactors, bulk formatting, dependency upgrades, and changes
   to the operator's environment.
 - Keep affected tests and documentation with the work unit they support.
@@ -49,6 +54,14 @@
   outside the scope; explain dismissals rather than starting endless fix cycles.
 - Write repository content, code comments, commits, and PRs in English.
   Communicate with the maintainer in Spanish.
+
+## Code navigation
+
+- Use CodeGraph by default for symbol lookup and call/dependency analysis.
+  Initialize its index if missing, and verify workspace and source alignment.
+- If CodeGraph is unavailable or fails, report the limitation and use bounded
+  search and targeted reads. Use literal search for documentation/configuration.
+- Read only relevant source ranges; avoid broad dumps and redundant rereads.
 
 ## Setup and verification
 
@@ -74,6 +87,18 @@ python -m ruff check .
   smallest GREEN change, and refactor with checks remaining green.
 - For documentation or purely mechanical changes without a meaningful RED,
   explain why TDD does not apply and perform proportionate verification.
+
+### Test integrity
+
+- Never weaken tests merely to make the current implementation pass.
+- Before changing a failing test, classify the cause: implementation defect,
+  test defect, mismatch with the authorized specification, or tooling failure.
+- Explain why before updating the test to reflect the authorized behavior.
+  The current implementation alone is not evidence of intended behavior.
+- Do not remove assertions, introduce skips/xfails, weaken mocks, or reduce
+  coverage solely to obtain green results.
+- When repeated fixes fail, pause blind edits and reassess the cause.
+
 - Run focused tests before the full suite for code changes, then Ruff.
 - Check documentation links against tracked content, not just local files.
 - Native proof follows `.github/workflows/windows-proof.yml` and its helpers.
