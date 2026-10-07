@@ -246,6 +246,35 @@ def test_unconsented_path_add_refuses_old_owned_route_without_mutation(tmp_path,
     assert registry.notifications == 0, scenario
 
 
+def test_path_operations_refuse_unsafe_record_and_drift_with_partial_exit(tmp_path, monkeypatch):
+    target = ntpath.join(str(tmp_path), "installed")
+    monkeypatch.setattr(sa.sys, "executable", ntpath.join(target, "yasb-limitora.exe"))
+    fake = BatchRegistry()
+    fake.value = r"A;C:\old;EXTERNAL"
+    fake.recorded = sa._path_cleanup._record(r"C:\old", r"A;C:\old", 2)
+    prior = fake.recorded
+    la, root = transport(
+        tmp_path,
+        request_bytes([
+            {"operation": "path-add", "correctionConsent": True},
+            {"operation": "path-remove"},
+        ]),
+    )
+
+    assert run(la, registry=fake) == 1
+
+    assert result_of(root) == {
+        "schema": "gentle-ai.yasb-limitora.setup-assist-result/v1",
+        "status": "partial",
+        "operations": [
+            {"operation": "path-add", "status": "refused", "reason": "path-ownership-changed"},
+            {"operation": "path-remove", "status": "refused", "reason": "path-ownership-changed"},
+        ],
+    }
+    assert fake.value == r"A;C:\old;EXTERNAL" and fake.recorded == prior
+    assert fake.path_writes == 0 and fake.record_writes == 0 and fake.notifications == 0
+
+
 def test_path_operation_uses_explicit_fake_and_never_constructs_real_registry(tmp_path, monkeypatch):
     class FakeRegistry:
         value, recorded, notifications = "A", None, 0
@@ -868,6 +897,129 @@ def test_c1_old_inno_string_operations_are_rejected():
     }).encode()
     names, violation = sa._validate_request(old_request)
     assert violation == "schema-violation" and names is None
+
+
+@pytest.mark.parametrize("failure", ["read", "compare_write", "compare_write_after_mutation"])
+@pytest.mark.parametrize("dispatch", ["file", "environment", "cli"])
+def test_path_adapter_oserror_is_a_bounded_refusal(tmp_path, monkeypatch, capsys, failure, dispatch):
+    class FailingRegistry(BatchRegistry):
+        reads = 0
+        comparisons = 0
+
+        def read_user_path(self):
+            self.reads += 1
+            if failure == "read":
+                raise OSError("private registry detail")
+            return super().read_user_path()
+
+        def compare_and_write_user_path(self, expected, value, value_type):
+            self.comparisons += 1
+            if failure == "compare_write_after_mutation":
+                self.value = value
+                raise OSError("private registry detail")
+            if failure == "compare_write":
+                raise OSError("private registry detail")
+            return super().compare_and_write_user_path(expected, value, value_type)
+
+    monkeypatch.setattr(sa._path_cleanup, "WindowsUserPathRegistry", lambda: pytest.fail("default registry construction"))
+    monkeypatch.setattr(sa.sys, "executable", ntpath.join(str(tmp_path), "installed", "yasb-limitora.exe"))
+    registry = FailingRegistry()
+    actual_records = []
+    execute = sa._execute
+
+    def execute_spy(*args, **kwargs):
+        records = execute(*args, **kwargs)
+        actual_records.extend(records)
+        return records
+
+    monkeypatch.setattr(sa, "_execute", execute_spy)
+    raw = request_bytes([{"operation": "path-add"}])
+    if dispatch == "file":
+        la, root = transport(tmp_path, raw)
+        exit_code = run(la, registry=registry)
+        result = result_of(root)
+        assert result["status"] == "partial"
+        assert result["operations"] == [
+            {"operation": "path-add", "status": "refused", "reason": "path-access-failed"}
+        ]
+    elif dispatch == "environment":
+        la = tmp_path / "env-la"
+        la.mkdir()
+        exit_code = sa._run_setup_assist(
+            {sa._REQUEST_ENV: raw.decode()}, local_appdata=str(la), registry=registry
+        )
+        assert not (la / "Temp").exists()
+        assert capsys.readouterr() == ("", "")
+    else:
+        monkeypatch.setattr(sa, "resolve_local_appdata", lambda: str(tmp_path / "cli-la"))
+        (tmp_path / "cli-la").mkdir()
+        monkeypatch.setattr(sa._path_cleanup, "WindowsUserPathRegistry", lambda: pytest.fail("default registry construction"))
+        monkeypatch.setattr(
+            cli,
+            "_run_setup_assist",
+            lambda environment: sa._run_setup_assist(
+                environment, local_appdata=str(tmp_path / "cli-la"), registry=registry
+            ),
+        )
+        stdout = io.BytesIO()
+        stderr = io.StringIO()
+        exit_code = cli.main(
+            argv=(sa._SETUP_ASSIST_FLAG,),
+            environment={sa._REQUEST_ENV: raw.decode()},
+            stdout=stdout,
+            stderr=stderr,
+            platform_is_windows=lambda: True,
+        )
+        assert stdout.getvalue() == b"" and stderr.getvalue() == ""
+        assert capsys.readouterr() == ("", "")
+    assert actual_records == [
+        {"operation": "path-add", "status": "refused", "reason": "path-access-failed"}
+    ]
+    assert exit_code == 1
+    assert registry.reads > 0
+    assert registry.comparisons == (0 if failure == "read" else 1)
+    if failure == "compare_write_after_mutation":
+        assert registry.value.endswith(ntpath.join(str(tmp_path), "installed"))
+    else:
+        assert registry.value == "A"
+    assert registry.recorded is None
+    assert registry.path_writes == 0 and registry.record_writes == 0
+    assert registry.notifications == 0
+    assert dispatch != "file" or "private registry detail" not in repr(result)
+
+
+def test_path_notification_oserror_is_not_registry_refusal(tmp_path, monkeypatch):
+    class NotificationFailureRegistry(BatchRegistry):
+        calls = 0
+
+        def notify_environment_changed(self):
+            self.calls += 1
+            raise OSError("private notification detail")
+
+    monkeypatch.setattr(sa._path_cleanup, "WindowsUserPathRegistry", lambda: pytest.fail("default registry construction"))
+    monkeypatch.setattr(sa.sys, "executable", ntpath.join(str(tmp_path), "installed", "yasb-limitora.exe"))
+    registry = NotificationFailureRegistry()
+    la, root = transport(tmp_path, request_bytes([{"operation": "path-add"}]))
+
+    with pytest.raises(OSError, match="private notification detail"):
+        run(la, registry=registry)
+
+    assert registry.path_writes == 1 and registry.record_writes == 1
+    assert registry.calls == 1
+    assert not (root / "result.json").exists()
+
+
+def test_path_adapter_runtime_error_is_not_swallowed(tmp_path, monkeypatch):
+    monkeypatch.setattr(sa._path_cleanup, "WindowsUserPathRegistry", lambda: pytest.fail("default registry construction"))
+    class ProgrammingErrorRegistry(BatchRegistry):
+        def read_user_path(self):
+            raise RuntimeError("programming defect")
+
+    raw = request_bytes([{"operation": "path-add"}])
+    la, root = transport(tmp_path, raw)
+    with pytest.raises(RuntimeError, match="programming defect"):
+        run(la, registry=ProgrammingErrorRegistry())
+    assert not (root / "result.json").exists()
 
 
 def test_reason_not_written_when_reason_env_is_set_but_ignored(tmp_path):

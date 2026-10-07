@@ -33,6 +33,44 @@ _NONCE_ENV = "_YASB_SETUP_ASSIST_NONCE"
 _REQUEST_ENV = "_YASB_SETUP_ASSIST_REQUEST"
 _NONCE = re.compile(r"[0-9a-f]{32}")
 _REQUEST_SCHEMA = "gentle-ai.yasb-limitora.setup-assist-request/v1"
+
+
+class _RegistryIOError(OSError):
+    """Marks OSErrors from registry I/O without classifying adjacent work."""
+
+
+class _RegistryIOBoundary:
+    """Translate only registry adapter I/O failures; notifications remain unwrapped."""
+
+    def __init__(self, registry: object):
+        self._registry = registry
+
+    def _call(self, method: str, *args: object) -> Any:
+        try:
+            return getattr(self._registry, method)(*args)
+        except OSError as error:
+            raise _RegistryIOError(*error.args) from error
+
+    def read_user_path(self):
+        return self._call("read_user_path")
+
+    def write_user_path(self, value, value_type):
+        return self._call("write_user_path", value, value_type)
+
+    def compare_and_write_user_path(self, expected, value, value_type):
+        return self._call("compare_and_write_user_path", expected, value, value_type)
+
+    def read_recorded_element(self):
+        return self._call("read_recorded_element")
+
+    def write_recorded_element(self, element):
+        return self._call("write_recorded_element", element)
+
+    def clear_recorded_element(self):
+        return self._call("clear_recorded_element")
+
+    def notify_environment_changed(self):
+        return self._registry.notify_environment_changed()
 _RESULT_SCHEMA = "gentle-ai.yasb-limitora.setup-assist-result/v1"
 _TRANSPORT_SEGMENTS = ("Temp", "yasb-limitora-setup-assist")
 _ALLOWED_OPERATIONS = frozenset({"discover", "yasb-running", "path-add", "path-remove", "env-block-apply", "config-apply", "state-cleanup"})
@@ -602,16 +640,20 @@ def _execute(names: tuple[tuple[str, object], ...], environment: Mapping[str, st
                 records.append({"operation": name, "status": "ok"} if result.reason is None else {"operation": name, "status": "refused", "reason": result.reason})
         elif name in {"path-add", "path-remove"}:
             path_registry = registry or _path_cleanup.WindowsUserPathRegistry()
-            result = (
-                _path_cleanup.append_user_path(
-                    path_registry,
-                    os.path.dirname(sys.executable),
-                    correction_consent=consent is True,
+            try:
+                result = (
+                    _path_cleanup.append_user_path(
+                        _RegistryIOBoundary(path_registry),
+                        os.path.dirname(sys.executable),
+                        correction_consent=consent is True,
+                    )
+                    if name == "path-add"
+                    else _path_cleanup.remove_recorded_user_path(_RegistryIOBoundary(path_registry))
                 )
-                if name == "path-add"
-                else _path_cleanup.remove_recorded_user_path(path_registry)
-            )
-            records.append({"operation": name, "status": "ok"} if result.reason is None else {"operation": name, "status": "refused", "reason": result.reason})
+            except _RegistryIOError:
+                records.append({"operation": name, "status": "refused", "reason": "path-access-failed"})
+            else:
+                records.append({"operation": name, "status": "ok"} if result.reason is None else {"operation": name, "status": "refused", "reason": result.reason})
         elif name == "state-cleanup":
             if consent != "YES":
                 records.append({"operation": name, "status": "refused", "reason": "state-consent-required"})
