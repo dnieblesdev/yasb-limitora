@@ -287,6 +287,23 @@ The acceptance result must state the existing YASB version/environment, remain
 explicitly manual, and remove/revert the temporary widget from both the YASB bar
 list and `widgets:` config after acceptance.
 
+## Pytest temporary evidence isolation
+
+The Windows proof workflow gives each pytest invocation a new
+`PYTEST_DEBUG_TEMPROOT` by atomically creating a unique directory before the
+child starts. Existing paths, reparse-point components, and allocation failures
+fail closed; roots are never reused or automatically removed. This workflow
+protection does not apply to arbitrary local pytest commands.
+
+For local runs, make a fresh namespace under the configured `TEMP` directory
+(for example, append a new UUID and call Python `os.mkdir`, which fails if the
+name already exists). First inspect every path component with `lstat` and reject
+reparse points. Pass `PYTEST_DEBUG_TEMPROOT` only in the pytest child process
+environment; do not set a persistent/global variable, use or reuse
+`--basetemp`, or set pytest retention to zero. Keep the namespace and its
+artifacts after the run. Any later evidence cleanup is a separate action that
+requires explicit approval.
+
 ## Verified limitations and troubleshooting
 
 - Native Job Object and descendant cleanup require native Windows. Linux and

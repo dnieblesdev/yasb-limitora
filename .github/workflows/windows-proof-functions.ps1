@@ -71,17 +71,60 @@ function Emit-SafeLog($path, $exitClass, $phase) {
   }
 }
 
+function Assert-NoReparsePath($path) {
+  $fullPath = [IO.Path]::GetFullPath($path)
+  $root = [IO.Path]::GetPathRoot($fullPath)
+  $current = $root
+  foreach ($part in $fullPath.Substring($root.Length).Split([IO.Path]::DirectorySeparatorChar, [StringSplitOptions]::RemoveEmptyEntries)) {
+    $current = Join-Path $current $part
+    if (-not (Test-Path -LiteralPath $current)) { throw "Pytest temp path unavailable" }
+    $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Pytest temp path unavailable" }
+  }
+  return $fullPath
+}
+
+function New-ExclusivePytestTempRoot {
+  param([string]$Path, [scriptblock]$CreateDirectory)
+  if (-not $CreateDirectory -and -not ("YasbLimitoraNativeMethods" -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class YasbLimitoraNativeMethods {
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  public static extern bool CreateDirectory(string path, IntPtr securityAttributes);
+}
+'@
+  }
+  $fullPath = [IO.Path]::GetFullPath($Path)
+  $parent = [IO.Path]::GetDirectoryName($fullPath)
+  [void](Assert-NoReparsePath $parent)
+  if (Test-Path -LiteralPath $fullPath) { throw "Pytest temp namespace collision" }
+  if ($CreateDirectory) { $created = & $CreateDirectory $fullPath }
+  else { $created = [YasbLimitoraNativeMethods]::CreateDirectory($fullPath, [IntPtr]::Zero) }
+  if (-not $created) { throw "Pytest temp namespace allocation failed" }
+  $item = Get-Item -LiteralPath $fullPath -Force -ErrorAction Stop
+  if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Pytest temp namespace unavailable" }
+  return $fullPath
+}
+
 function Invoke-NativePytestWmi {
   param(
     [ValidateSet("selected", "full")][string]$Mode,
     [string]$Phase,
-    [ValidateSet("native-proof.raw.log", "full-suite.raw.log")][string]$RawLogName
+    [ValidateSet("native-proof.raw.log", "full-suite.raw.log")][string]$RawLogName,
+    [scriptblock]$CreatePytestDirectory
   )
   $workspace = (Get-Location).Path
   $pythonExe = Join-Path $env:pythonLocation "python.exe"
   if (-not [IO.Path]::IsPathRooted($pythonExe) -or -not (Test-Path -LiteralPath $pythonExe)) {
     throw "$Phase WMI proof unavailable"
   }
+  $tempBase = if (-not [string]::IsNullOrWhiteSpace($env:TEMP)) { $env:TEMP } else { $env:TMP }
+  if ([string]::IsNullOrWhiteSpace($tempBase)) { throw "$Phase pytest temp namespace unavailable" }
+  $tempRootPath = Join-Path $tempBase ("YasbLimitoraPytest-" + [guid]::NewGuid().ToString("N"))
+  try { $pytestTempRoot = New-ExclusivePytestTempRoot -Path $tempRootPath -CreateDirectory $CreatePytestDirectory }
+  catch { throw "$Phase pytest temp namespace unavailable" }
   $id = [guid]::NewGuid().ToString("N")
   $prefix = "YasbLimitoraNativeProof-$id"
   $launcherPath = Join-Path $workspace "$prefix.ps1"
@@ -95,6 +138,7 @@ function Invoke-NativePytestWmi {
     @("-m", "pytest", "-q", "--strict-markers", "tests")
   }
   $argumentLines = ($pytestArguments | ForEach-Object { "    `"$_`"" }) -join "`r`n"
+  $quotedPytestTempRoot = "'" + $pytestTempRoot.Replace("'", "''") + "'"
   $launcher = @"
 `$ErrorActionPreference = "Stop"
 `$pythonExe = "$pythonExe"
@@ -104,6 +148,7 @@ function Invoke-NativePytestWmi {
 `$env:YASB_NATIVE_EVIDENCE_PATH = "native-proof.json"
 `$env:YASB_NATIVE_CHECKPOINT_PATH = "native-proof.checkpoint"
 `$env:PYTHONUTF8 = "1"
+`$env:PYTEST_DEBUG_TEMPROOT = $quotedPytestTempRoot
 `$pytestArguments = @(
 $argumentLines
 )
