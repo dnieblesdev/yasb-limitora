@@ -282,10 +282,17 @@ begin
   if Length(OperationsJson) = 1 then OperationsJson := '[{"operation":"discover"}]' else OperationsJson := OperationsJson + ']';
   YasbSetupAssistRun(ExpandConstant('{app}\yasb-limitora.exe'), OperationsJson);
 end;
-procedure InvokeUninstallAssist(const CleanupConsent: Boolean);
+procedure InvokeUninstallAssist(const RemovePathConsent, CleanupConsent: Boolean);
+var OperationsJson: String;
 begin
-  if CleanupConsent then
-    YasbSetupAssistRun(ExpandConstant('{app}\yasb-limitora.exe'), '[{"operation":"path-remove"},{"operation":"state-cleanup","consent":"YES"}]')
-  else
-    YasbSetupAssistRun(ExpandConstant('{app}\yasb-limitora.exe'), '[{"operation":"path-remove"}]');
+  OperationsJson := '[';
+  if RemovePathConsent then
+    OperationsJson := OperationsJson + '{"operation":"path-remove"}';
+  if CleanupConsent then begin
+    if Length(OperationsJson) > 1 then OperationsJson := OperationsJson + ',';
+    OperationsJson := OperationsJson + '{"operation":"state-cleanup","consent":"YES"}';
+  end;
+  if Length(OperationsJson) = 1 then Exit;
+  OperationsJson := OperationsJson + ']';
+  YasbSetupAssistRun(ExpandConstant('{app}\yasb-limitora.exe'), OperationsJson);
 end;

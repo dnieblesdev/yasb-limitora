@@ -70,3 +70,62 @@ Uninstall MUST preserve `%LOCALAPPDATA%\\yasb-limitora` configuration, cache, an
 - WHEN the user explicitly selects the cleanup option before uninstall
 - THEN the selected cleanup is performed
 - AND the cleanup option was not selected implicitly or by default
+
+### Requirement: User PATH changes are consented and ownership-bounded
+
+The optional `addtopath` install choice MUST remain unchecked by default. If the exact current
+installation directory is already a PATH element, install assistance MUST complete successfully
+without adding a duplicate or adopting PATH ownership. A related incorrect route MAY be corrected
+only after explicit `addtopath` consent and only when the product ownership record proves the exact
+live PATH value/type and identifies the related route as its final element; absent, malformed, or
+stale proof MUST fail closed without mutation.
+
+Uninstall MUST present a `removePATH` checkbox checked by default (silent uninstall keeps this
+default without displaying UI). Unchecking it MUST preserve PATH. Checking it MUST remove only a
+still-owned recorded route; an absent route is a successful no-op, and the checkbox MUST NOT
+authorize deletion of a foreign or unowned element.
+
+#### Scenario: Existing correct PATH entry is accepted without adoption
+
+- GIVEN the exact current installation directory is already in the user's PATH
+- WHEN the user opts into `addtopath`
+- THEN setup assistance succeeds without changing PATH
+- AND it does not create or replace the ownership record for that pre-existing element
+
+#### Scenario: A recorded incorrect route is corrected only with consent
+
+- GIVEN the product has a valid ownership record matching the exact live PATH value/type and final
+  element for a previous installation directory
+- AND the current installation directory is not already in PATH
+- WHEN the user selects `addtopath`
+- THEN only that proven-owned final element is replaced with the current installation directory
+- AND the updated ownership record describes the resulting PATH
+- WHEN the user does not select `addtopath`
+- THEN no PATH correction is attempted
+
+#### Scenario: Uninstall preserves PATH when unchecked
+
+- GIVEN the product has a still-owned PATH entry
+- WHEN the user unchecks `removePATH` during uninstall
+- THEN the PATH entry remains unchanged
+- AND if state cleanup is separately confirmed, the state-cleanup operation runs without removing
+  PATH and clears the record only after successful deletion
+
+#### Scenario: State cleanup proceeds after the owned route was already removed
+
+- GIVEN a valid product ownership record exists but its recorded PATH route is already absent
+- WHEN the user explicitly selects state cleanup, with `removePATH` either checked or unchecked
+- THEN cleanup removes state without changing the live PATH
+- AND the ownership record is cleared only after successful state deletion
+
+#### Scenario: Uninstall never removes an unowned PATH entry
+
+- GIVEN a matching PATH element exists without a valid product ownership record
+- WHEN `removePATH` is checked during uninstall
+- THEN the helper succeeds without changing that element or adopting ownership
+
+#### Scenario: Missing PATH route is a successful uninstall no-op
+
+- GIVEN the recorded route is already absent from PATH, or no valid ownership record exists
+- WHEN `removePATH` is checked during uninstall
+- THEN PATH removal succeeds silently without modifying unrelated PATH elements

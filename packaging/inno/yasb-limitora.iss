@@ -39,7 +39,7 @@ SolidCompression=yes
 WizardStyle=modern
 
 [Tasks]
-Name: "addtopath"; Description: "Add yasb-limitora to the user PATH (optional; not required for YASB)"; Flags: unchecked
+Name: "addtopath"; Description: "Add yasb-limitora to the user PATH (optional; not required for YASB; may correct a previously installer-recorded route)"; Flags: unchecked
 Name: "envassist"; Description: "Allow the optional commented YASB environment assistance"; Flags: unchecked
 Name: "configassist"; Description: "Allow the optional provider configuration wizard"; Flags: unchecked
 
@@ -58,6 +58,7 @@ var
   EnvBlockConsent: Boolean;
   ConfigWizardConsent: Boolean;
   CleanupConsent: Boolean;
+  RemovePathConsent: Boolean;
   CodexChoice: Integer;
   OpencodeChoice: Integer;
   CodexRunnerPath: String;
@@ -462,10 +463,63 @@ begin
   Result := Choice = IDYES;
 end;
 
+function ConfirmRemovePath: Boolean;
+var
+  Form: TSetupForm;
+  CheckBox: TNewCheckBox;
+  OkButton: TNewButton;
+  CancelButton: TNewButton;
+begin
+  if UninstallSilent then
+  begin
+    Result := True;
+    Exit;
+  end;
+  Form := CreateCustomForm(ScaleX(340), ScaleY(120), False, False);
+  try
+    Form.Caption := 'yasb-limitora uninstall';
+    CheckBox := TNewCheckBox.Create(Form);
+    CheckBox.Parent := Form;
+    CheckBox.Left := ScaleX(12);
+    CheckBox.Top := ScaleY(12);
+    CheckBox.Width := Form.ClientWidth - ScaleX(24);
+    CheckBox.Caption := 'Remove only the installer-owned PATH entry';
+    CheckBox.Checked := True;
+    OkButton := TNewButton.Create(Form);
+    OkButton.Parent := Form;
+    OkButton.Caption := 'OK';
+    OkButton.ModalResult := mrOk;
+    OkButton.Left := Form.ClientWidth - ScaleX(164);
+    OkButton.Top := ScaleY(72);
+    OkButton.Width := ScaleX(72);
+    CancelButton := TNewButton.Create(Form);
+    CancelButton.Parent := Form;
+    CancelButton.Caption := 'Cancel';
+    CancelButton.ModalResult := mrCancel;
+    CancelButton.Left := Form.ClientWidth - ScaleX(84);
+    CancelButton.Top := ScaleY(72);
+    CancelButton.Width := ScaleX(72);
+    OkButton.Default := True;
+    CancelButton.Cancel := True;
+    Form.ActiveControl := OkButton;
+    Result := Form.ShowModal = mrOk;
+    if Result then
+      RemovePathConsent := CheckBox.Checked;
+  finally
+    Form.Free;
+  end;
+end;
+
 function InitializeUninstall: Boolean;
 begin
   { R4-001: the manual-close gate runs before consent, cleanup, or deletion; Cancel aborts. }
   if not ManualCloseGate(YasbDetectedRunning) then
+  begin
+    Result := False;
+    Exit;
+  end;
+  RemovePathConsent := True;
+  if not ConfirmRemovePath then
   begin
     Result := False;
     Exit;
@@ -477,7 +531,7 @@ end;
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usUninstall then
-    InvokeUninstallAssist(CleanupConsent);
+    InvokeUninstallAssist(RemovePathConsent, CleanupConsent);
 end;
 
 function PromptManualClose: Boolean;
