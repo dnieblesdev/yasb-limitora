@@ -102,17 +102,45 @@ bookkeeping; PATH removal remains an independent no-op when the route is absent.
 - GIVEN the product has a valid ownership record matching the exact live PATH value/type and final
   element for a previous installation directory
 - AND the current installation directory is not already in PATH
-- WHEN the interactive user selects both `addtopath` and `correctownedpath`
+- WHEN the interactive user selects both `addtopath` and `correctownedpath` and affirms the route
+  confirmation
 - THEN before mutation the installer displays the exact recorded old route and current destination
   in a default-No confirmation
+- AND the installer requires a read-only live User PATH registry type query to return `REG_SZ` or
+  `REG_EXPAND_SZ` matching the recorded type before disclosing the route
 - AND only an affirmative answer plus the helper's live full-PATH/type ownership revalidation may
   replace that proven-owned final element
 - AND the updated ownership record describes the resulting PATH
-- WHEN the user declines, selects `addtopath` without `correctownedpath`, or the route cannot be
-  safely identified for display
-- THEN no PATH correction is attempted and the old PATH value and ownership record remain unchanged
-- WHEN setup is silent, even if both task names are supplied
-- THEN correction consent is false and the old route is not replaced
+
+#### Scenario: Unsafe route preview does not disclose or grant correction consent
+
+- GIVEN a correction preview is requested for a recorded old route and current destination
+- WHEN the live PATH type query fails, returns an unsupported type, or differs from the recorded
+  type
+- OR either raw display route contains a Unicode `Bidi_Control` character
+- THEN no correction confirmation is shown and correction consent remains false
+- AND the installer does not sanitize or rewrite either route for display
+- AND the PATH and ownership record are not changed by the refused correction request
+
+#### Scenario: Declining correction does not fall back to appending a new route
+
+- GIVEN a valid ownership record matches the exact live PATH value/type and its old route is final
+- AND the current installation directory is not already in PATH
+- WHEN the interactive user selects `addtopath` but declines correction or leaves `correctownedpath`
+  unchecked
+- THEN the `path-add` operation returns the bounded refusal `path-correction-consent-required`
+- AND the full PATH value and ownership record remain exactly unchanged
+- AND the new installation directory is not appended
+
+#### Scenario: Silent addtopath cannot replace a recorded route
+
+- GIVEN a valid ownership record matches the exact live PATH value/type and its old route is final
+- AND the current installation directory is not already in PATH
+- WHEN setup runs silent with `addtopath` selected, even if `correctownedpath` is also supplied
+- THEN correction consent remains false
+- AND the `path-add` operation returns the bounded refusal `path-correction-consent-required`
+- AND the full PATH value and ownership record remain exactly unchanged without appending the new
+  installation directory
 
 #### Scenario: Uninstall preserves PATH when unchecked
 

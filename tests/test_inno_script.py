@@ -603,10 +603,22 @@ def test_s11_uninstall_dispatches_path_remove_and_state_cleanup_for_literal_yes(
 
 def test_correction_consent_is_specific_and_disabled_for_silent_setup() -> None:
     code = code_section(script_text())
+    initialize = code.split("procedure InitializeWizard", 1)[1].split("end;", 1)[0]
+    assert "CorrectOwnedPathConsent := False;" in initialize
+
     capture = code.split("function CaptureInstallConsent", 1)[1].split("end;", 1)[0]
     assert "CorrectOwnedPathConsent := False;" in capture
     assert "AddToPathConsent and WizardIsTaskSelected('correctownedpath') and not WizardSilent" in capture
     assert "ConfirmOwnedPathCorrection" in capture
+
+    assistant = setup_assistant_text()
+    invoke = assistant.split("procedure InvokePostCommitAssist", 1)[1].split(
+        "procedure InvokeUninstallAssist", 1
+    )[0]
+    assert "if AddPath and CorrectOwnedPath then" in invoke
+    assert '{"operation":"path-add","correctionConsent":true}' in invoke
+    assert "else if AddPath then" in invoke
+    assert '{"operation":"path-add"}' in invoke
 
 
 def test_correction_confirmation_identifies_the_exact_recorded_route_before_consent() -> None:
@@ -628,6 +640,55 @@ def test_correction_confirmation_identifies_the_exact_recorded_route_before_cons
     assert "MB_YESNO or MB_DEFBUTTON2" in disclosure and "IDNO" in disclosure
     assert "config" not in disclosure.lower() and "codex" not in disclosure.lower()
     assert "opencode" not in disclosure.lower() and "RecordedPath +" not in disclosure
+
+
+def test_path_preview_requires_read_only_live_registry_type_match() -> None:
+    code = code_section(script_text())
+    assert "RegOpenKeyExW@advapi32.dll stdcall" in code
+    assert "RegQueryValueExW@advapi32.dll stdcall" in code
+    assert "RegCloseKey@advapi32.dll stdcall" in code
+
+    type_reader = code.split("function YasbSetupAssistReadPathValueType", 1)[1].split(
+        "\nend;", 1
+    )[0]
+    assert "RegOpenKeyExW(HKCU, 'Environment'" in type_reader
+    assert "YasbRegKeyQueryValue" in type_reader
+    assert "YasbRegKeyQueryValue = $0001" in code
+    assert "RegQueryValueExW" in type_reader
+    assert "NativeType, 0, DataSize" in type_reader
+    assert "RegCloseKey" in type_reader
+    assert "YasbRegTypeString" in type_reader
+    assert "YasbRegTypeExpandString" in type_reader
+    assert "if Status <> YasbRegErrorSuccess then Exit" in type_reader
+    assert "if (NativeType <> YasbRegTypeString) and" in type_reader
+    assert "if RegSetValue" not in type_reader and "RegDeleteValue" not in type_reader
+
+    disclosure = code.split("function ReadRecordedPathRouteForDisplay", 1)[1].split(
+        "function ConfirmOwnedPathCorrection", 1
+    )[0]
+    assert "YasbSetupAssistParsePathRecord(RawRecord, RecordedRoute, RecordedPath," in disclosure
+    assert "RecordedType) then Exit" in disclosure
+    assert disclosure.count("CurrentPathType <> RecordedType") == 2
+    assert "RecordedPath <> CurrentRoute" in disclosure
+
+
+def test_path_preview_rejects_bidi_controls_in_both_raw_display_routes() -> None:
+    code = code_section(script_text())
+    bidi = code.split("function YasbSetupAssistHasBidiControl", 1)[1].split(
+        "\nend;", 1
+    )[0]
+    for codepoint in (
+        "$061C", "$200E", "$200F", "$202A", "$202B", "$202C",
+        "$202D", "$202E", "$2066", "$2067", "$2068", "$2069",
+    ):
+        assert codepoint in bidi
+
+    disclosure = code.split("function ConfirmOwnedPathCorrection", 1)[1].split(
+        "function CaptureInstallConsent", 1
+    )[0]
+    assert "YasbSetupAssistHasBidiControl(RecordedRoute)" in disclosure
+    assert "YasbSetupAssistHasBidiControl(NewRoute)" in disclosure
+    assert "StringChangeEx" not in disclosure and "RecordedRoute +" in disclosure
 
 
 def test_c1_inno_request_has_no_choices_key() -> None:

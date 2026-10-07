@@ -46,11 +46,14 @@ def result_of(root):
 class BatchRegistry:
     def __init__(self):
         self.value, self.recorded, self.notifications = "A", None, 0
+        self.path_writes = 0
+        self.record_writes = 0
 
     def read_user_path(self):
         return self.value, 2
 
     def write_user_path(self, value, value_type):
+        self.path_writes += 1
         self.value = value
 
     def compare_and_write_user_path(self, expected, value, value_type):
@@ -63,6 +66,7 @@ class BatchRegistry:
         return self.recorded
 
     def write_recorded_element(self, element):
+        self.record_writes += 1
         self.recorded = element
 
     def clear_recorded_element(self):
@@ -208,6 +212,38 @@ def test_path_add_correction_execution_requires_the_validated_specific_consent(t
     assert run(la, registry=allowed) == 0
     assert result_of(root)["operations"] == [{"operation": "path-add", "status": "ok"}]
     assert allowed.value == "A;" + target and allowed.notifications == 1
+
+
+# Both decline and silent addtopath serialize to the same least-privilege operation;
+# test_inno_script pins those two consent paths to this protocol shape.
+@pytest.mark.parametrize(
+    "scenario",
+    ("interactive-decline", "silent-addtopath"),
+    ids=("interactive-decline", "silent-addtopath"),
+)
+def test_unconsented_path_add_refuses_old_owned_route_without_mutation(tmp_path, monkeypatch, scenario):
+    target = ntpath.join(str(tmp_path), "installed")
+    monkeypatch.setattr(sa.sys, "executable", ntpath.join(target, "yasb-limitora.exe"))
+    registry = BatchRegistry()
+    registry.value = r"A;C:\old"
+    recorded = sa._path_cleanup._record(r"C:\old", registry.value, 2)
+    registry.recorded = recorded
+    la, root = transport(tmp_path, request_bytes([{"operation": "path-add"}]))
+
+    assert run(la, registry=registry) == 1, scenario
+
+    result = result_of(root)
+    assert result["status"] == "partial", scenario
+    assert result["operations"] == [
+        {
+            "operation": "path-add",
+            "status": "refused",
+            "reason": "path-correction-consent-required",
+        }
+    ], scenario
+    assert registry.value == r"A;C:\old" and registry.recorded == recorded, scenario
+    assert registry.path_writes == 0 and registry.record_writes == 0, scenario
+    assert registry.notifications == 0, scenario
 
 
 def test_path_operation_uses_explicit_fake_and_never_constructs_real_registry(tmp_path, monkeypatch):
