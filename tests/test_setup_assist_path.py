@@ -106,11 +106,23 @@ def test_path_add_preserves_empty_leading_path_element(initial):
     assert json.loads(registry.recorded or "{}")["path"] == r";C:\bin"
 
 
+def test_path_add_requires_specific_consent_before_replacing_owned_route():
+    registry = FakeRegistry(r"A;C:\old", cleanup.REG_SZ)
+    recorded = cleanup._record(r"C:\old", registry.value, cleanup.REG_SZ)
+    registry.recorded = recorded
+
+    result = cleanup.append_user_path(registry, r"C:\new")
+
+    assert not result.changed and result.reason == "path-correction-consent-required"
+    assert registry.value == r"A;C:\old" and registry.recorded == recorded
+    assert registry.writes == [] and registry.notifications == 0
+
+
 def test_path_add_replaces_owned_route_without_dropping_empty_prefix():
     registry = FakeRegistry(r";C:\old", cleanup.REG_SZ)
     registry.recorded = cleanup._record(r"C:\old", r";C:\old", cleanup.REG_SZ)
 
-    result = cleanup.append_user_path(registry, r"C:\new")
+    result = cleanup.append_user_path(registry, r"C:\new", correction_consent=True)
 
     assert result.changed and registry.value == r";C:\new"
 
@@ -119,7 +131,7 @@ def test_path_add_replaces_only_recorded_final_route_and_preserves_type():
     registry = FakeRegistry(r"A;C:\old", cleanup.REG_EXPAND_SZ)
     registry.recorded = cleanup._record(r"C:\old", registry.value, cleanup.REG_EXPAND_SZ)
 
-    result = cleanup.append_user_path(registry, r"C:\new")
+    result = cleanup.append_user_path(registry, r"C:\new", correction_consent=True)
 
     assert result.changed and result.reason is None
     assert registry.value == r"A;C:\new" and registry.value_type == cleanup.REG_EXPAND_SZ
@@ -140,7 +152,7 @@ def test_path_add_replaces_only_recorded_final_route_and_preserves_type():
 def test_path_add_refuses_unsafe_route_identity_without_mutation(recorded):
     registry = FakeRegistry(r"A;C:\old", cleanup.REG_SZ, recorded)
 
-    result = cleanup.append_user_path(registry, r"C:\new")
+    result = cleanup.append_user_path(registry, r"C:\new", correction_consent=True)
 
     assert not result.changed and result.reason is not None
     assert registry.value == r"A;C:\old" and registry.recorded == recorded
@@ -356,21 +368,22 @@ def test_cleanup_refuses_non_absolute_state_path():
     assert registry.recorded is not None  # record untouched
 
 
-def test_cleanup_succeeds_when_owned_route_is_already_absent(monkeypatch):
+def test_cleanup_refuses_path_absence_even_with_valid_record(monkeypatch):
     import yasb_limitora._native_state_cleanup as nsc
 
     registry = FakeRegistry("A")
     assert cleanup.append_user_path(registry, r"C:\bin").changed
     registry.value = "A"
+    prior_record = registry.recorded
     notifications = registry.notifications
     deleted: list[str] = []
     monkeypatch.setattr(nsc, "delete_directory", lambda path: (deleted.append(path), True)[1])
 
     result = cleanup.cleanup_literal_state(registry, r"C:\state")
 
-    assert result.changed and result.reason is None
-    assert registry.value == "A" and registry.recorded is None
-    assert registry.notifications == notifications and deleted == [r"C:\state"]
+    assert not result.changed and result.reason == "path-ownership-changed"
+    assert registry.value == "A" and registry.recorded == prior_record
+    assert registry.notifications == notifications and deleted == []
 
 
 def test_cleanup_refuses_live_path_drift_without_deleting_state(monkeypatch):
@@ -388,6 +401,23 @@ def test_cleanup_refuses_live_path_drift_without_deleting_state(monkeypatch):
     assert not result.changed and result.reason == "path-ownership-changed"
     assert deleted == [] and registry.writes == prior_writes
     assert registry.recorded is not None and registry.value.endswith(";EXTERNAL")
+
+
+def test_cleanup_refuses_registry_type_drift_without_deleting_state(monkeypatch):
+    import yasb_limitora._native_state_cleanup as nsc
+
+    registry = FakeRegistry("A", cleanup.REG_EXPAND_SZ)
+    assert cleanup.append_user_path(registry, r"C:\bin").changed
+    registry.value_type = cleanup.REG_SZ
+    prior_record = registry.recorded
+    deleted: list[str] = []
+    monkeypatch.setattr(nsc, "delete_directory", lambda path: (deleted.append(path), True)[1])
+
+    result = cleanup.cleanup_literal_state(registry, r"C:\state")
+
+    assert not result.changed and result.reason == "path-ownership-changed"
+    assert deleted == [] and registry.value == r"A;C:\bin"
+    assert registry.recorded == prior_record
 
 
 def test_cleanup_revalidates_live_record_before_deleting_state(monkeypatch):
@@ -428,7 +458,7 @@ def test_cleanup_calls_native_delete_and_clears_record_on_success(monkeypatch):
 
 
 @pytest.mark.parametrize("route_absent", [False, True])
-def test_cleanup_refuses_when_native_delete_fails(monkeypatch, route_absent):
+def test_cleanup_refuses_when_native_delete_fails_or_path_proof_is_absent(monkeypatch, route_absent):
     import yasb_limitora._native_state_cleanup as nsc
 
     registry = FakeRegistry("A")
@@ -436,11 +466,14 @@ def test_cleanup_refuses_when_native_delete_fails(monkeypatch, route_absent):
     if route_absent:
         registry.value = "A"
     prior_path = registry.value
-    monkeypatch.setattr(nsc, "delete_directory", lambda p: False)
+    deleted: list[str] = []
+    monkeypatch.setattr(nsc, "delete_directory", lambda path: (deleted.append(path), False)[1])
     result = cleanup.cleanup_literal_state(registry, r"C:\state")
-    assert result.reason == "state-delete-failed" and not result.changed
+    expected_reason = "path-ownership-changed" if route_absent else "state-delete-failed"
+    assert result.reason == expected_reason and not result.changed
     assert registry.value == prior_path
-    assert registry.recorded is not None  # record preserved on failure
+    assert registry.recorded is not None  # record preserved on refusal/failure
+    assert deleted == ([] if route_absent else [r"C:\state"])
 
 
 def test_cleanup_bookkeeping_failure_after_successful_delete(monkeypatch):

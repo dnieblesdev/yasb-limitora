@@ -507,25 +507,28 @@ uninstall choice (§3.4); its result transport is outside state and is cleaned s
 | Removal | On uninstall, the assist removes exactly that recorded element, again by verbatim string surgery, and broadcasts `WM_SETTINGCHANGE` |
 | Disclosure | Installer text and `MIGRATION.md` state that a PATH change takes effect only in newly started processes and that YASB must be restarted by the user for direct CLI discovery — while YASB integration itself never depends on PATH |
 
-**PATH route correction and uninstall consent (approved NEW PATH update).** The `addtopath`
+**PATH route correction and uninstall consent (corrective contract).** The `addtopath`
 task remains optional and unchecked. A correct destination already present is a successful no-op
-and does not create or replace ownership data. If it is absent, a related old route may be corrected
-only when the app's existing ownership record is valid, its full PATH value and registry type exactly
-match the live value, and its recorded element is the final PATH element. The selected `addtopath`
-task is the explicit consent for replacing that one proven-owned old element with the current
-installation directory. Missing, malformed, stale, or changed proof fails closed; PATH membership
-alone never establishes ownership.
+and does not create or replace ownership data. Replacing a related old route requires both the
+separate unchecked `correctownedpath` task and `addtopath`; the latter alone never consents to
+correction. `correctownedpath` is effective only in an interactive install and is serialized as the
+strict boolean `correctionConsent: true`; an omitted flag means false, and silent installs never
+grant it even if task names are supplied. Correction additionally requires a valid existing
+ownership record whose complete PATH value and registry type match live state and whose recorded
+route is the final element. Missing, malformed, stale, or changed proof fails closed; PATH
+membership alone never establishes ownership.
 
 Interactive uninstall presents a `removePATH` checkbox, checked by default, after the manual-close
 gate; Cancel aborts. Silent uninstall skips the custom modal and retains the checked default for
 unattended rollback. The checkbox requests removal but is never ownership proof: the helper removes
 only the still-owned recorded element. A missing or unowned route is a successful no-op; a changed
 route still present is refused. When `removePATH` is unchecked, no `path-remove` operation is sent.
-If state cleanup is separately confirmed, its operation revalidates the record and stable live
-PATH without mutating PATH. It accepts either the exact recorded route or a route already absent;
-a changed PATH that still contains the recorded route fails closed. Bookkeeping clears only after
-successful deletion. When both options are selected, retain the exact S11 `path-remove` +
-`state-cleanup` transaction whenever the owned route remains present.
+Separately accepted state cleanup requires the original complete PATH value/type and unchanged
+ownership record to match before deletion; a mismatch, including an already-absent recorded route,
+refuses cleanup and preserves state/bookkeeping. In the combined `path-remove` + `state-cleanup`
+transaction, validate the original full snapshot before the PATH compare-and-write, then revalidate
+the unchanged record and exact post-removal PATH before deleting state. A route already absent
+remains a successful PATH-removal no-op, but does not authorize state deletion.
 
 **Cleanup task (destructive, default-negative).** State cleanup remains a separate explicit
 confirmation with **No** as the default button:

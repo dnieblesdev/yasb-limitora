@@ -26,6 +26,14 @@ The original implementation treated a correct destination already present as a s
 
 The source record also described several source-worktree artifacts and machine-specific locations. Those identifiers are intentionally omitted from this public-safe record. No conclusion about their current custody or state is made here. Original ancestry remains private and is not imported into the sanitized delivery lineage.
 
+## C4 sanitized reapplication note
+
+The clean-delivery C4 unit adds two boundaries to the historical C3 behavior above. Install PATH correction now requires both the unchecked `addtopath` choice and a separate unchecked `correctownedpath` choice. The effective `correctionConsent` is a strict boolean, defaults to false when omitted, and remains false for silent installs. PATH correction still requires exact recorded/live PATH and registry-type agreement with the recorded route last; missing or mismatched proof fails closed.
+
+State cleanup now requires the exact recorded full PATH value and registry type to remain live, along with the unchanged ownership record, immediately before deletion. An already-absent recorded route remains a successful no-op for the independent PATH-removal operation, but it no longer authorizes state deletion. The original-candidate acceptance text above is retained as historical context; this stricter cleanup contract is the C4 correction, not a claim that the earlier decision always had that meaning.
+
+The C4 delivery-unit label does not mean native C4 acceptance: the original native C4 attempt remains failed/consumed and did not reach cleanup. On the clean candidate, the selected baseline run produced 8 expected feature-absence failures, 2 passes, and 159 deselections before source reapplication. After reapplication, those same 10 selected cases passed. A bounded fake/static regression selection passed 62 cases with 1 skip and 106 deselections. These are current-candidate hermetic/static results only; they do not establish native installer, VM, HKCU, or UI acceptance. Original-candidate results elsewhere in this record are not verification of the clean candidate.
+
 ## Current delivery status
 
-This file is sanitized historical context accompanying the C3 uninstall-consent delta. It is not a completion checklist or acceptance authority. Verification, review, and delivery decisions belong to the current candidate and its parent-owned task record. Static installer-source assertions do not prove Pascal compilation, Windows installer behavior, user consent rendering, or native lifecycle acceptance.
+This file is sanitized historical context accompanying the C3 uninstall-consent and C4 exact-ownership deltas. It is not a completion checklist or acceptance authority. Verification, review, and delivery decisions belong to the current candidate and its parent-owned task record. Static installer-source assertions do not prove Pascal compilation, Windows installer behavior, user consent rendering, or native lifecycle acceptance.

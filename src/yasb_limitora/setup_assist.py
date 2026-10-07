@@ -153,6 +153,13 @@ def _validate_request(raw: bytes) -> tuple[tuple[tuple[str, object], ...] | None
             if set(item) != {"operation", "consent"} or type(item.get("consent")) is not bool:
                 return None, "schema-violation"
             consent: object = item["consent"]
+        elif name == "path-add":
+            if set(item) == {"operation"}:
+                consent = False
+            elif set(item) == {"operation", "correctionConsent"} and type(item.get("correctionConsent")) is bool:
+                consent = item["correctionConsent"]
+            else:
+                return None, "schema-violation"
         elif name == "state-cleanup":
             if set(item) != {"operation", "consent"} or item.get("consent") != "YES":
                 return None, "schema-violation"
@@ -595,7 +602,15 @@ def _execute(names: tuple[tuple[str, object], ...], environment: Mapping[str, st
                 records.append({"operation": name, "status": "ok"} if result.reason is None else {"operation": name, "status": "refused", "reason": result.reason})
         elif name in {"path-add", "path-remove"}:
             path_registry = registry or _path_cleanup.WindowsUserPathRegistry()
-            result = _path_cleanup.append_user_path(path_registry, os.path.dirname(sys.executable)) if name == "path-add" else _path_cleanup.remove_recorded_user_path(path_registry)
+            result = (
+                _path_cleanup.append_user_path(
+                    path_registry,
+                    os.path.dirname(sys.executable),
+                    correction_consent=consent is True,
+                )
+                if name == "path-add"
+                else _path_cleanup.remove_recorded_user_path(path_registry)
+            )
             records.append({"operation": name, "status": "ok"} if result.reason is None else {"operation": name, "status": "refused", "reason": result.reason})
         elif name == "state-cleanup":
             if consent != "YES":
