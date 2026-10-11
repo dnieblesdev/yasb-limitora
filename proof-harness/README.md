@@ -104,3 +104,17 @@ python proof-harness/host/verify-c5-silent-uninstall.py `
 ```
 
 The C5 verifier fails closed on malformed or boolean exit codes, missing generic records, missing captures, changed fixture bytes, an application or uninstall key that remains, unexpected dialog-answer claims, or any setup identity mismatch. These commands are documentation only; this source change does not perform VM, storage, setup, or uninstaller execution.
+
+## C4 owned-cleanup runner boundary
+
+The versioned C4 runner is [`guest/owned-cleanup/runner.ps1`](guest/owned-cleanup/runner.ps1). Run its complete real child-process boundary test on Windows with:
+
+```powershell
+python -m pytest -q --strict-markers -p no:cacheprovider tests/test_c4_runner_error_boundary.py
+```
+
+The entry invokes Windows PowerShell 5.1 with `-NoProfile -NonInteractive -File`, compares successful behavior with the preserved pre-observability baseline, and exercises the runner-file failure boundary in fresh pytest temporary storage. The baseline is [`tests/fixtures/c4-runner-before-observability.ps1`](../tests/fixtures/c4-runner-before-observability.ps1); it exists only to pin historical success and pre-observability failure behavior. The delivered runner expects its complete C4 scenario and modules to be supplied by its caller. This repository does not ship a complete C4 native scenario or those modules.
+
+On failure, the runner keeps the initiating failure classification and exit code, writes only an allowlisted diagnostic below an existing owned route, and reports persistence separately (`saved`, `skipped-no-owned-route`, or `write-failed`). The test checks output privacy, exact diagnostic schema, no-route behavior, and refusal to overwrite existing diagnostics. It does not prove native installer lifecycle behavior.
+
+Native Windows PowerShell is required; Linux, macOS, and WSL are not supported runtimes. This hermetic test is not installer, VM, registry, PATH, uninstall, cleanup, or persistence proof. Those native lifecycle outcomes remain unresolved.
