@@ -99,7 +99,7 @@ For local linting, install the exact pinned Ruff release and run it from the
 checkout root:
 
 ```powershell
-py -m pip install "ruff==0.16.9"
+py -m pip install "ruff==0.17.0"
 python -m ruff check .
 ```
 
