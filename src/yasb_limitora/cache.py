@@ -153,6 +153,20 @@ class RefreshDecision:
     result: SingleFlightResult | None = None
 
 
+def _cache_fs_path(path: str, *, force_extended: bool = False) -> str:
+    """Adapt only native Windows I/O; keep logical cache/guard identities unchanged."""
+    # Temporary directories need native form before mkstemp appends a child name.
+    if os.name != "nt" or (not force_extended and len(path.encode("utf-16-le", errors="surrogatepass")) // 2 < 248):
+        return path
+    if path.startswith("\\\\?\\"):
+        return path  # Internal mkstemp paths may already carry this representation.
+    normalized = ntpath.normpath(path)
+    drive, tail = ntpath.splitdrive(normalized)
+    if not re.fullmatch(r"[A-Za-z]:", drive) or not tail.startswith("\\"):
+        raise FileError("cache identity unavailable")
+    return "\\\\?\\" + normalized
+
+
 def _validate_windows_path_identity(path: str) -> None:
     """Reject reparse-point components before cache reads or replacement writes."""
     if os.name != "nt":
@@ -160,7 +174,7 @@ def _validate_windows_path_identity(path: str) -> None:
     current = os.path.abspath(path)
     for _ in range(128):
         try:
-            metadata = os.lstat(current)
+            metadata = os.lstat(_cache_fs_path(current))
         except FileNotFoundError:
             pass
         except OSError:
@@ -185,7 +199,7 @@ def _validate_windows_owner(path: str) -> None:
         expected = _default_sid_bytes()
         if not _valid_sid_bytes(expected):
             raise OSError
-        if not os.access(path, os.R_OK):
+        if not os.access(_cache_fs_path(path), os.R_OK):
             raise OSError
     except Exception:
         raise FileError("cache identity unavailable") from None
@@ -193,13 +207,13 @@ def _validate_windows_owner(path: str) -> None:
 
 def _validate_cache_directory(directory: str) -> None:
     _validate_windows_path_identity(directory)
-    if os.path.isdir(directory):
+    if os.path.isdir(_cache_fs_path(directory)):
         _validate_windows_owner(directory)
 
 
 def _validate_cache_target(path: str) -> None:
     _validate_windows_path_identity(path)
-    if os.path.exists(path):
+    if os.path.exists(_cache_fs_path(path)):
         _validate_windows_owner(path)
 
 
@@ -537,7 +551,7 @@ def _cache_read_child(path: str) -> bytes:
     try:
         _validate_cache_directory(os.path.dirname(path) or ".")
         _validate_cache_target(path)
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0))
+        descriptor = os.open(_cache_fs_path(path), os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0))
         metadata = os.fstat(descriptor)
         if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > MAX_CACHE_BYTES:
             raise OSError
@@ -555,12 +569,12 @@ def _cache_write_child(path: str, data: bytes) -> None:
     descriptor = None
     temporary = None
     try:
-        os.makedirs(directory, mode=0o700, exist_ok=True)
-        if not stat.S_ISDIR(os.stat(directory).st_mode):
+        os.makedirs(_cache_fs_path(directory), mode=0o700, exist_ok=True)
+        if not stat.S_ISDIR(os.stat(_cache_fs_path(directory)).st_mode):
             raise OSError
         _validate_cache_directory(directory)
         _validate_cache_target(path)
-        descriptor, temporary = tempfile.mkstemp(prefix=_CACHE_TEMP_PREFIX, suffix=_CACHE_TEMP_SUFFIX, dir=directory)
+        descriptor, temporary = tempfile.mkstemp(prefix=_CACHE_TEMP_PREFIX, suffix=_CACHE_TEMP_SUFFIX, dir=_cache_fs_path(directory, force_extended=True))
         offset = 0
         while offset < len(data):
             written = os.write(descriptor, data[offset:])
@@ -570,14 +584,14 @@ def _cache_write_child(path: str, data: bytes) -> None:
         os.fsync(descriptor)
         os.close(descriptor)
         descriptor = None
-        os.replace(temporary, path)
+        os.replace(_cache_fs_path(temporary), _cache_fs_path(path))
         temporary = None
     finally:
         if descriptor is not None:
             os.close(descriptor)
         if temporary is not None:
             try:
-                os.unlink(temporary)
+                os.unlink(_cache_fs_path(temporary))
             except OSError:
                 pass
 
