@@ -1,637 +1,301 @@
-# Repository hygiene: final safe-cleanup state
+# Minimal sufficient retention
 
-## Decision
+## Policy and scope
 
-The bounded cleanup found **no eligible historical worktree or branch deletions**. The original **39 worktrees / 56 local branches** remain in place: **25 KEEP, 10 ARCHIVE_PENDING and 4 AMBIGUOUS**. Seven internal views were reclassified from AMBIGUOUS to KEEP because their indexes contain blobs unreachable from any ref. No archives, copies or moves were created. Unresolved per-item retention did not prevent consolidation and documentation delivery. This record is not standing authorization for further cleanup or technical investigation.
+Physical artifacts are retained only when their exact bytes are needed to continue selected work or support a concrete non-reproducible claim. Historical provenance, a unique hash, an old run, a manifest or an unmerged working copy is not itself a preservation requirement. No physical backup/archive copies are created.
 
-The baseline is local `main` at `6ab4cd0cc17ad419e6201d60df21e3b04cbe7417`, matching the last fetched `origin/main`. This is not a fresh remote assertion. The original 39 consist of the primary checkout, 27 ordinary siblings and 11 detached internal candidate views. There are 27 attached branches and 29 branch-only references among the original 56 branches.
+**Completed safe reduction:** all 27 ordinary sibling registrations were retired; 26 physical roots were removed and one empty, unregistered directory remains process-locked. Eleven controller views remain blocked solely by lifecycle. After retiring the temporary documentation checkout, the original 39 registrations become **12**, and 56 local branches become **37** (20 deleted, one new documentation branch). The two parked units require **zero physical I1/C11 worktrees**.
 
-**Documentation isolation:** the maintainer explicitly selected a separate worktree for this document: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-hygiene-doc`, branch `docs/repository-hygiene-inventory`, created from the baseline commit. Operational totals are **40 worktrees / 57 branches** while it exists. It is not one of the original 39; no original checkout was moved or replaced. Its only intended local change is this document. The maintainer authorized one commit, `docs: record repository hygiene state`, and a PR against main using nonclosing `Refs #370`. Retirement of this temporary worktree and its local branch is authorized only after CI-green, conflict-free merge and fast-forward synchronization of main. The recorded long-lived state is 39/56; 40/57 is the temporary pre-delivery operational state, not an additional historical retention decision.
+This local phase covers the original **39 worktrees and 56 local branches**, from `main@bc10800209e394015287397f2d7e197ad806e6ef`. A temporary `chore/minimal-retention` documentation checkout is additional control workspace, not an original retention candidate. Experimental source remains on local parked refs; no push, PR or experimental merge into main is authorized.
 
-## Classification
+## Taxonomy
 
-| Classification | Original worktrees | Meaning |
-|---|---:|---|
-| KEEP | 25 | Original 18 protected checkouts plus seven internal views with unique staged blobs. |
-| ARCHIVE_PENDING | 10 | The worktree no longer participates in active development, but is temporarily retained because it contains evidence/local state whose preservation or supersession has not yet been demonstrated. |
-| AMBIGUOUS | 4 | Internal views without demonstrated terminal lifecycle/disposal authority, despite having no index blobs unreachable from refs. |
-
-**ARCHIVE_PENDING is a retention status, not an action.** Every entry in that category remains at its existing path. It is not permission to create an archive or move anything into `odd/`. These ten are candidates for a future disposition, not approved deletions. Zero additional worktrees or branches have been certified safe to delete by this assessment.
-
-Read the retention decision below together with the Git-state inventory at the end. Each inventory entry gives its name, exact path, HEAD, branch, commits outside main, and relevant staged/unstaged/untracked/ignored state. Representative evidence groups are not an exhaustive deletion scope.
-
-## Protected context
-
-- **Historical C6 remains retained/blocked on native causal proof.** Protect its persistence donors, decision records and run evidence. The narrow pre-mapping ProviderError slice already delivered to main does not close historical C6 cross-process causal-proof obligations.
-- **C10 / I1 and C11 / PATH trace remain retained for resumability.** The C-number-to-path correspondence comes from recovered historical memory (observation 11062); repository parking records do not explicitly bind those labels to paths. Their identifiable local state is described below. No equivalent implementation merged under another form, or smaller lossless resumption set, has been demonstrated.
-- **All 11 internal views remain retained: seven KEEP and four AMBIGUOUS.** All HEADs are ancestors of main, but seven indexes contain blobs unreachable from any ref. The follow-up bounded metadata audit recovered no owner-to-UUID lifecycle binding for any view. Terminal consumption/release and canonical frozen-evidence supersession remain unproven. No authority repair or candidate removal was performed.
-- **The six historical main untracked files remain unattributed:**
-  - `8`
-  - `odd/tasks/agent-guide-policy-clarification.md`
-  - `odd/tasks/c4-diagnostic-native-cycle.md`
-  - `odd/tasks/c4-diagnostic-persistence.md`
-  - `odd/tasks/c4-runner-ruff-delivery.md`
-  - `odd/tasks/merged-delivery-hygiene.md`
-
-The new hygiene document is separate from those six files. Their continued presence is not an attribution or a lossless preservation certification.
-
-## Retention decisions: primary checkout and ordinary siblings
-
-Names below match the final Git-state inventory. Paths, HEADs and state must be revalidated before any future authorized operation.
-
-### Primary checkout — KEEP
-
-`yasb-limitora` is the main working checkout. It contains the six unattributed historical untracked files above and ignored local tooling/build evidence. It is not a cleanup candidate. Any disposition of those files requires separate attribution and maintainer authorization.
-
-### KEEP: source, decisions, proof obligations and resumability
-
-All names in the following table have the prefix `yasb-limitora-`. None is approved for removal.
-
-| Worktree suffix | Why it remains / evidence or local state | Condition for future removal |
-|---|---|---|
-| `304` | Local reusable VM proof-harness material, host artifacts and issue-304 run/evidence groups. This checkout is not itself identified as C10. | Identify canonical harness/evidence and explicitly dispose all local host artifacts and run state. |
-| `approved-import-proof` | Modified `scripts/README.md`; local preflight/environment-preparation scripts, tests and docs; dedicated proof runs. Later delivered preflight work does not prove these donor files redundant. | Attribute each donor delta and demonstrate canonical preservation or supersession of dedicated proof evidence. |
-| `c4-correction` | Uncommitted persistence/exception-fidelity changes, local diagnostic-persistence tests, `c4-exception-fidelity.md` and build evidence. | Resolve runner/test identities against canonical delivery and retain or supersede historical decision/evidence records. |
-| `c4-updated-candidate` | Local task records, workflow delta and extensive updated-candidate proof outputs. | Attribute each tracker/workflow delta and demonstrate preservation or supersession of proof evidence. |
-| `c4-verification` | Out-of-main commits, local setup-assist path/protocol test changes, task records and build evidence. Partial patch-equivalence reports do not settle the history. | Account for every out-of-main commit and local delta and identify canonical proof provenance. |
-| `c6-premapping` | Explicitly retained C6-related checkout and `build/premapping` evidence. The pre-mapping slice is in main, but historical C6 obligations remain blocked. | Explicit maintainer disposition of retained C6 material and demonstrated evidence preservation or supersession; narrow slice delivery is not full C6 closure. |
-| `c7-artifact-scanner-candidate` | Sole-copy local `odd/tasks/c7-c5-c8-delivery.md` and scanner/delivery evidence. | Demonstrate canonical retention or supersession of the delivery tracker and referenced evidence. |
-| `c8-import-evidence-candidate` | Sole-copy local `odd/tasks/exception-fidelity-reconciliation.md` and helper-import evidence. | Retain or supersede reconciliation decisions and establish canonical import-evidence provenance. |
-| `c9-preflight` | Sole-copy local `odd/tasks/c6-rederivation.md` and approved-source preflight runs. | Preserve C6 re-derivation decisions and identify canonical preflight evidence. |
-| `cache-marker-fix` | Large staged-deletion/untracked-replacement state, local tests/task records and build evidence. A plain file copy or unstaged diff would not preserve index semantics. | Resolve index/worktree provenance and explicitly preserve or supersede staging as well as unique files; no automatic cleanup. |
-| `exception-fidelity` | Sole-copy local `odd/tasks/exception-fidelity-a1-a2.md` and `phase-closure.md`, recent delivery decisions and related build evidence. | Establish canonical retention or supersession of both decision records and their referenced evidence. |
-| `i1-hermetic-ab` | C10 historical correspondence: unique local I1 tooling/tests, two trackers, retained A/B namespace and watcher-proof evidence. Details below. | Retain for resumability until explicit disposition and demonstrated preservation or supersession of all unique material. |
-| `ipc-observability` | Local helper/supervisor/fixture/native-proof deltas, observer source/docs/tests, task record and IPC run evidence. | Attribute donor deltas against delivered slices; do not assume all cumulative instrumentation shipped. Preserve referenced decisions and evidence. |
-| `ipc-observability-infrastructure` | Cumulative observer/scanner/import/persistence donor material, local persistence tests/task record and bootstrap/build evidence. | Attribute remaining deltas and preserve C6-referenced evidence; historical C6 remains retained/blocked. |
-| `ipc-persistence-observability` | Historical C6 persistence donor: source/fixture/test deltas, local observer/persistence files and IPC run diagnostics. Native cross-process causality remains unproven. | Explicit disposition of historical C6 plus demonstrated preservation or supersession of its evidence; no silent downgrade of the causal-proof requirement. |
-| `path-step-trace` | C11 historical correspondence: four tracked modifications and four new diagnostic/test/doc/tracker files. Details below. | Retain for resumability until explicit disposition and demonstrated preservation or supersession of all local deltas and blocker/provenance records. |
-| `s11-residual-proof` | Out-of-main history, `nul`/`nul.json`, two task records and substantial residual-proof evidence. Special names do not establish disposable content. | Attribute unique history, decisions, special-name entries and proof evidence before any disposition. |
-
-### C10 / I1 resumption material
-
-Worktree: `yasb-limitora-i1-hermetic-ab`; branch: `test/i1-hermetic-ab`. There are no commits outside main, but its unique local work is not recoverable from that branch's commits.
-
-Retain all of these, without attempting to reduce the scaffolding in this phase:
-
-- `scripts/i1_hermetic_ab.py`, `scripts/i1_native_registry_probe.py`, `scripts/prepare_i1_watcher_input.py`, `scripts/i1_native_watch_runner.ps1`;
-- `tests/test_i1_hermetic_ab.py`, `tests/test_i1_watcher_registry_proof.py`;
-- `odd/tasks/i1-hermetic-ab.md`, `odd/tasks/i1-watcher-registry-proof.md`;
-- retained `.h2-i1-ab-20260625-6d4c1f/`, local temporary namespace and `build/i1-watcher-proof` evidence.
-
-The controlled A/B was executed historically. The later native registry case was explicitly **NOT EXECUTED**; resumption requires fresh authorization. This is tooling/probes/evidence rather than product implementation. Original file paths being absent from main does not prove that no equivalent exists under a different form; equivalence remains unproven.
-
-### C11 / PATH trace resumption material
-
-Worktree: `yasb-limitora-path-step-trace`; branch: `chore/c4-path-step-trace`. There are no commits outside main, but its local deltas are not committed.
-
-Retain the modified `packaging/inno/SetupAssistant.isi`, `packaging/inno/yasb-limitora.iss`, `src/yasb_limitora/setup_assist.py` and `tests/test_inno_script.py`, plus new `src/yasb_limitora/_path_step_trace.py`, `tests/test_installer_path_trace.py`, `docs/installer-path-step-trace.md` and `odd/tasks/installer-path-step-trace.md`.
-
-The work is mixed product-source diagnostics and tooling, not merely scratch. Historical P3 was blocked by a full-suite failure without demonstrated candidate/base causality. No work-unit commit or equivalent merged implementation has been demonstrated. Preserve all listed material and the historical blocker; do not reopen testing or investigate runtime behavior under this document.
-
-### ARCHIVE_PENDING: ten inactive worktrees retained in place
-
-**For every row:** the worktree no longer participates in active development, but is temporarily retained because it contains evidence/local state whose preservation or supersession has not yet been demonstrated. No archive exists by implication and no copy, move or deletion is authorized.
-
-All names have the prefix `yasb-limitora-`.
-
-| Worktree suffix | Evidence / local state preventing removal | Condition for future removal |
-|---|---|---|
-| `c1-c4-integration` | Historical composition evidence, `build/integration-composition`, temporary outputs and environment; commits outside main. | Demonstrate evidence preservation or supersession and account for every out-of-main commit. Patch-equivalence is not ancestry or complete reconstruction proof. |
-| `c1-cache-paths-candidate` | `build/c1-fixture-fix` evidence; ancestor HEAD does not preserve ignored outputs. | Demonstrate fixture-evidence preservation or supersession and revalidate current local state. |
-| `c2-diagnostic-paths-candidate` | `build/c4n` diagnostic evidence and detached candidate identity. HEAD is already reachable from main; detached status alone is not unique-commit loss. | Demonstrate evidence preservation or supersession and retain exact candidate/commit provenance. |
-| `c5-consolidated-candidate` | `build/c5-delivery`, independent-verification and pytest outputs. | Establish canonical delivery/verification evidence or demonstrated supersession. |
-| `c5-ipc-observability-candidate` | Local `tests/test_native_proof_observability.py` and ignored build outputs. The path also exists in main, but that alone does not prove identical bytes. | Prove canonical equivalence of the local test and establish the disposition of ignored outputs. |
-| `docs` | `native-proof.json`/`native-proof.xml`, ignored raw logs/environment artifacts and out-of-main commit identity. | Establish canonical proof/log provenance and account for the commit; do not infer evidence equivalence from a patch match. |
-| `path-feature` | Out-of-main installer history, ignored build evidence and untracked `NUL`. | Account for history, evidence and the special-name entry; no name-based discard, reset or forced branch deletion follows. |
-| `s11a-setup-assist` | `build/s11a-lifecycle` and local environments/caches. Cache status does not make lifecycle evidence disposable. | Demonstrate lifecycle-evidence preservation or supersession and retain cited delivery provenance. |
-| `s11b-299` | `build/frozen`, `build/c5-rebuild` and proof-harness artifacts. | Demonstrate frozen/rebuild evidence preservation or supersession and retain delivery provenance. |
-| `s11b-reconciled` | `build/s11b-lifecycle` reproof evidence. | Demonstrate lifecycle/reproof evidence preservation or supersession and retain cited delivery provenance. |
-
-## Internal candidate views — seven KEEP, four AMBIGUOUS
-
-All eleven exact identities, paths and local states appear in the inventory below. They are controller-owned detached views, not ordinary disposable checkouts. A bounded follow-up scan of 44 transaction directories and relevant shallow metadata stores found no per-view UUID lifecycle linkage. Owner-file presence alone does not prove terminal disposition. Seven content-bearing views are KEEP; four others remain AMBIGUOUS. Neither category is asserted inactive or superseded.
-
-Future removal requires attribution of terminal lifecycle/ownership, a permitted disposal route and evidence supersession through the owning controller, followed by explicit maintainer authorization. Neither shared HEADs nor clean status establishes supersession. No raw metadata repair, recursive fallback or ordinary worktree cleanup is authorized here.
-
-## Branch references and safeguards
-
-The original 29 branch-only references are not automatically disposable. Retain the explicitly historical `feat/s11b-transaction-closeout-v2` reference. Across all original branches, 33 have commits outside main; earlier patch-equivalence observations do not change ancestry or establish permission to discard historical identities. Worktree and branch retirement are separate decisions.
-
-A future authorized operation must revalidate exact Git identities and local state. Preservation or supersession must cover relevant unique files, staged index state, uncommitted changes, historical commits, manifests and referenced run evidence. Special-name files and unknown links require explicit handling; do not use recursive cleanup as a fallback. This document mandates neither an archive mechanism nor an archive location.
-
-## Provenance and limitations
-
-This document consolidates the earlier local metadata inventory (`build/repository-hygiene-6ab4cd0.json`, ignored and local-only) and bounded attribution handoffs. That local JSON is not a tracked documentation dependency: necessary identities, reasons and conditions are repeated here for future agents.
-
-File-state groups are metadata, not a payload audit or lossless preservation certificate. No local functional tests, builds or VM/registry probes were run for this documentation-only change. Authorized GitHub metadata reads established the delivery target and approved issue #370. The repository ruff and native-proof workflows gate the PR; their candidate outcomes must be verified before merge, not pre-certified here. Historical run outcomes are provenance, not present runtime proof.
-
-Earlier attribution tooling reported scratch `/tmp/hyg-yPNYwZ`. Its contents/location were not attributed or inspected here; this document grants no external cleanup authority.
-
-Update this document after an explicitly authorized disposition. Do not silently reinterpret ARCHIVE_PENDING as permission to copy evidence, create archives, move worktrees into `odd/` or delete branches.
-
-## Completed cleanup assessment
-
-### Outcomes and removals
-
-Historical worktrees removed in this continuation: **none**. Historical local branches removed: **none**. The earlier first hygiene pass removed two ordinary worktrees and 104 local branches before this 39/56 baseline; those are not removals from this continuation. The only additional retirement authorized here concerns the temporary documentation checkout/ref after verified delivery.
-
-### Ten ARCHIVE_PENDING decisions
-
-| Worktree suffix | New bounded evidence / remaining blocker |
+| Category | Meaning |
 |---|---|
-| `c1-c4-integration` | Four commits outside main; composition and diagnostic runs lack demonstrated canonical preservation. |
-| `c1-cache-paths-candidate` | Fixture manifests, consolidated-base and independent evidence remain local; ancestry does not retain ignored runs. |
-| `c2-diagnostic-paths-candidate` | HEAD is reachable from main, but two c4n diagnostic namespaces lack demonstrated canonical evidence preservation. |
-| `c5-consolidated-candidate` | Delivery/independent-acceptance receipts and baseline delta evidence lack demonstrated canonical supersession. |
-| `c5-ipc-observability-candidate` | The local test matches main after CRLF normalization, but the 1,015-byte RED log lacks a demonstrated canonical copy. Partial supersession does not clear the checkout. |
-| `docs` | One out-of-main commit and native-proof JSON/XML/raw logs; canonical preservation not demonstrated. |
-| `path-feature` | Seventeen commits outside main, ignored build evidence and untracked NUL. Another ref to the same HEAD does not establish delivery. |
-| `s11a-setup-assist` | Custody/lifecycle evidence and installer media remain local; canonical retained media not demonstrated. |
-| `s11b-299` | Some payloads/media duplicate another pending checkout, but neither copy was demonstrated to be canonical retained evidence. |
-| `s11b-reconciled` | Lifecycle manifest/custody and validator-capture evidence remain; canonical supersession unproven. |
-
-Comparisons were bounded, not exhaustive proofs of global uniqueness. Inability to demonstrate preservation or supersession is enough to retain each item. No native proof was rerun to force a cleanup decision.
-
-### Eleven internal origins and exclusive index states
-
-All views are detached, have zero commits outside main and have no untracked files. Exact full HEADs and paths are in the inventory. HEAD `528313c` is the PR #198 merge, `584e5b2` the PR #199 merge and `3019d7f` the PR #328 merge; other feature/doc HEADs are reachable from main. These are local HEAD provenance facts, not proof that staged candidate content was merged. No owner-to-review UUID binding or canonical frozen-evidence hash was recovered.
-
-| UUID | Index blobs unreachable from refs | Owner file | Final retention / exclusive material |
-|---|---:|---|---|
-| `039fcc5b-a08d-4a82-8bcb-e967cede2447` | 0 | Present | AMBIGUOUS: lifecycle/disposal unknown. |
-| `1e8bbe8f-c0f8-46b5-8989-402816d157f0` | 8 | Absent | KEEP: staged Inno, smoke and specification evidence. |
-| `25dfd475-ca6e-48c0-8353-ebbe0b2a2d78` | 0 | Present | AMBIGUOUS: lifecycle/disposal unknown. |
-| `357c4513-44cb-45ba-b5ec-1a404e043be7` | 0 | Present | AMBIGUOUS: lifecycle/disposal unknown. |
-| `3e0b3082-8fb4-40d2-9128-ee40c907a4ad` | 8 | Absent | KEEP: staged discovery, tests and specifications. |
-| `65864db3-6edc-4845-8100-cea6bad7649f` | 8 | Absent | KEEP: staged discovery, tests and specifications. |
-| `b01d1df5-22eb-4f94-b852-1dcb09e1aeb2` | 2 | Present | KEEP: staged config-lock source and tests. |
-| `df645544-445e-44aa-b35b-0fcc5598954d` | 0 | Present | AMBIGUOUS: lifecycle/disposal unknown. |
-| `e6572f98-5b2a-4351-bd26-e02783b83443` | 8 | Absent | KEEP: staged discovery, tests and specifications. |
-| `ec0f02df-905a-4816-b99f-6ced807c5b45` | 2 | Present | KEEP: staged config-lock source and tests. |
-| `fecc0b18-e732-4325-b126-d6c81a8e56b1` | 6 | Absent | KEEP: staged smoke, Inno evidence and specifications. |
-
-Object reachability is a bounded Git comparison, not universal filesystem uniqueness. Some views share content, but that does not settle either lifecycle. Zero unreachable blobs is not terminal disposal proof. Internal views are not assigned ARCHIVE_PENDING because their live controller ownership/inactivity remains unknown.
-
-### All 29 branch-only references retained
-
-Twenty-eight contain commits outside main. The one ancestor reference has explicit historical/documental value. Consequently no branch passes all deletion conditions. Patch-equivalence does not change these reachability counts.
-
-| Branch | Commits outside main | Retention |
-|---|---:|---|
-| `chore/issue-311-ruff-baseline` | 7 | Outside-main history |
-| `chore/issue-311-ruff-e701-source` | 1 | Outside-main history |
-| `chore/issue-311-ruff-e701-tests` | 1 | Outside-main history |
-| `chore/issue-311-ruff-e702` | 1 | Outside-main history |
-| `chore/issue-311-ruff-e731` | 1 | Outside-main history |
-| `docs/issue-311-e7-closeout` | 1 | Outside-main history |
-| `docs/repository-agent-guide` | 1 | Outside-main history |
-| `feat/path-owned-cleanup-02-updates` | 2 | Outside-main history |
-| `feat/path-owned-cleanup-03-uninstall-consent` | 3 | Outside-main history |
-| `feat/r11-bounded-config-read` | 3 | Outside-main history |
-| `feat/r11-bounded-io-call` | 2 | Outside-main history |
-| `feat/r11-cache-coordination` | 4 | Outside-main history |
-| `feat/r11-foundations` | 1 | Outside-main history |
-| `feat/r11-foundations-v2` | 1 | Outside-main history |
-| `feat/r11-public-contract` | 5 | Outside-main history |
-| `feat/r11-runtime-lifecycle` | 5 | Outside-main history |
-| `feat/s11b-transaction-closeout-reconciled` | 9 | Outside-main history |
-| `feat/s11b-transaction-closeout-v2` | 0 | Explicit historical/documental reference |
-| `feature/137-json-projection` | 1 | Outside-main history |
-| `fix/g1-rollback-consent-gate` | 7 | Outside-main history |
-| `fix/path-add-error-boundary` | 19 | Outside-main history |
-| `fix/path-owned-cleanup-01-ownership` | 1 | Outside-main history |
-| `fix/path-owned-cleanup-04-exact-ownership` | 5 | Outside-main history |
-| `fix/path-owned-cleanup-05-inno-compat` | 10 | Outside-main history |
-| `fix/path-owned-cleanup-06-preview` | 14 | Outside-main history |
-| `fix/path-owned-cleanup-07-consent-arguments` | 17 | Outside-main history |
-| `fix/path-owned-cleanup-08-registry-io` | 18 | Outside-main history |
-| `fix/path-owned-cleanup-09-pytest-temp` | 19 | Outside-main history |
-| `fix/s11a-protocol-closeout` | 3 | Outside-main history |
-
-### Synchronized baseline and delivery boundary
-
-After the bounded cleanup, fetch/prune, worktree prune and fast-forward-only synchronization succeeded. `main == origin/main == 6ab4cd0cc17ad419e6201d60df21e3b04cbe7417`; main had no tracked/staged changes and the six historical untracked files remained present and unattributed. No historical refs or checkouts were removed.
-
-The documentation commit and merge necessarily advance main beyond this cleanup snapshot. Embedding the document's own eventual merge hash would be self-referential: use the PR merge record and `git rev-parse main origin/main` for the post-delivery identity. The temporary documentation checkout/ref is retired only after verified merge and fast-forward synchronization, followed by final prune. This does not change the 39 retained historical worktrees or their 56 local branches.
-
-Remaining human decisions are per-item: preservation/supersession for ten pending evidence holders; retained unique index material for seven internal views; controller disposal authority for four unresolved views; C6 causal proof; C10/C11 resumability; attribution of six historical main files. No broad disposal permission is inferred.
-
-## Git-state inventory: original 39
-
-The following snapshot was read during document preparation. `Index` counts staged paths, `WT` unstaged tracked paths, `U` untracked paths excluding ignored files, and `I` ignored paths. Counts are paths, not changed lines. Examples are partial and never define a deletion scope. Commits outside main are counted by reachability, not patch similarity.
-
-### 01. yasb-limitora — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora`.
-- HEAD: `6ab4cd0cc17ad419e6201d60df21e3b04cbe7417`.
-- Branch: `main`.
-- Commits outside main: **0**; behind main: **0**.
-- State: Index **0**, WT **0**, U **6**, I **370**.
-- Untracked examples: `8`, `odd/tasks/agent-guide-policy-clarification.md`, `odd/tasks/c4-diagnostic-native-cycle.md`, `odd/tasks/c4-diagnostic-persistence.md`, `odd/tasks/c4-runner-ruff-delivery.md`. Partial list; no disposable inference.
-- Ignored groups: `.agents` (6), `.atl` (3), `.codegraph` (3), `.pi` (1), `.pytest_cache` (5), `.ruff_cache` (120), `build` (128), `scripts` (5), `src` (53), `tests` (46). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 02. 039fcc5b-a08d-4a82-8bcb-e967cede2447 — AMBIGUOUS
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/039fcc5b-a08d-4a82-8bcb-e967cede2447`.
-- HEAD: `de76b29346fa465872f10b2b68bef8ea3a202417`.
-- Branch: `DETACHED (no branch)`.
-- Commits outside main: **0**; behind main: **93**.
-- State: Index **0**, WT **0**, U **0**, I **0**.
-- Retention/removal condition: controller-owned candidate state; lifecycle/supersession unassigned. Keep until terminal ownership and a permitted disposal route are demonstrated and the maintainer authorizes removal.
-
-### 03. 1e8bbe8f-c0f8-46b5-8989-402816d157f0 — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/1e8bbe8f-c0f8-46b5-8989-402816d157f0`.
-- HEAD: `528313c972e14ef72f784ada0284ac7fdf5a5d82`.
-- Branch: `DETACHED (no branch)`.
-- Commits outside main: **0**; behind main: **205**.
-- State: Index **28**, WT **0**, U **0**, I **0**.
-- Tracked-state examples (XY porcelain status): `M  README.md`, `A  docs/release/0.2.0/MIGRATION.md`, `A  docs/release/0.2.0/RELEASE_NOTES.md`, `A  docs/release/0.2.0/evidence/inno-staged-swap-spike.md`, `M  docs/roadmap.md`. Partial list; index/worktree distinctions must survive any future disposition.
-- Retention/removal condition: controller-owned candidate state; lifecycle/supersession unassigned. Keep until terminal ownership and a permitted disposal route are demonstrated and the maintainer authorizes removal.
-
-### 04. 25dfd475-ca6e-48c0-8353-ebbe0b2a2d78 — AMBIGUOUS
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/25dfd475-ca6e-48c0-8353-ebbe0b2a2d78`.
-- HEAD: `5490a506e4236fd689f0e9b49c83bb8267dc6344`.
-- Branch: `DETACHED (no branch)`.
-- Commits outside main: **0**; behind main: **100**.
-- State: Index **0**, WT **0**, U **0**, I **0**.
-- Retention/removal condition: controller-owned candidate state; lifecycle/supersession unassigned. Keep until terminal ownership and a permitted disposal route are demonstrated and the maintainer authorizes removal.
-
-### 05. 357c4513-44cb-45ba-b5ec-1a404e043be7 — AMBIGUOUS
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/357c4513-44cb-45ba-b5ec-1a404e043be7`.
-- HEAD: `c04be6ebf4caf557a50f4fdc9771d2f9e65964ae`.
-- Branch: `DETACHED (no branch)`.
-- Commits outside main: **0**; behind main: **99**.
-- State: Index **0**, WT **0**, U **0**, I **0**.
-- Retention/removal condition: controller-owned candidate state; lifecycle/supersession unassigned. Keep until terminal ownership and a permitted disposal route are demonstrated and the maintainer authorizes removal.
-
-### 06. 3e0b3082-8fb4-40d2-9128-ee40c907a4ad — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/3e0b3082-8fb4-40d2-9128-ee40c907a4ad`.
-- HEAD: `528313c972e14ef72f784ada0284ac7fdf5a5d82`.
-- Branch: `DETACHED (no branch)`.
-- Commits outside main: **0**; behind main: **205**.
-- State: Index **38**, WT **0**, U **0**, I **0**.
-- Tracked-state examples (XY porcelain status): `M  README.md`, `A  docs/release/0.2.0/MIGRATION.md`, `A  docs/release/0.2.0/RELEASE_NOTES.md`, `A  docs/release/0.2.0/evidence/inno-staged-swap-spike.md`, `A  docs/release/0.2.0/evidence/spacepath-spike-widget-r3.png`. Partial list; index/worktree distinctions must survive any future disposition.
-- Retention/removal condition: controller-owned candidate state; lifecycle/supersession unassigned. Keep until terminal ownership and a permitted disposal route are demonstrated and the maintainer authorizes removal.
-
-### 07. 65864db3-6edc-4845-8100-cea6bad7649f — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/65864db3-6edc-4845-8100-cea6bad7649f`.
-- HEAD: `528313c972e14ef72f784ada0284ac7fdf5a5d82`.
-- Branch: `DETACHED (no branch)`.
-- Commits outside main: **0**; behind main: **205**.
-- State: Index **38**, WT **0**, U **0**, I **0**.
-- Tracked-state examples (XY porcelain status): `M  README.md`, `A  docs/release/0.2.0/MIGRATION.md`, `A  docs/release/0.2.0/RELEASE_NOTES.md`, `A  docs/release/0.2.0/evidence/inno-staged-swap-spike.md`, `A  docs/release/0.2.0/evidence/spacepath-spike-widget-r3.png`. Partial list; index/worktree distinctions must survive any future disposition.
-- Retention/removal condition: controller-owned candidate state; lifecycle/supersession unassigned. Keep until terminal ownership and a permitted disposal route are demonstrated and the maintainer authorizes removal.
-
-### 08. b01d1df5-22eb-4f94-b852-1dcb09e1aeb2 — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/b01d1df5-22eb-4f94-b852-1dcb09e1aeb2`.
-- HEAD: `7a2ea0eacf19de8c6b3f0f45e6997a9e8d631ae9`.
-- Branch: `DETACHED (no branch)`.
-- Commits outside main: **0**; behind main: **124**.
-- State: Index **4**, WT **0**, U **0**, I **0**.
-- Tracked-state examples (XY porcelain status): `M  openspec/changes/release-and-smoke-test-0-2-0/apply-progress.md`, `M  openspec/changes/release-and-smoke-test-0-2-0/tasks.md`, `M  src/yasb_limitora/_config_lock.py`, `M  tests/test_config_lock.py`.
-- Retention/removal condition: controller-owned candidate state; lifecycle/supersession unassigned. Keep until terminal ownership and a permitted disposal route are demonstrated and the maintainer authorizes removal.
-
-### 09. df645544-445e-44aa-b35b-0fcc5598954d — AMBIGUOUS
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/df645544-445e-44aa-b35b-0fcc5598954d`.
-- HEAD: `3019d7f8a2aff05511161d583b46b26b91c4cf21`.
-- Branch: `DETACHED (no branch)`.
-- Commits outside main: **0**; behind main: **51**.
-- State: Index **1**, WT **0**, U **0**, I **0**.
-- Tracked-state examples (XY porcelain status): `A  AGENTS.md`.
-- Retention/removal condition: controller-owned candidate state; lifecycle/supersession unassigned. Keep until terminal ownership and a permitted disposal route are demonstrated and the maintainer authorizes removal.
-
-### 10. e6572f98-5b2a-4351-bd26-e02783b83443 — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/e6572f98-5b2a-4351-bd26-e02783b83443`.
-- HEAD: `528313c972e14ef72f784ada0284ac7fdf5a5d82`.
-- Branch: `DETACHED (no branch)`.
-- Commits outside main: **0**; behind main: **205**.
-- State: Index **38**, WT **0**, U **0**, I **0**.
-- Tracked-state examples (XY porcelain status): `M  README.md`, `A  docs/release/0.2.0/MIGRATION.md`, `A  docs/release/0.2.0/RELEASE_NOTES.md`, `A  docs/release/0.2.0/evidence/inno-staged-swap-spike.md`, `A  docs/release/0.2.0/evidence/spacepath-spike-widget-r3.png`. Partial list; index/worktree distinctions must survive any future disposition.
-- Retention/removal condition: controller-owned candidate state; lifecycle/supersession unassigned. Keep until terminal ownership and a permitted disposal route are demonstrated and the maintainer authorizes removal.
-
-### 11. ec0f02df-905a-4816-b99f-6ced807c5b45 — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/ec0f02df-905a-4816-b99f-6ced807c5b45`.
-- HEAD: `584e5b25bf6e97fbc68898850a00d4e4bf8b428d`.
-- Branch: `DETACHED (no branch)`.
-- Commits outside main: **0**; behind main: **133**.
-- State: Index **5**, WT **0**, U **0**, I **0**.
-- Tracked-state examples (XY porcelain status): `M  openspec/changes/release-and-smoke-test-0-2-0/decomposition.md`, `M  openspec/changes/release-and-smoke-test-0-2-0/design.md`, `M  openspec/changes/release-and-smoke-test-0-2-0/tasks.md`, `A  src/yasb_limitora/_config_lock.py`, `A  tests/test_config_lock.py`.
-- Retention/removal condition: controller-owned candidate state; lifecycle/supersession unassigned. Keep until terminal ownership and a permitted disposal route are demonstrated and the maintainer authorizes removal.
-
-### 12. fecc0b18-e732-4325-b126-d6c81a8e56b1 — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/fecc0b18-e732-4325-b126-d6c81a8e56b1`.
-- HEAD: `528313c972e14ef72f784ada0284ac7fdf5a5d82`.
-- Branch: `DETACHED (no branch)`.
-- Commits outside main: **0**; behind main: **205**.
-- State: Index **26**, WT **0**, U **0**, I **0**.
-- Tracked-state examples (XY porcelain status): `M  README.md`, `A  docs/release/0.2.0/MIGRATION.md`, `A  docs/release/0.2.0/RELEASE_NOTES.md`, `A  docs/release/0.2.0/evidence/inno-staged-swap-spike.md`, `M  docs/roadmap.md`. Partial list; index/worktree distinctions must survive any future disposition.
-- Retention/removal condition: controller-owned candidate state; lifecycle/supersession unassigned. Keep until terminal ownership and a permitted disposal route are demonstrated and the maintainer authorizes removal.
-
-### 13. yasb-limitora-304 — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-304`.
-- HEAD: `8d8f157fccae0fd7b8d8bab6be8c44b6009ca474`.
-- Branch: `feat/issue-304-reusable-vm-harness`.
-- Commits outside main: **0**; behind main: **73**.
-- State: Index **0**, WT **0**, U **60**, I **100**.
-- Untracked examples: `proof-harness/host/artifacts/inno-task-consent-diagnostic-r1/20261003T112409Z-402a2f9b28e6491b806c348ddde5a0c8-evidence.vhdx`, `proof-harness/host/artifacts/inno-task-consent-diagnostic-r1/20261003T112409Z-402a2f9b28e6491b806c348ddde5a0c8-inputs.vhdx`, `proof-harness/host/artifacts/inno-task-consent-diagnostic-r1/existing-state-read-20261004T010942Z-44701cf03fa54b419e1769e5a4829863/evidence.vhdx`, `proof-harness/host/artifacts/inno-task-consent-diagnostic-r1/existing-state-read-20261004T010942Z-44701cf03fa54b419e1769e5a4829863/final-readback/path-inspection-collected.json`, `proof-harness/host/artifacts/inno-task-consent-diagnostic-r1/existing-state-read-20261004T010942Z-44701cf03fa54b419e1769e5a4829863/final-readback/path-ownership.json`. Partial list; no disposable inference.
-- Ignored groups: `.atl` (2), `.codegraph` (3), `.pytest_cache` (5), `.ruff_cache` (8), `build` (66), `proof-harness` (10), `tests` (6). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 14. yasb-limitora-approved-import-proof — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-approved-import-proof`.
-- HEAD: `0b04d815a7f0315fb32ca1bff0746066ac06565b`.
-- Branch: `chore/approved-import-proof`.
-- Commits outside main: **0**; behind main: **24**.
-- State: Index **0**, WT **1**, U **6**, I **21966**.
-- Tracked-state examples (XY porcelain status): ` M scripts/README.md`.
-- Untracked examples: `docs/approved-import-proof.md`, `odd/tasks/approved-import-proof.md`, `scripts/approved_import_preflight.py`, `scripts/prepare_approved_environment.py`, `tests/test_approved_import_preflight.py`. Partial list; no disposable inference.
-- Ignored groups: `.codegraph` (2), `.ruff_cache` (7), `build` (21957). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 15. yasb-limitora-c1-c4-integration — ARCHIVE_PENDING
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c1-c4-integration`.
-- HEAD: `298228a46bec452c483202c8518a332e78bd8c49`.
-- Branch: `test/c1-c4-composition`.
-- Commits outside main: **4**; behind main: **24**.
-- State: Index **0**, WT **0**, U **0**, I **3546**.
-- Ignored groups: `.ruff_cache` (7), `.venv` (3010), `build` (304), `tmp` (225). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 16. yasb-limitora-c1-cache-paths-candidate — ARCHIVE_PENDING
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c1-cache-paths-candidate`.
-- HEAD: `c7d80b0db2afa15b7982ad758770b7cfcd596ffa`.
-- Branch: `fix/c1-temp-fixture`.
-- Commits outside main: **0**; behind main: **22**.
-- State: Index **0**, WT **0**, U **0**, I **267**.
-- Ignored groups: `.ruff_cache` (7), `build` (260). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 17. yasb-limitora-c2-diagnostic-paths-candidate — ARCHIVE_PENDING
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c2-diagnostic-paths-candidate`.
-- HEAD: `9a4187b8b0160619117a8769293fee46336726e5`.
-- Branch: `DETACHED (no branch)`.
-- Commits outside main: **0**; behind main: **23**.
-- State: Index **0**, WT **0**, U **0**, I **157**.
-- Ignored groups: `.ruff_cache` (3), `build` (154). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 18. yasb-limitora-c4-correction — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c4-correction`.
-- HEAD: `0b04d815a7f0315fb32ca1bff0746066ac06565b`.
-- Branch: `fix/c4-diagnostic-persistence`.
-- Commits outside main: **0**; behind main: **24**.
-- State: Index **0**, WT **2**, U **3**, I **308**.
-- Tracked-state examples (XY porcelain status): ` M proof-harness/README.md`, ` M proof-harness/guest/owned-cleanup/runner.ps1`.
-- Untracked examples: `odd/tasks/c4-exception-fidelity.md`, `tests/powershell/test_c4_diagnostic_persistence.ps1`, `tests/test_c4_diagnostic_persistence.py`.
-- Ignored groups: `build` (308). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 19. yasb-limitora-c4-updated-candidate — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c4-updated-candidate`.
-- HEAD: `f5bd66fa17480fb71c5502e590ea89df329c8e01`.
-- Branch: `proof/c4-updated-candidate`.
-- Commits outside main: **0**; behind main: **27**.
-- State: Index **0**, WT **3**, U **4**, I **7259**.
-- Tracked-state examples (XY porcelain status): ` M .github/workflows/lint.yml`, ` M README.md`, ` M pyproject.toml`.
-- Untracked examples: `odd/tasks/c4-diagnostic-native-rerun.md`, `odd/tasks/c4-runner-diagnostic-native-check.md`, `odd/tasks/c4-runner-error-boundary.md`, `odd/tasks/c4-updated-candidate.md`.
-- Ignored groups: `build` (7259). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 20. yasb-limitora-c4-verification — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c4-verification`.
-- HEAD: `8f2793246d39d3a09cf7bd39c7853db220f7e0cd`.
-- Branch: `proof/c4-baseline-verification`.
-- Commits outside main: **17**; behind main: **50**.
-- State: Index **0**, WT **2**, U **3**, I **878**.
-- Tracked-state examples (XY porcelain status): ` M tests/test_setup_assist_path.py`, ` M tests/test_setup_assist_protocol.py`.
-- Untracked examples: `odd/tasks/c4-baseline-verification.md`, `odd/tasks/inno-task-consent-diagnostic.md`, `odd/tasks/modern-path-proof-runner.md`.
-- Ignored groups: `.ruff_cache` (3), `build` (872), `src` (3). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 21. yasb-limitora-c5-consolidated-candidate — ARCHIVE_PENDING
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c5-consolidated-candidate`.
-- HEAD: `c5bea4c9ddf0642cf06b360f19e7da406e2e2625`.
-- Branch: `fix/c5-observability-consolidated`.
-- Commits outside main: **0**; behind main: **12**.
-- State: Index **0**, WT **0**, U **0**, I **215**.
-- Ignored groups: `.ruff_cache` (7), `build` (46), `tmp` (162). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 22. yasb-limitora-c5-ipc-observability-candidate — ARCHIVE_PENDING
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c5-ipc-observability-candidate`.
-- HEAD: `0b04d815a7f0315fb32ca1bff0746066ac06565b`.
-- Branch: `fix/c5-ipc-observability`.
-- Commits outside main: **0**; behind main: **24**.
-- State: Index **0**, WT **0**, U **1**, I **2**.
-- Untracked examples: `tests/test_native_proof_observability.py`.
-- Ignored groups: `build` (2). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 23. yasb-limitora-c6-premapping — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c6-premapping`.
-- HEAD: `f9505932be7ed3a6a67e0609b399a48706a554c3`.
-- Branch: `feat/pre-mapping-provider-error-observability`.
-- Commits outside main: **0**; behind main: **1**.
-- State: Index **0**, WT **0**, U **0**, I **24**.
-- Ignored groups: `.ruff_cache` (7), `build` (17). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 24. yasb-limitora-c7-artifact-scanner-candidate — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c7-artifact-scanner-candidate`.
-- HEAD: `f334b27488e772d3f54b884f738a082facd3881b`.
-- Branch: `fix/c7-native-artifact-scanner`.
-- Commits outside main: **0**; behind main: **23**.
-- State: Index **0**, WT **0**, U **1**, I **70**.
-- Untracked examples: `odd/tasks/c7-c5-c8-delivery.md`.
-- Ignored groups: `.ruff_cache` (7), `build` (10), `tmp` (53). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 25. yasb-limitora-c8-import-evidence-candidate — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c8-import-evidence-candidate`.
-- HEAD: `386a0542d25c494c8a245188aa0f06fc432c7a7f`.
-- Branch: `fix/c8-helper-import-evidence`.
-- Commits outside main: **0**; behind main: **10**.
-- State: Index **0**, WT **0**, U **1**, I **148**.
-- Untracked examples: `odd/tasks/exception-fidelity-reconciliation.md`.
-- Ignored groups: `.ruff_cache` (7), `build` (72), `tmp` (69). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 26. yasb-limitora-c9-preflight — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c9-preflight`.
-- HEAD: `aec3c0283b85c75da88ae7262bef73c2ea932041`.
-- Branch: `chore/approved-source-preflight`.
-- Commits outside main: **0**; behind main: **3**.
-- State: Index **0**, WT **0**, U **1**, I **1697**.
-- Untracked examples: `odd/tasks/c6-rederivation.md`.
-- Ignored groups: `.ruff_cache` (7), `build` (1690). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 27. yasb-limitora-cache-marker-fix — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-cache-marker-fix`.
-- HEAD: `0b04d815a7f0315fb32ca1bff0746066ac06565b`.
-- Branch: `fix/cache-marker-publication`.
-- Commits outside main: **0**; behind main: **24**.
-- State: Index **201**, WT **0**, U **222**, I **2976**.
-- Tracked-state examples (XY porcelain status): `D  .gitattributes`, `D  .github/workflows/lint.yml`, `D  .github/workflows/windows-proof-functions.ps1`, `D  .github/workflows/windows-proof.yml`, `D  .gitignore`. Partial list; index/worktree distinctions must survive any future disposition.
-- Untracked examples: `.gitattributes`, `.github/workflows/lint.yml`, `.github/workflows/windows-proof-functions.ps1`, `.github/workflows/windows-proof.yml`, `.gitignore`. Partial list; no disposable inference.
-- Ignored groups: `.codegraph` (2), `.pytest_cache` (5), `.ruff_cache` (7), `build` (2873), `packaging` (1), `scripts` (5), `src` (27), `tests` (56). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 28. yasb-limitora-docs — ARCHIVE_PENDING
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-docs`.
-- HEAD: `203fe27190e1863df2711b6afd3fec7fbd1b3798`.
-- Branch: `docs/installation-guide-coherence`.
-- Commits outside main: **1**; behind main: **50**.
-- State: Index **0**, WT **0**, U **2**, I **1618**.
-- Untracked examples: `native-proof.json`, `native-proof.xml`.
-- Ignored groups: `.pytest_cache` (5), `.venv` (1526), `full-suite.raw.log` (1), `native-proof.raw.log` (1), `scripts` (5), `src` (32), `tests` (48). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 29. yasb-limitora-exception-fidelity — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-exception-fidelity`.
-- HEAD: `95ea16018c3286e59091191d162abebfe72d82e4`.
-- Branch: `fix/exception-fidelity-a1`.
-- Commits outside main: **0**; behind main: **8**.
-- State: Index **0**, WT **0**, U **2**, I **186**.
-- Untracked examples: `odd/tasks/exception-fidelity-a1-a2.md`, `odd/tasks/phase-closure.md`.
-- Ignored groups: `.ruff_cache` (7), `build` (179). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 30. yasb-limitora-i1-hermetic-ab — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-i1-hermetic-ab`.
-- HEAD: `f5bd66fa17480fb71c5502e590ea89df329c8e01`.
-- Branch: `test/i1-hermetic-ab`.
-- Commits outside main: **0**; behind main: **27**.
-- State: Index **0**, WT **0**, U **71**, I **115**.
-- Untracked examples: `.h2-i1-ab-20260625-6d4c1f/A/src/yasb_limitora/__init__.py`, `.h2-i1-ab-20260625-6d4c1f/A/src/yasb_limitora/__main__.py`, `.h2-i1-ab-20260625-6d4c1f/A/src/yasb_limitora/_codex_resource_core.py`, `.h2-i1-ab-20260625-6d4c1f/A/src/yasb_limitora/_config_lock.py`, `.h2-i1-ab-20260625-6d4c1f/A/src/yasb_limitora/_env_block.py`. Partial list; no disposable inference.
-- Ignored groups: `build` (115). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 31. yasb-limitora-ipc-observability — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-ipc-observability`.
-- HEAD: `0b04d815a7f0315fb32ca1bff0746066ac06565b`.
-- Branch: `chore/ipc-fixture-observability`.
-- Commits outside main: **0**; behind main: **24**.
-- State: Index **0**, WT **4**, U **4**, I **23**.
-- Tracked-state examples (XY porcelain status): ` M src/yasb_limitora/codex_helper.py`, ` M src/yasb_limitora/codex_supervisor.py`, ` M tests/fixtures/windows_descendant.py`, ` M tests/test_windows_native_proof.py`.
-- Untracked examples: `docs/native-proof-observability.md`, `odd/tasks/ipc-fixture-observability.md`, `src/yasb_limitora/_native_proof_observability.py`, `tests/test_native_proof_observability.py`.
-- Ignored groups: `build` (23). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 32. yasb-limitora-ipc-observability-infrastructure — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-ipc-observability-infrastructure`.
-- HEAD: `0b04d815a7f0315fb32ca1bff0746066ac06565b`.
-- Branch: `chore/ipc-observability-infrastructure`.
-- Commits outside main: **0**; behind main: **24**.
-- State: Index **0**, WT **5**, U **8**, I **1476**.
-- Tracked-state examples (XY porcelain status): ` M src/yasb_limitora/codex_helper.py`, ` M src/yasb_limitora/codex_supervisor.py`, ` M src/yasb_limitora/limitora_api.py`, ` M tests/fixtures/windows_descendant.py`, ` M tests/test_windows_native_proof.py`.
-- Untracked examples: `docs/native-artifact-scanner.md`, `docs/native-proof-observability.md`, `odd/tasks/ipc-observability-infrastructure.md`, `src/yasb_limitora/_native_proof_observability.py`, `tests/test_helper_bootstrap_import_evidence.py`. Partial list; no disposable inference.
-- Ignored groups: `.ruff_cache` (4), `build` (1472). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 33. yasb-limitora-ipc-persistence-observability — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-ipc-persistence-observability`.
-- HEAD: `0b04d815a7f0315fb32ca1bff0746066ac06565b`.
-- Branch: `chore/ipc-persistence-observability`.
-- Commits outside main: **0**; behind main: **24**.
-- State: Index **0**, WT **5**, U **5**, I **1141**.
-- Tracked-state examples (XY porcelain status): ` M src/yasb_limitora/codex_helper.py`, ` M src/yasb_limitora/codex_supervisor.py`, ` M src/yasb_limitora/limitora_api.py`, ` M tests/fixtures/windows_descendant.py`, ` M tests/test_windows_native_proof.py`.
-- Untracked examples: `docs/native-proof-observability.md`, `odd/tasks/ipc-persistence-boundary.md`, `src/yasb_limitora/_native_proof_observability.py`, `tests/test_ipc_persistence_observability.py`, `tests/test_native_proof_observability.py`.
-- Ignored groups: `build` (1141). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 34. yasb-limitora-path-feature — ARCHIVE_PENDING
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-path-feature`.
-- HEAD: `8f2793246d39d3a09cf7bd39c7853db220f7e0cd`.
-- Branch: `feat/path-installer-management`.
-- Commits outside main: **17**; behind main: **50**.
-- State: Index **0**, WT **0**, U **1**, I **283**.
-- Untracked examples: `NUL`.
-- Ignored groups: `.atl` (3), `.codegraph` (3), `.pytest_cache` (5), `.ruff_cache` (7), `build` (145), `scripts` (5), `src` (26), `tests` (89). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 35. yasb-limitora-path-step-trace — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-path-step-trace`.
-- HEAD: `0b04d815a7f0315fb32ca1bff0746066ac06565b`.
-- Branch: `chore/c4-path-step-trace`.
-- Commits outside main: **0**; behind main: **24**.
-- State: Index **0**, WT **4**, U **4**, I **5**.
-- Tracked-state examples (XY porcelain status): ` M packaging/inno/SetupAssistant.isi`, ` M packaging/inno/yasb-limitora.iss`, ` M src/yasb_limitora/setup_assist.py`, ` M tests/test_inno_script.py`.
-- Untracked examples: `docs/installer-path-step-trace.md`, `odd/tasks/installer-path-step-trace.md`, `src/yasb_limitora/_path_step_trace.py`, `tests/test_installer_path_trace.py`.
-- Ignored groups: `.pytest_cache` (5). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 36. yasb-limitora-s11-residual-proof — KEEP
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-s11-residual-proof`.
-- HEAD: `4705748e7a64af34a47528f4fa73f02f8f391f5e`.
-- Branch: `fix/s11-consented-cleanup`.
-- Commits outside main: **1**; behind main: **50**.
-- State: Index **0**, WT **0**, U **4**, I **13653**.
-- Untracked examples: `nul`, `nul.json`, `odd/tasks/inno-task-consent-diagnostic.md`, `odd/tasks/modern-path-proof-runner.md`.
-- Ignored groups: `.atl` (3), `.codegraph` (3), `.pytest_cache` (5), `.ruff_cache` (17), `.venv` (1837), `build` (11712), `scripts` (5), `src` (26), `tests` (45). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 37. yasb-limitora-s11a-setup-assist — ARCHIVE_PENDING
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-s11a-setup-assist`.
-- HEAD: `5cc45b29abe4c7a393327f0af76bddf1a49ebed4`.
-- Branch: `feat/s11a-installer-hardening`.
-- Commits outside main: **0**; behind main: **97**.
-- State: Index **0**, WT **0**, U **0**, I **3455**.
-- Ignored groups: `.atl` (2), `.codegraph` (2), `.pytest_cache` (5), `.ruff_cache` (7), `.venv` (2949), `build` (348), `scripts` (4), `src` (58), `tests` (80). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 38. yasb-limitora-s11b-299 — ARCHIVE_PENDING
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-s11b-299`.
-- HEAD: `364d4bffc00d48b62ba31339b4eb5c39c1778c6f`.
-- Branch: `feat/s11b-issue-299-closeout`.
-- Commits outside main: **0**; behind main: **65**.
-- State: Index **0**, WT **0**, U **0**, I **221**.
-- Ignored groups: `.atl` (2), `.codegraph` (3), `.pytest_cache` (5), `.ruff_cache` (6), `build` (128), `proof-harness` (1), `scripts` (2), `src` (26), `tests` (48). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
-
-### 39. yasb-limitora-s11b-reconciled — ARCHIVE_PENDING
-
-- Path: `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-s11b-reconciled`.
-- HEAD: `d5a05069169892c3b567922077aea0226e25a6a7`.
-- Branch: `build/c5-reproof`.
-- Commits outside main: **0**; behind main: **79**.
-- State: Index **0**, WT **0**, U **0**, I **467**.
-- Ignored groups: `.atl` (2), `.codegraph` (3), `.pytest_cache` (5), `.ruff_cache` (8), `build` (307), `scripts` (10), `src` (52), `tests` (80). Ignored status is not evidence supersession.
-- Retention/removal condition: see the named decision entry above; no removal is authorized by this snapshot.
+| LIVE_WORK_REQUIRED | Selected continuation or active repository control requires retained source/state. This does not automatically require a permanent checkout. |
+| KNOWLEDGE_ONLY | A compact conclusion, context, refs, essential inputs, reproduction conditions and limits suffice; physical historical outputs are unnecessary. |
+| DELETE_BLOCKED_BY_LIFECYCLE | No technical byte-retention need was established, but disposal of a controller-owned view lacks an authorized lifecycle route. This is not a preservation-value claim. |
+| SAFE_DELETE | Required source/knowledge has a stable representation and the exact physical target may be retired within the approved scope. Actual removal is recorded separately. |
+
+The shared `.git` store is operational infrastructure, not a disposable artifact. It holds the parked refs, objects and administration of surviving worktrees. No manual object deletion, authority reset/recovery, force-unlock or controller-token editing is part of this cleanup.
+
+## Selected continuation bytes
+
+### I1 / C10: minimum parked A/B unit
+
+- Base: `f5bd66fa17480fb71c5502e590ea89df329c8e01`; local branch `test/i1-hermetic-ab`.
+- Preservation commit: **1845246b0e6bfb588eec02c274446e2a5d0adcd9**.
+- Retain only `scripts/i1_hermetic_ab.py`, `tests/test_i1_hermetic_ab.py` and `docs/retained-work/i1.md`. Source/tests are 19,695 original working-copy bytes; note 6,208; total 25,903 before Git EOL normalization.
+- No separate fixture bytes are needed: synthetic inputs and namespace generation are in source. Original A is `8f2793246d39d3a09cf7bd39c7853db220f7e0cd`, corrected B is the pinned base above. Their commits and package objects must remain reachable in shared Git; a recorded hash alone is not a GC root.
+- Historical result: A raised `OSError`, B returned controlled `path-add/refused/path-access-failed`; one fake read, zero writes and no real registry guards. This is exception containment, not successful PATH modification or proof of the original incident's cause.
+- Native probe was NOT EXECUTED/accepted. Its partial implementation could report BLOCKED without `cliInvoked` when a post-call `ProbeRefused` occurred. Preserve this defect and the intended contract in the note, not four declined scaffolding files.
+- Reproduction is an explicitly authorized future Windows A/B using immutable A/B source, the embedded synthetic request and a fresh owned namespace. Exact command, dependencies, inputs and limitations are in the parked note. No old environment, namespace, logs, outputs or builds are required. No execution occurred during retention preparation.
+
+### PATH trace / C11: minimum parked diagnostic delta
+
+- Base: `0b04d815a7f0315fb32ca1bff0746066ac06565b`; local branch `chore/c4-path-step-trace`.
+- Preservation commit: **ebdd0e75fda5e254def826a39932200edd0c21a9**.
+- Retain six source/test files: `packaging/inno/SetupAssistant.isi`, `packaging/inno/yasb-limitora.iss`, `src/yasb_limitora/setup_assist.py`, `src/yasb_limitora/_path_step_trace.py`, `tests/test_inno_script.py`, `tests/test_installer_path_trace.py`, plus `docs/retained-work/path-trace.md`.
+- Original full-file source/test payload: 167,821 working-copy bytes; note 5,718; total 173,539 before Git EOL normalization. Canonical Git blobs total **170,322 bytes**, of which **164,604** are source/tests and **5,718** the note. The Git delta is smaller than the full-file payload and does not duplicate an entire worktree/environment. One original incidental indentation-only hunk was retained for source fidelity; it is not a functional enhancement.
+- Contract: opt-in/default-off bounded private diagnostics, exclusive creation and sanitized PATH/marker projections, no diagnostic machine-readable stream pollution. The note preserves gate/layout/schema, event/privacy/cap constraints and all required seams.
+- Historical focused checks do not establish present runtime acceptance. P3 was blocked by a native-helper full-suite failure without demonstrated candidate/base causality.
+- New static observation, not repaired: `YasbPathTraceEnabled` never assigns a true result, so the retained Inno logger remains disabled. This is an intentionally parked prototype, not a promoted fix. Review the design and this defect under fresh authorization before resumption.
+- No nonregenerable fixture/environment is required. Reconstruct the pinned base plus the retained delta; agree isolated tests and any native scope separately. Do not reuse consumed VM/registry/installer grants.
+
+For both units, minimal source/test bytes are the continuation record. Both original physical worktrees have been removed. Combined canonical payload is **196,225 bytes across ten files**: **184,299 source/test bytes** and **11,926 note bytes**. This is logical file content, not compressed Git allocation or space reclaimed. No fixture, log, environment, namespace or build copy is retained for these units. No new reason to preserve historical artifact bytes was found. The disabled C11 logger is a newly documented prototype defect, not an additional artifact-retention requirement.
+
+## Sufficient knowledge: priority delivered units
+
+The exact original paths, HEADs and branches are recorded in the inventory below. Ref identifiers provide provenance; notes do not replay old permission or imply runtime certification.
+
+### pre-mapping ProviderError slice
+
+- Conclusion/context: the narrow optional observer records allowlisted provider error type/stage before safe mapping. This does not establish cross-process causality or close historical C6.
+- Refs: source `f9505932be7ed3a6a67e0609b399a48706a554c3`, PR #369 / issue #368, merge `6ab4cd0cc17ad419e6201d60df21e3b04cbe7417`.
+- Inputs/recipe: use the versioned optional diagnostic contract and focused tests from that source commit; observation is off without its gate. Existing refs/PR plus the code suffice for future authorized reproduction.
+- Limits/disposition: no original IPC-cause claim. Publish scripts, issue/PR bodies, RED/GREEN logs and merge-ledger copies need not survive physically. KNOWLEDGE_ONLY, then SAFE_DELETE checkout.
+
+### C7 artifact scanner
+
+- Conclusion/context: scanning must distinguish regular files from directories/unsafe types rather than blindly calling `read_bytes`; local test artifacts can include directories.
+- Refs: `f334b27488e772d3f54b884f738a082facd3881b`, PR #357; delivered scanner/tests/docs are in main.
+- Inputs/recipe: versioned synthetic scanner cases covering regular files, directory/type handling and read failures; use declared tooling from the chosen ref, not a donor environment.
+- Limits/disposition: scanner acceptance is not native IPC causal proof. Preserve the C7->C5->C8 dependency/stop rationale here, not the original full delivery tracker or tmp/build outputs. KNOWLEDGE_ONLY, then SAFE_DELETE checkout.
+
+### C8 bootstrap import evidence
+
+- Conclusion/context: absence of the observer journal cannot prove the helper never started; bootstrap/import failures need a bounded independent breadcrumb. Exception preservation, diagnostic enrichment and native acceptance are separate questions.
+- Refs: `386a0542d25c494c8a245188aa0f06fc432c7a7f`, PR #361 / issue #360, merge `539566ad361bad58c39606189c09c95a230f77b7`; canonical implementation/tests are in main.
+- Inputs/recipe: use committed bootstrap failure fixtures and stderr/stream contract; independently bind interpreter/import origin if reproducing under authorization.
+- Limits/disposition: v2 enrichment was not demonstrated necessary for the minimal exception-fidelity contract. No native propagation/causality claim. Reconciliation conclusion replaces the working tracker and run outputs. KNOWLEDGE_ONLY, then SAFE_DELETE checkout.
+
+### C9 approved-source preflight and C6 re-derivation
+
+- Conclusion/context: approval must be independently anchored, not self-declared by an input manifest. Temporal proximity of events does not by itself prove provider/helper cross-process causal identity.
+- Refs: `aec3c0283b85c75da88ae7262bef73c2ea932041`, PR #367; versioned `approved_source_preflight.py` / `approved_source_anchor.py` are the current implementation.
+- Inputs/recipe: known immutable approved tree, declared module allowlist and controlled positive/negative identity fixtures. Reproduce using the committed contract, not the earlier hardcoded donor's environment.
+- Limits/disposition: retain the negative C6 reasoning and its unresolved causal identity, not the old clock-run outputs or full re-derivation transcript. KNOWLEDGE_ONLY, then SAFE_DELETE checkout.
+
+### Exception fidelity and phase closure
+
+- Conclusion/context: A1/A2 preserved exception identity across the intended boundary; local proof/delivery did not establish the historical IPC cause, a successful native C4, or installer end-to-end acceptance. A lifecycle interface with a manifest consumer but no tracked producer was a separate limitation, not a reason to silently publish private harnesses.
+- Refs: `95ea16018c3286e59091191d162abebfe72d82e4`, A1/A2 PRs #363/#365; delivered code and its public tests remain in main.
+- Inputs/recipe: use the versioned exception-boundary fixtures and exact candidate ref; distinguish local fake-callback proof from production callback/native execution.
+- Limits/disposition: original IPC cause remains UNKNOWN. The compact distinction and public refs replace the nine-PR working ledger and full trackers. KNOWLEDGE_ONLY, then SAFE_DELETE checkout.
+
+## Internal candidate views: technical value versus controller lifecycle
+
+All eleven are detached views whose HEAD commits are ancestors of main. Seven indexes contain old blobs not reachable from refs, but no selected continuation or concrete non-reproducible claim requires those historical bytes. Uniqueness is not a MUST_PRESERVE_BYTES argument.
+
+- `1e8bbe8f-c0f8-46b5-8989-402816d157f0`: old G1/Inno `pre-install-evacuation`, smoke and specification pairing; eight unreachable index blobs. Preserve the historical design/state conclusion only.
+- `3e0b3082-8fb4-40d2-9128-ee40c907a4ad`, `65864db3-6edc-4845-8100-cea6bad7649f`, `e6572f98-5b2a-4351-bd26-e02783b83443`: identical staged discovery/S04a snapshots with `FsView.kind`, a space-path spike and scoped verification text; eight blobs per view but one shared content set. Main evolved this area. No copy is retained by default merely to have one old copy.
+- `b01d1df5-22eb-4f94-b852-1dcb09e1aeb2`: later staged Guard/deadline config-lock variant, two unreachable blobs. Main has a later lock/fallback implementation; no necessary missing capability was demonstrated.
+- `ec0f02df-905a-4816-b99f-6ced807c5b45`: initial small Guard/deadline lock design, two unreachable blobs; preserve its conceptual contract, not a physical early-version checkout.
+- `fecc0b18-e732-4325-b126-d6c81a8e56b1`: smoke/G1-fallback snapshot with G1 not yet closed; six unreachable blobs, partial overlap with the Inno snapshot. Do not attribute later acceptance retrospectively to that state.
+- `039fcc5b-a08d-4a82-8bcb-e967cede2447`, `25dfd475-ca6e-48c0-8353-ebbe0b2a2d78`, `357c4513-44cb-45ba-b5ec-1a404e043be7`, `df645544-445e-44aa-b35b-0fcc5598954d`: no unreachable index blobs in the bounded prior comparison; no technical physical-retention need identified.
+
+Inputs/recipe: reconstruct current behavior from versioned main tests/specifications. No historical candidate replay is selected. Old HEADs have local provenance (including PR #198/#199/#328 ancestry), not proof that a particular staged view was a merged candidate.
+
+**Disposal restriction:** six owner sidecars identify token/PID-owned candidate roots; the remaining legacy views have no corresponding sidecar. Retained metadata did not establish a per-view terminal lifecycle/release binding. The installed ordinary-review CLI/facade exposes no verified generic candidate-view release/dispose operation. A root facade inspect was unrelated current-changes/untracked selection, not disposal permission. No START, reset, recover, abandonment, token editing, force-unlock or direct recursive deletion is authorized by this record.
+
+These views are **DELETE_BLOCKED_BY_LIFECYCLE**, not technically valuable physical evidence to retain. The blocker is an unavailable validated disposal route/ownership clearance, not a claim that the old bytes are irreplaceable. Do not convert the blocker back into generic retention.
+
+## Other historical work: sufficient knowledge only
+
+### Approved-import donor
+
+The donor checked module origins against a fixed historical approved tree and prepared an offline environment. Its hardcoded `ce3d452bf3e10bfd34c8c0f5054d72b2ea9f6f29` anchor and allowlist are historical, not current independent approval. Current C9 code is canonical. Inputs are an independently approved Git tree, interpreter/module origin constraints and declared dependency pins; use main's anchored preflight instead of reviving the donor. No selected continuation needs its untracked scripts/tests, old environments or proof outputs. KNOWLEDGE_ONLY.
+
+### Reusable VM harness (#304)
+
+Source `8d8f157fccae0fd7b8d8bab6be8c44b6009ca474` is in main. The harness attempts included failed/restored runs and input/evidence disk copies; presence of those artifacts is not native acceptance. Reproduction means a new explicitly authorized disposable-VM scenario from the versioned harness, declared inputs and fresh readiness/ownership checks. No exact historical disk state is selected for continued investigation here. No old VM/checkpoint permission is reused. Conclude failure/limits from the record; discard historical run payloads/media instead of preserving them as a second product. KNOWLEDGE_ONLY.
+
+### C4 correction and private enrichment
+
+Source base `0b04d815a7f0315fb32ca1bff0746066ac06565b` already contains the public runner delivery (PR #347). A secondary `CreateNew` diagnostic destination collision was distinct from the initiating after-setup error. The later minimal controlled collision/exception-fidelity fixes are represented in main. Private v2 exception-chain/64-KiB enrichment was not selected for continuation. Native failed dispatch permissions were consumed; no successful installation, original-cause attribution or accepted C4 follows from local tests. To reproduce a public regression, use committed boundary tests and synthetic writer fixtures; a fresh native experiment requires its own scope/inputs/authorization. Private runner variants, exact logs and packaging copies are unnecessary. KNOWLEDGE_ONLY.
+
+### Updated C4 candidate and frozen verification
+
+`proof/c4-updated-candidate` was based at `f5bd66fa17480fb71c5502e590ea89df329c8e01`; a prepared installer had a byte-identical copy in the correction checkout. Its existence was not unique evidence. Preparation/run records and packaging observations did not certify native acceptance. The frozen verification ref `8f2793246d39d3a09cf7bd39c7853db220f7e0cd` remains reachable through retained non-main branches; its out-of-main history is not unique to a physical checkout. Adapter exception-gap observations and local tests must not be transferred as proof for another candidate. Use relevant committed tests at a chosen ref for authorized reproduction; exact old installer/log bytes are not needed for this conclusion. KNOWLEDGE_ONLY for both checkouts.
+
+### Cache publication and accidental index state
+
+The staged mass-deletion state did not represent 201 absent source files: files remained on disk and 192 of the compared paths matched main bytes. The product publication code inspected was already represented in main. The useful finding was a controlled environment-local temporary-path failure band; it did not establish a universal MAX_PATH threshold or resolve a separate C4 failure. The local acceptance was partial. Reproduce from versioned cache/marker tests with synthetic owned paths and explicit controls; no host-wide conclusion is licensed. Do not retain an accidental index layout, local logs, old test variants or marker scratch by inertia. KNOWLEDGE_ONLY.
+
+### IPC observability, infrastructure and persistence donors
+
+All three donors started from `0b04d815a7f0315fb32ca1bff0746066ac06565b`. C5/C7/C8 and the narrow pre-mapping slice are delivered in main. The basic observer framework and allowlisted ProviderError-before-mapping hook are not exclusive donor capabilities. Remaining experiments passed a richer exception object and added fixture persistence/termination checkpoints; `SystemExit` intent is not proof of actual OS exit, and observation order/timestamps do not establish provider-to-helper causality. Native propagation/causal identity stayed UNKNOWN. No richer donor variant was chosen for continuation in this phase. Reproduce committed synthetic observer/scanner/bootstrap tests from the relevant delivered ref; any new native causal study needs fresh inputs and authority. The conclusion and limitation replace three donor worktrees, native logs and staged copies. KNOWLEDGE_ONLY for each donor; historical C6's missing causal proof is not silently marked solved.
+
+### S11 residual, PATH and consent history
+
+Ref `4705748e7a64af34a47528f4fa73f02f8f391f5e` remains on non-main branches. Previous PATH/consent native attempts failed and did not reach the expected Off/completion state within their budget. Diagnostic runner design had qualified NO-GO limitations including unbounded `capture_output=True`; preparation or collection success was not product acceptance. Do not replay consumed grants or call a checkbox/consent observation a causal fix. A future authorized experiment must choose current versioned harness inputs and bounded execution/ownership controls; exact old logs/media or `nul` copies are not required to preserve this conclusion. KNOWLEDGE_ONLY.
+
+### Ten formerly pending evidence holders
+
+| Original worktree suffix | Conclusion/context and ref/input anchor | Future reproduction and limits |
+|---|---|---|
+| `c1-c4-integration` | Composition candidate `298228a46bec452c483202c8518a332e78bd8c49` was not a delivered canonical base; four commits remain outside main. Preserve its ref, not tmp/venv/composition logs. | Choose the retained commit and versioned scenarios for a fresh composition check; old result is not current acceptance. |
+| `c1-cache-paths-candidate` | Fixture/path correction `c7d80b0db2afa15b7982ad758770b7cfcd596ffa` is reachable from main; local consolidated-base/manifests are preparation records. | Use committed synthetic fixture/path tests with declared pins; exact old stdout/manifests not required. |
+| `c2-diagnostic-paths-candidate` | Detached candidate `9a4187b8b0160619117a8769293fee46336726e5` is reachable from main; two c4n namespaces were diagnostic runs. | Recover source by commit, create fresh owned synthetic paths; no exact old namespace/media required. |
+| `c5-consolidated-candidate` | `c5bea4c9ddf0642cf06b360f19e7da406e2e2625` is reachable; C5 observational evidence did not solve historical IPC cause. | Use main's committed observer/fixture tests; independent receipts and baseline patch outputs are not required bytes. |
+| `c5-ipc-observability-candidate` | Local test equals main after EOL normalization; the unique 1,015-byte RED log records a collection-stage failure, not an indispensable runtime observation. | Record that initial failure and reproduce only an agreed current case; do not retain old log/test copies. |
+| `docs` | `203fe27190e1863df2711b6afd3fec7fbd1b3798` is outside main and remains referenced; native-proof outputs did not establish complete product/native acceptance. | Use the retained ref and declared workflow for a new run; historical JSON/XML/raw logs are unnecessary. |
+| `path-feature` | `8f2793246d39d3a09cf7bd39c7853db220f7e0cd` remains on retained refs and supplies original A for I1. Its 17 commits need no live checkout. | Immutable Git export is sufficient for I1; discard old installer/build/special-name scratch after knowledge consolidation. |
+| `s11a-setup-assist` | `5cc45b29abe4c7a393327f0af76bddf1a49ebed4` is delivered; public PR #302 and code preserve implementation identity. Old lifecycle/media copies are not selected investigation inputs. | Rebuild functionally from versioned sources/pins when authorized; do not promise bit-identical historical installer bytes. |
+| `s11b-299` | `364d4bffc00d48b62ba31339b4eb5c39c1778c6f` is delivered; rebuild media duplicated another pending checkout. | Use committed build/scenario definitions for fresh proof; no need to keep either historical media copy by default. |
+| `s11b-reconciled` | `d5a05069169892c3b567922077aea0226e25a6a7` is delivered; custody/validator outputs belonged to a bounded historical lifecycle attempt. | Record scope/result limitations, then recreate only a new authorized scenario. Old validator logs/manifests are not required. |
+
+A functional rebuild need not have the same historical binary hash. No bit-identical artifact is required merely to restate a known conclusion. Where old exact native inputs are unavailable, this note does not invent a complete replay recipe: any future execution is a newly scoped experiment, not recreation of the original run.
+
+## Primary checkout and six former local historical records
+
+The primary checkout owns the shared Git store and remains operational. Its versioned main tree is reconstructible, but shared refs/objects/index administration must not be discarded as run output.
+
+The five original untracked task records have been reduced to the conclusions in this document:
+
+- `agent-guide-policy-clarification.md`: policy delivery PR #345 / issue #344 and `f5bd66fa17480fb71c5502e590ea89df329c8e01`; cleanup requires scoped authorization, tests must not be weakened to fit an implementation, navigation tools do not grant product scope.
+- `c4-diagnostic-native-cycle.md`: native attempts failed, permissions consumed, secondary diagnostic collision did not identify initiating cause; no VM-state mutation or replay is licensed.
+- `c4-diagnostic-persistence.md`: preserve error identity and no-overwrite semantics; an existing destination is not proof that this run persisted a diagnostic. Public synthetic boundary tests are canonical, not private logs.
+- `c4-runner-ruff-delivery.md`: PR #347 / issue #346 integrated the literal runner/test/tooling slice at `0b04d815a7f0315fb32ca1bff0746066ac06565b`; local/CI success was not native installer acceptance.
+- `merged-delivery-hygiene.md`: previous bounded cleanup removed only explicitly authorized targets after Git guards; special-name filesystem failures were not permission for broad repair. Past KEEP/discard decisions were scope-specific, not eternal artifact requirements.
+
+Their full transcripts, old custody hashes and historical operator logs need not remain physical files. The zero-byte `8` has no identified knowledge content. All six were removed after exact pre-disposal content/type guards and this note's consolidation. Root `build/`, pytest/Ruff caches and project Python bytecode caches were also removed when confirmed untracked. Active project configuration, the shared Git store and controller directories were not treated as historical run output. No raw secrets, provider payloads, VM/checkpoint identifiers or logs are copied here.
+
+## Physical reduction ledger
+
+The parked commits passed writer, parent and independent structural checks before physical retirement. Knowledge was consolidated before donor disposal. No runtime test, product import, native probe, installer or VM action was executed; no runtime acceptance or native review approval is claimed. Native assessments could not assess undeclared remaining untracked files; both units followed the conservative independent-verification path and passed.
+
+| Item | Observed outcome |
+|---|---|
+| Original registrations | 39 -> 12 after ordinary sibling retirement; primary checkout plus 11 controller views remain. |
+| Temporary control checkout | Additional while writing/verifying; retire after the local documentation commit. |
+| Original physical sibling roots | 26 removed, one empty unregistered S11 directory process-locked. |
+| Local branches | 56 + one documentation branch - 20 exact ancestor refs = 37. |
+| I1/C11 | Two local commits, ten files, 196,225 canonical bytes; both physical worktrees removed. |
+| Main local ref | Unchanged bc10800209e394015287397f2d7e197ad806e6ef; neither prototype merged into main. |
+| Remote delivery | None: no push, PR, fetch, remote deletion or merge in this phase. |
+
+The primary checkout may select `chore/minimal-retention` for local review without merging it into main. The final documentation commit postdates this snapshot; inspect that branch for its own commit identity rather than embedding a self-referential hash.
+
+### Filesystem incident and remaining process lock
+
+The initial Git retirement pass reported six Windows long-path/directory errors and four successful metadata removals leaving physical residues. It continued per item and exited nonzero; failures were not relabeled success. A separate diagnosis confirmed all ten leftovers were unregistered, without `.git` pointers or root reparse points. Exact authorized residues were then addressed through the Windows extended literal namespace, without changing ACLs/readonly flags, Git authority or ownership controls. Nine were removed.
+
+`F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-s11-residual-proof` remains an **empty directory** because Windows returned WinError 32 (another process holds it). Its registration is gone; no source, log or evidence bytes remain inside. Category: **DELETE_BLOCKED_BY_LIFECYCLE**. Close/release the owning process working directory under separate authorization; do not force termination or call this a technical retention need. No blind retry was performed.
+
+### Exact local branches deleted
+
+Each tip was confirmed an ancestor of main and not checked out after retirement. The old `feat/s11b-transaction-closeout-v2` alias had no remaining byte-retention role; its commit is reachable from main and provenance exists in committed documentation.
+
+- `feat/pre-mapping-provider-error-observability`
+- `fix/c7-native-artifact-scanner`
+- `fix/c8-helper-import-evidence`
+- `chore/approved-source-preflight`
+- `fix/c4-diagnostic-persistence`
+- `fix/c5-observability-consolidated`
+- `fix/c5-ipc-observability`
+- `feat/s11a-installer-hardening`
+- `feat/s11b-issue-299-closeout`
+- `build/c5-reproof`
+- `feat/issue-304-reusable-vm-harness`
+- `chore/ipc-fixture-observability`
+- `chore/ipc-observability-infrastructure`
+- `chore/ipc-persistence-observability`
+- `feat/s11b-transaction-closeout-v2`
+- `fix/exception-fidelity-a1`
+- `proof/c4-updated-candidate`
+- `fix/c1-temp-fixture`
+- `fix/cache-marker-publication`
+- `chore/approved-import-proof`
+
+Other original refs remain, except the two deliberately advanced parked branches. Branch deletion was local only. No force-push, rebase, reset, squash, physical backup or archive was used.
+
+## Exact original identities
+
+The table records original paths, branches and full commit IDs as provenance. Every ordinary sibling was deregistered; its physical root is absent except the empty S11 process-lock residue. Historical material is KNOWLEDGE_ONLY; physical disposition is SAFE_DELETE/completed unless blocked. I1/C11 continuation bytes are LIVE_WORK_REQUIRED on parked refs, not in live worktrees.
+
+| Original path | Original HEAD | Original branch | Retention after sufficient knowledge |
+|---|---|---|---|
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora` | `6ab4cd0cc17ad419e6201d60df21e3b04cbe7417` | `main` | LIVE_WORK_REQUIRED: active shared Git control |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/039fcc5b-a08d-4a82-8bcb-e967cede2447` | `de76b29346fa465872f10b2b68bef8ea3a202417` | `DETACHED` | DELETE_BLOCKED_BY_LIFECYCLE: no validated controller disposal route |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/1e8bbe8f-c0f8-46b5-8989-402816d157f0` | `528313c972e14ef72f784ada0284ac7fdf5a5d82` | `DETACHED` | DELETE_BLOCKED_BY_LIFECYCLE: no validated controller disposal route |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/25dfd475-ca6e-48c0-8353-ebbe0b2a2d78` | `5490a506e4236fd689f0e9b49c83bb8267dc6344` | `DETACHED` | DELETE_BLOCKED_BY_LIFECYCLE: no validated controller disposal route |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/357c4513-44cb-45ba-b5ec-1a404e043be7` | `c04be6ebf4caf557a50f4fdc9771d2f9e65964ae` | `DETACHED` | DELETE_BLOCKED_BY_LIFECYCLE: no validated controller disposal route |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/3e0b3082-8fb4-40d2-9128-ee40c907a4ad` | `528313c972e14ef72f784ada0284ac7fdf5a5d82` | `DETACHED` | DELETE_BLOCKED_BY_LIFECYCLE: no validated controller disposal route |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/65864db3-6edc-4845-8100-cea6bad7649f` | `528313c972e14ef72f784ada0284ac7fdf5a5d82` | `DETACHED` | DELETE_BLOCKED_BY_LIFECYCLE: no validated controller disposal route |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/b01d1df5-22eb-4f94-b852-1dcb09e1aeb2` | `7a2ea0eacf19de8c6b3f0f45e6997a9e8d631ae9` | `DETACHED` | DELETE_BLOCKED_BY_LIFECYCLE: no validated controller disposal route |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/df645544-445e-44aa-b35b-0fcc5598954d` | `3019d7f8a2aff05511161d583b46b26b91c4cf21` | `DETACHED` | DELETE_BLOCKED_BY_LIFECYCLE: no validated controller disposal route |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/e6572f98-5b2a-4351-bd26-e02783b83443` | `528313c972e14ef72f784ada0284ac7fdf5a5d82` | `DETACHED` | DELETE_BLOCKED_BY_LIFECYCLE: no validated controller disposal route |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/ec0f02df-905a-4816-b99f-6ced807c5b45` | `584e5b25bf6e97fbc68898850a00d4e4bf8b428d` | `DETACHED` | DELETE_BLOCKED_BY_LIFECYCLE: no validated controller disposal route |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora/.git/gentle-ai/candidate-views/fecc0b18-e732-4325-b126-d6c81a8e56b1` | `528313c972e14ef72f784ada0284ac7fdf5a5d82` | `DETACHED` | DELETE_BLOCKED_BY_LIFECYCLE: no validated controller disposal route |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-304` | `8d8f157fccae0fd7b8d8bab6be8c44b6009ca474` | `feat/issue-304-reusable-vm-harness` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-approved-import-proof` | `0b04d815a7f0315fb32ca1bff0746066ac06565b` | `chore/approved-import-proof` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c1-c4-integration` | `298228a46bec452c483202c8518a332e78bd8c49` | `test/c1-c4-composition` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c1-cache-paths-candidate` | `c7d80b0db2afa15b7982ad758770b7cfcd596ffa` | `fix/c1-temp-fixture` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c2-diagnostic-paths-candidate` | `9a4187b8b0160619117a8769293fee46336726e5` | `DETACHED` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c4-correction` | `0b04d815a7f0315fb32ca1bff0746066ac06565b` | `fix/c4-diagnostic-persistence` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c4-updated-candidate` | `f5bd66fa17480fb71c5502e590ea89df329c8e01` | `proof/c4-updated-candidate` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c4-verification` | `8f2793246d39d3a09cf7bd39c7853db220f7e0cd` | `proof/c4-baseline-verification` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c5-consolidated-candidate` | `c5bea4c9ddf0642cf06b360f19e7da406e2e2625` | `fix/c5-observability-consolidated` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c5-ipc-observability-candidate` | `0b04d815a7f0315fb32ca1bff0746066ac06565b` | `fix/c5-ipc-observability` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c6-premapping` | `f9505932be7ed3a6a67e0609b399a48706a554c3` | `feat/pre-mapping-provider-error-observability` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c7-artifact-scanner-candidate` | `f334b27488e772d3f54b884f738a082facd3881b` | `fix/c7-native-artifact-scanner` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c8-import-evidence-candidate` | `386a0542d25c494c8a245188aa0f06fc432c7a7f` | `fix/c8-helper-import-evidence` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-c9-preflight` | `aec3c0283b85c75da88ae7262bef73c2ea932041` | `chore/approved-source-preflight` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-cache-marker-fix` | `0b04d815a7f0315fb32ca1bff0746066ac06565b` | `fix/cache-marker-publication` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-docs` | `203fe27190e1863df2711b6afd3fec7fbd1b3798` | `docs/installation-guide-coherence` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-exception-fidelity` | `95ea16018c3286e59091191d162abebfe72d82e4` | `fix/exception-fidelity-a1` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-i1-hermetic-ab` | `f5bd66fa17480fb71c5502e590ea89df329c8e01` | `test/i1-hermetic-ab` | SAFE_DELETE: checkout removed; LIVE_WORK_REQUIRED bytes on parked ref |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-ipc-observability` | `0b04d815a7f0315fb32ca1bff0746066ac06565b` | `chore/ipc-fixture-observability` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-ipc-observability-infrastructure` | `0b04d815a7f0315fb32ca1bff0746066ac06565b` | `chore/ipc-observability-infrastructure` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-ipc-persistence-observability` | `0b04d815a7f0315fb32ca1bff0746066ac06565b` | `chore/ipc-persistence-observability` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-path-feature` | `8f2793246d39d3a09cf7bd39c7853db220f7e0cd` | `feat/path-installer-management` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-path-step-trace` | `0b04d815a7f0315fb32ca1bff0746066ac06565b` | `chore/c4-path-step-trace` | SAFE_DELETE: checkout removed; LIVE_WORK_REQUIRED bytes on parked ref |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-s11-residual-proof` | `4705748e7a64af34a47528f4fa73f02f8f391f5e` | `fix/s11-consented-cleanup` | DELETE_BLOCKED_BY_LIFECYCLE: empty unregistered directory held by a process |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-s11a-setup-assist` | `5cc45b29abe4c7a393327f0af76bddf1a49ebed4` | `feat/s11a-installer-hardening` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-s11b-299` | `364d4bffc00d48b62ba31339b4eb5c39c1778c6f` | `feat/s11b-issue-299-closeout` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+| `F:/Vault/20_Desarrollo/20.10_Activos/yasb-limitora-s11b-reconciled` | `d5a05069169892c3b567922077aea0226e25a6a7` | `build/c5-reproof` | KNOWLEDGE_ONLY: note consolidated; SAFE_DELETE physical checkout removed |
+
+## Remaining local refs after cleanup
+
+This is the pre-documentation-commit ref snapshot. The documentation branch advances for its own final commit; its base below is not presented as its eventual tip. No out-of-main branch was deleted merely by patch-equivalence.
+
+| Ref | Tip before final documentation commit | Role |
+|---|---|---|
+| `chore/c4-path-step-trace` | `ebdd0e75fda5e254def826a39932200edd0c21a9` | selected parked C11 source |
+| `chore/issue-311-ruff-baseline` | `0aacfd982d762a1a05233258db1be857b1be414e` | retained out-of-main history/provenance |
+| `chore/issue-311-ruff-e701-source` | `69039839c5d1d80ab6b53bf56baabf8ea44ca6ec` | retained out-of-main history/provenance |
+| `chore/issue-311-ruff-e701-tests` | `f2c5d0be85ffb50acf4133f2fde9062bfc4bb26e` | retained out-of-main history/provenance |
+| `chore/issue-311-ruff-e702` | `38f38f2adf787ae07cfa13487c972f91b176602c` | retained out-of-main history/provenance |
+| `chore/issue-311-ruff-e731` | `54ae9f0fd300cefc032185c799e3d956a97c04f2` | retained out-of-main history/provenance |
+| `chore/minimal-retention` | `bc10800209e394015287397f2d7e197ad806e6ef` | local documentation branch; final commit follows |
+| `docs/installation-guide-coherence` | `203fe27190e1863df2711b6afd3fec7fbd1b3798` | retained out-of-main history/provenance |
+| `docs/issue-311-e7-closeout` | `bc173ee8096c445dc3a13126cd0bcb16ea10f1ce` | retained out-of-main history/provenance |
+| `docs/repository-agent-guide` | `671049f08b525b2e7329e91e4faffde2c380a72d` | retained out-of-main history/provenance |
+| `feat/path-installer-management` | `8f2793246d39d3a09cf7bd39c7853db220f7e0cd` | retained out-of-main history/provenance |
+| `feat/path-owned-cleanup-02-updates` | `413974c7524d5ce389bcfeeffd14f0569b55b3f7` | retained out-of-main history/provenance |
+| `feat/path-owned-cleanup-03-uninstall-consent` | `2cff78514ab4a5dd9e6c5443e6f62063aaea3250` | retained out-of-main history/provenance |
+| `feat/r11-bounded-config-read` | `6b3a1e07af98f886be9bd8a4934d37844b34b1c7` | retained out-of-main history/provenance |
+| `feat/r11-bounded-io-call` | `b10b2de8c7b7241e8d95256f63b6fb3fd19b444f` | retained out-of-main history/provenance |
+| `feat/r11-cache-coordination` | `0498684ee2b67f8a7f288dc91fe1c6bc545c7325` | retained out-of-main history/provenance |
+| `feat/r11-foundations` | `23e6f38b2e66c648a223b2310f8d95fc0ddd9b79` | retained out-of-main history/provenance |
+| `feat/r11-foundations-v2` | `23e6f38b2e66c648a223b2310f8d95fc0ddd9b79` | retained out-of-main history/provenance |
+| `feat/r11-public-contract` | `0e9467917091e94ed29fdefd7fab7e513cbe0b39` | retained out-of-main history/provenance |
+| `feat/r11-runtime-lifecycle` | `0e9467917091e94ed29fdefd7fab7e513cbe0b39` | retained out-of-main history/provenance |
+| `feat/s11b-transaction-closeout-reconciled` | `84ddcb3d9854806c8c56af9b3fb7aa9441a6b6c3` | retained out-of-main history/provenance |
+| `feature/137-json-projection` | `13f63d6036650cea38915ce13b9413663efbccc2` | retained out-of-main history/provenance |
+| `fix/g1-rollback-consent-gate` | `49d43a02944484549b47ee4849db79b95aa86c2d` | retained out-of-main history/provenance |
+| `fix/path-add-error-boundary` | `5a5687321bc754c43c910133cde0ffe304520d77` | retained out-of-main history/provenance |
+| `fix/path-owned-cleanup-01-ownership` | `4705748e7a64af34a47528f4fa73f02f8f391f5e` | retained out-of-main history/provenance |
+| `fix/path-owned-cleanup-04-exact-ownership` | `bd8302d1cf90489d4bc131e610dfcced20f45302` | retained out-of-main history/provenance |
+| `fix/path-owned-cleanup-05-inno-compat` | `74a4dcce6e487a48cb554d20e6260189458369ad` | retained out-of-main history/provenance |
+| `fix/path-owned-cleanup-06-preview` | `eca023420c7d0d56f653624480813448599fe069` | retained out-of-main history/provenance |
+| `fix/path-owned-cleanup-07-consent-arguments` | `8f2793246d39d3a09cf7bd39c7853db220f7e0cd` | retained out-of-main history/provenance |
+| `fix/path-owned-cleanup-08-registry-io` | `accae6dd1ce3df211d0cf83d6b6dd18347836a36` | retained out-of-main history/provenance |
+| `fix/path-owned-cleanup-09-pytest-temp` | `5a5687321bc754c43c910133cde0ffe304520d77` | retained out-of-main history/provenance |
+| `fix/s11-consented-cleanup` | `4705748e7a64af34a47528f4fa73f02f8f391f5e` | retained out-of-main history/provenance |
+| `fix/s11a-protocol-closeout` | `a50335c3309d4d520ae18571f0830a7eeeea5081` | retained out-of-main history/provenance |
+| `main` | `bc10800209e394015287397f2d7e197ad806e6ef` | unchanged main |
+| `proof/c4-baseline-verification` | `8f2793246d39d3a09cf7bd39c7853db220f7e0cd` | retained out-of-main history/provenance |
+| `test/c1-c4-composition` | `298228a46bec452c483202c8518a332e78bd8c49` | retained out-of-main history/provenance |
+| `test/i1-hermetic-ab` | `1845246b0e6bfb588eec02c274446e2a5d0adcd9` | selected parked I1 source |
