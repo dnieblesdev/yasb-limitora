@@ -19,7 +19,10 @@ function Get-Identity([string]$Path){
     try{$digest=([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose();$stream.Dispose()}
     return [ordered]@{Path=[IO.Path]::GetFullPath($Path);Size=[int64](Get-Item -LiteralPath $Path).Length;Sha256=$digest}
 }
-function Write-Utf8([string]$Path,[string]$Text){[IO.File]::WriteAllText($Path,$Text,[Text.UTF8Encoding]::new($false))}
+function Write-Utf8([string]$Path,[string]$Text){
+    if($Path.Length -ge 260 -and $Path -cmatch '^[A-Za-z]:\\' -and [string]::Equals([IO.Path]::GetFullPath($Path),$Path,[StringComparison]::OrdinalIgnoreCase)){$Path='\\?\'+$Path}
+    [IO.File]::WriteAllText($Path,$Text,[Text.UTF8Encoding]::new($false))
+}
 function New-RunnerCase([string]$SourceRunner,[string]$Mode,[string]$JobMode='normal',[bool]$CreateRoute=$true,[bool]$ExistingDiagnostic=$false){
     $caseRoot=Join-Path $fixtureRoot ([Guid]::NewGuid().ToString('N'));[void][IO.Directory]::CreateDirectory($caseRoot)
     $runner=Join-Path $caseRoot 'runner.ps1';[IO.File]::Copy($SourceRunner,$runner,$false)
@@ -99,6 +102,7 @@ function Assert-BoundarySummary($Result,[string]$Phase,[string]$Stage,[string]$C
 }
 function Assert-PersistedDiagnostic($Result,[string]$ExpectedStage,[string]$ExpectedClass,[string]$Label){
     $path=Join-Path $Result.Route 'failure-diagnostic.json'
+    if($path.Length -ge 260 -and $path -cmatch '^[A-Za-z]:\\' -and [string]::Equals([IO.Path]::GetFullPath($path),$path,[StringComparison]::OrdinalIgnoreCase)){$path='\\?\'+$path}
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "$Label expected persisted diagnostic is missing"
     $text=[IO.File]::ReadAllText($path)
     $record=ConvertFrom-Json $text
@@ -154,7 +158,9 @@ Assert-True (-not (Test-Path -LiteralPath (Join-Path $noRoute.Evidence 'failure-
 Assert-True (-not (Test-Path -LiteralPath $noRoute.Route)) 'no-route fixture unexpectedly created an owned-cleanup route'
 $existing=Invoke-RunnerFile (New-RunnerCase $RunnerPath 'valid' 'normal' $true $true)
 Assert-BoundarySummary $existing 'lifecycle-invocation' 'setup-launch' 'UnauthorizedAccessException' 'write-failed' 'CreateNew diagnostic refusal'
-Assert-True ([IO.File]::ReadAllText((Join-Path $existing.Route 'failure-diagnostic.json')) -ceq 'DO-NOT-OVERWRITE') 'existing diagnostic was overwritten'
+$existingDiagnosticIOPath=Join-Path $existing.Route 'failure-diagnostic.json'
+if($existingDiagnosticIOPath.Length -ge 260 -and $existingDiagnosticIOPath -cmatch '^[A-Za-z]:\\' -and [string]::Equals([IO.Path]::GetFullPath($existingDiagnosticIOPath),$existingDiagnosticIOPath,[StringComparison]::OrdinalIgnoreCase)){$existingDiagnosticIOPath='\\?\'+$existingDiagnosticIOPath}
+Assert-True ([IO.File]::ReadAllText($existingDiagnosticIOPath) -ceq 'DO-NOT-OVERWRITE') 'existing diagnostic was overwritten'
 $elapsed=[DateTime]::UtcNow-$testStartedUtc
 $completedUtc=[DateTime]::UtcNow
 $childExits=(@($script:ChildRecords | ForEach-Object {$_.ExitCode}) -join ',')

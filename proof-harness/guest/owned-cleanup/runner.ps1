@@ -117,7 +117,12 @@ function Write-OwnedFailureDiagnostic([string]$RootPath,[string]$Stage,[string]$
     [void](Assert-OwnedOutputPath $root $path)
     $record = [ordered]@{schema='yasb-limitora.owned-cleanup-failure/v1';stage=$Stage;exceptionClass=$ExceptionClass;result='failed'}
     $bytes = ([Text.UTF8Encoding]::new($false)).GetBytes((($record | ConvertTo-Json -Compress) + "`n"))
-    $stream = [IO.File]::Open($path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    # Only the native open representation changes; ownership checks use the logical path.
+    $nativePath = $path
+    if ($path.Length -ge 260 -and $path -cmatch '^[A-Za-z]:\\') {
+        $nativePath = '\\?\' + $path
+    }
+    $stream = [IO.File]::Open($nativePath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
     try { $stream.Write($bytes,0,$bytes.Length); $stream.Flush($true) }
     finally { $stream.Dispose() }
 }
