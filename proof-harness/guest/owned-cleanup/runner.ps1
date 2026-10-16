@@ -100,7 +100,7 @@ function Assert-OwnedDiagnosticRoot([string]$RootPath) {
     if ($item -isnot [IO.DirectoryInfo] -or $item.Name -cne 'owned-cleanup') { throw 'diagnostic root is not an existing owned-cleanup route' }
     return $full
 }
-function Write-OwnedFailureDiagnostic([string]$RootPath,[string]$Stage,[string]$ExceptionClass,$Data) {
+function Write-OwnedFailureDiagnostic([string]$RootPath,[string]$Stage,[string]$ExceptionClass,$Data,[System.Exception]$Exception=$null,[System.Management.Automation.ErrorRecord]$ErrorRecord=$null) {
     if ($Stage -notin $script:OwnedFailureStages) { $Stage = 'Other' }
     $dataStage = $null
     if ($Data -is [Collections.IDictionary] -and $Data.Contains('stage')) { $dataStage = $Data['stage'] }
@@ -385,7 +385,8 @@ try {
     [void](Invoke-ModernOwnedCleanupRunner $manifest)
     exit 0
 } catch {
-    $failureException = $_.Exception
+    $failureErrorRecord = $_
+    $failureException = $failureErrorRecord.Exception
     $failureStage = 'Other'
     $failureClass = Get-OwnedFailureClass $failureException
     $failurePhase = if ($script:RunnerFailurePhase -in @('manifest-validation','runner-identity','job-module-load','consent-module-load','capture-module-load','lifecycle-module-load','lifecycle-invocation')) { $script:RunnerFailurePhase } else { 'unknown-runner-operation' }
@@ -401,7 +402,7 @@ try {
     try {
         $existingRoute = Join-Path ([IO.Path]::GetFullPath($script:OriginalEvidenceRoot)) 'owned-cleanup'
         if (Test-Path -LiteralPath $existingRoute -PathType Container) {
-            Write-OwnedFailureDiagnostic $existingRoute $failureStage $failureClass $failureException.Data
+            Write-OwnedFailureDiagnostic $existingRoute $failureStage $failureClass $failureException.Data $failureException $failureErrorRecord
             $persistence = 'saved'
         }
     } catch { $persistence = 'write-failed' }
