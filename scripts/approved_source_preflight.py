@@ -163,6 +163,15 @@ def compare_candidate(root, anchor):
 
 
 def verify(args):
+    # Trust checks come first: a self-declared or unauthenticated anchor is the most
+    # important violation, and it must be reported even when the interpreter is not the
+    # dedicated one. Both orders fail closed; this order surfaces the trust reason.
+    root = canonical(args.candidate_root)
+    require(DIGEST.fullmatch(args.anchor_sha256) is not None, "CLI_INVALID")
+    anchor = load_anchor(args.anchor, args.anchor_sha256, root)
+    verified = compare_candidate(root, anchor)
+    package = canonical(root / PACKAGE)
+
     require(sys.flags.isolated == 1 and sys.flags.ignore_environment == 1
             and sys.flags.no_site == 0, "FLAGS_INVALID")
     # Do not resolve executable symlinks: the dedicated venv path is the identity.
@@ -176,12 +185,6 @@ def verify(args):
                 for key, value in settings.items()), "SYSTEM_SITE_FORBIDDEN")
     require(Path(sys.executable).absolute().is_relative_to(Path(sys.prefix).absolute()),
             "EXECUTABLE_MISMATCH")
-
-    root = canonical(args.candidate_root)
-    require(DIGEST.fullmatch(args.anchor_sha256) is not None, "CLI_INVALID")
-    anchor = load_anchor(args.anchor, args.anchor_sha256, root)
-    verified = compare_candidate(root, anchor)
-    package = canonical(root / PACKAGE)
 
     check_spec("yasb_limitora", canonical(package / "__init__.py"))
     imported = importlib.import_module("yasb_limitora")

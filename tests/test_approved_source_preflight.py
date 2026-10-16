@@ -243,6 +243,46 @@ def test_module_names_are_unique_for_nested_packages() -> None:
     assert len(set(names)) == len(names)
 
 
+def test_self_declaration_is_reported_before_interpreter_gates(tmp_path: Path) -> None:
+    """The trust violation must surface even when the interpreter is a plain venv/python.
+
+    CI runs the suite under a non-dedicated interpreter, so if the interpreter gates ran
+    first the self-declaration refusal would be masked by VENV_REQUIRED and the trust model
+    would go untested in exactly the environment that matters.
+    """
+    root = _write_candidate(tmp_path / "candidate", BODY)
+    inside = root / "anchor.json"
+    inside.write_bytes(preflight.canonical_anchor_bytes(_anchor_for(root, BODY)))
+    digest = hashlib.sha256(inside.read_bytes()).hexdigest()
+    result = subprocess.run(
+        [sys.executable, "-B", "-I", "-E", str(SCRIPTS / "approved_source_preflight.py"),
+         "--candidate-root", str(root), "--anchor", str(inside), "--anchor-sha256", digest,
+         "--expected-executable", sys.executable],
+        capture_output=True, text=True, check=False, timeout=60)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert json.loads(result.stdout)["reason"] == "ANCHOR_INSIDE_CANDIDATE"
+
+
+def test_interpreter_gates_still_fail_closed_after_trust(tmp_path: Path) -> None:
+    """A trustworthy anchor still does not pass without the dedicated interpreter."""
+    root = _write_candidate(tmp_path / "candidate", BODY)
+    outside = tmp_path / "anchor.json"
+    outside.write_bytes(preflight.canonical_anchor_bytes(_anchor_for(root, BODY)))
+    digest = hashlib.sha256(outside.read_bytes()).hexdigest()
+    result = subprocess.run(
+        [sys.executable, "-B", "-I", "-E", str(SCRIPTS / "approved_source_preflight.py"),
+         "--candidate-root", str(root), "--anchor", str(outside), "--anchor-sha256", digest,
+         "--expected-executable", sys.executable],
+        capture_output=True, text=True, check=False, timeout=60)
+    assert result.returncode == 1, result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "FAIL"
+    # On a plain interpreter this is VENV_REQUIRED; under a venv other gates may apply.
+    assert payload["reason"] in {"VENV_REQUIRED", "SYSTEM_SITE_FORBIDDEN", "FLAGS_INVALID",
+                                 "EXECUTABLE_MISMATCH", "DISTRIBUTION_MISMATCH",
+                                 "METADATA_UNKNOWN", "ORIGIN_MISMATCH"}
+
+
 def test_failure_output_never_leaks_paths_or_details(tmp_path: Path) -> None:
     root = _write_candidate(tmp_path / "candidate", BODY)
     (root / PACKAGE / "model.py").write_bytes(b"# tampered\n")
