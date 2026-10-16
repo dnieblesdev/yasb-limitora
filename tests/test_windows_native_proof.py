@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import ctypes
+import hashlib
 import io
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -203,11 +205,38 @@ def _runner(mode: str, evidence: Path, sentinel: str, descendant_marker: Path) -
     return (sys.executable, str(_FIXTURE), mode, str(evidence), sentinel, str(descendant_marker))
 
 
-def _assert_artifacts_are_sentinel_free(paths: tuple[Path, ...], sentinel: str) -> None:
+def _assert_artifacts_are_sentinel_free(
+    paths: tuple[Path, ...], sentinel: str,
+) -> list[dict[str, str | int]]:
     marker = sentinel.encode("ascii")
-    for path in paths:
-        if marker in path.read_bytes():
+    inventory: list[dict[str, str | int]] = []
+
+    def scan(path: Path, name: str) -> None:
+        metadata = path.lstat()
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or getattr(metadata, "st_file_attributes", 0)
+            & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        ):
             raise AssertionError("native proof artifact scan failed")
+        if stat.S_ISDIR(metadata.st_mode):
+            inventory.append({"name": name, "type": "directory"})
+            for child in sorted(path.iterdir(), key=lambda entry: entry.name):
+                scan(child, f"{name}/{child.name}")
+        elif stat.S_ISREG(metadata.st_mode):
+            content = path.read_bytes()
+            if marker in content:
+                raise AssertionError("native proof artifact scan failed")
+            inventory.append({
+                "name": name, "type": "file", "size": len(content),
+                "sha256": hashlib.sha256(content).hexdigest(),
+            })
+        else:
+            raise AssertionError("native proof artifact scan failed")
+
+    for path in paths:
+        scan(path, path.name)
+    return inventory
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows proof requires Windows")
