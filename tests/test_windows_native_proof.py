@@ -156,7 +156,7 @@ def _process_is_running(pid: int) -> bool:
     finally:
         kernel32.CloseHandle(handle)
 
-def _read_evidence(path: Path, timeout: float = 5.0) -> dict[str, object]:
+def _read_evidence(path: Path, timeout: float = 5.0, diagnostic_root: Path | None = None) -> dict[str, object]:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
@@ -167,6 +167,20 @@ def _read_evidence(path: Path, timeout: float = 5.0) -> dict[str, object]:
         if value.get("authorized"):
             return value
         time.sleep(0.05)
+    if diagnostic_root is not None:
+        try:
+            from yasb_limitora._native_proof_observability import persist_snapshot
+
+            checkpoint = "unknown"
+            checkpoint_path = os.environ.get(_CHECKPOINT_ENV)
+            if checkpoint_path:
+                try:
+                    checkpoint = _classify_checkpoint(Path(checkpoint_path))
+                except OSError:
+                    pass
+            persist_snapshot(diagnostic_root, checkpoint=checkpoint)
+        except Exception:  # noqa: BLE001 - preserve the existing pytest failure
+            pass
     pytest.fail("native fixture did not reach the post-READY protocol boundary")
     raise AssertionError("native fixture did not reach the post-READY protocol boundary")
 
@@ -245,8 +259,10 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
     _write_checkpoint(_CHECKPOINT_START)
     success_evidence = tmp_path / "success.json"
     success_marker = tmp_path / "success-descendant.attempted"
+    success_diagnostics = tmp_path / "success-diagnostics"
+    success_diagnostics.mkdir()
     with _OsStreamCapture(tmp_path, "success") as success_streams:
-        success = CodexHelperExecutor(timeout_seconds=5.0).run(
+        success = CodexHelperExecutor(timeout_seconds=5.0, diagnostic_root=success_diagnostics).run(
             _runner("success", success_evidence, sentinel, success_marker)
         )
     _write_checkpoint(_CHECKPOINT_SUCCESS_EXECUTOR_RETURNED)
@@ -270,19 +286,21 @@ def test_native_helper_adapter_ipc_and_complete_job_tree_cleanup(tmp_path: Path)
 
     timeout_evidence = tmp_path / "timeout.json"
     timeout_marker = tmp_path / "timeout-descendant.attempted"
+    timeout_diagnostics = tmp_path / "timeout-diagnostics"
+    timeout_diagnostics.mkdir()
     result: dict[str, object] = {}
     with _OsStreamCapture(tmp_path, "timeout") as timeout_streams:
         worker = threading.Thread(
             target=lambda: result.setdefault(
                 "view",
-                CodexHelperExecutor(timeout_seconds=5.0).run(
+                CodexHelperExecutor(timeout_seconds=5.0, diagnostic_root=timeout_diagnostics).run(
                     _runner("timeout", timeout_evidence, sentinel, timeout_marker)
                 ),
             ),
             daemon=True,
         )
         worker.start()
-        timeout_record = _read_evidence(timeout_evidence)
+        timeout_record = _read_evidence(timeout_evidence, diagnostic_root=timeout_diagnostics)
         timeout_pids = [_record_int(timeout_record, key) for key in ("helper_pid", "fixture_pid", "descendant_pid")]
         assert all(_process_is_running(pid) for pid in timeout_pids)
         _write_checkpoint(_CHECKPOINT_TIMEOUT_TREE_OBSERVED)

@@ -72,6 +72,12 @@ try:
     nonce=os.environ.pop("_YASB_CODEX_READY_NONCE").encode("ascii")
     if os.read(gate, 1) != b"1": raise ValueError
     os.write(data, b"READY:" + nonce)
+    if "_YASB_NATIVE_PROOF_DIAGNOSTICS_ROOT" in os.environ:
+        try:
+            from yasb_limitora._native_proof_observability import record_from_environment
+            record_from_environment("helper", "ready_emitted", pid=os.getpid())
+        except Exception:
+            pass
     os.environ[{_GATE!r}]=str(gate); os.environ[{_DATA!r}]=str(data); os.environ["_YASB_HELPER_NONCE"]=nonce.decode("ascii")
     runpy.run_module("yasb_limitora.codex_helper", run_name="__main__")
 except SystemExit:
@@ -79,6 +85,17 @@ except SystemExit:
 except Exception:
     raise SystemExit(1)
 """
+
+
+def _observe(root: object, role: str, event: str, **facts: Any) -> None:
+    if root is None:
+        return
+    try:
+        from ._native_proof_observability import record
+
+        record(root, role, event, **facts)
+    except Exception:  # noqa: BLE001 - observation cannot change IPC
+        return
 
 
 def _read_exact(fd: int, size: int) -> bytes:
@@ -246,6 +263,8 @@ def _child_main() -> None:
         if not 0 < size <= _MAX_REQUEST:
             raise ValueError
         request = _load_json(_read_exact(gate, size))
+        if type(request) is dict:
+            _observe(os.environ.get("_YASB_NATIVE_PROOF_DIAGNOSTICS_ROOT"), "helper", "request_received", pid=os.getpid())
         if type(request) is not dict or set(request) != {"runner", "nonce"}:
             raise ValueError
         expected_nonce = os.environ.pop("_YASB_HELPER_NONCE")
@@ -254,6 +273,7 @@ def _child_main() -> None:
         runner = request["runner"]
         if type(runner) is not list or not all(type(item) is str for item in runner):
             raise ValueError
+        _observe(os.environ.get("_YASB_NATIVE_PROOF_DIAGNOSTICS_ROOT"), "helper", "authorization_processed", pid=os.getpid())
         from .limitora_api import read_codex
 
         view = read_codex(runner)
@@ -261,6 +281,7 @@ def _child_main() -> None:
     except Exception:  # noqa: BLE001 - contain all worker failures
         payload = _payload(_error(SafeErrorCode.INTERNAL_ERROR))
     _write_all(data, struct.pack(">I", len(payload)) + payload)
+    _observe(os.environ.get("_YASB_NATIVE_PROOF_DIAGNOSTICS_ROOT"), "helper", "response_emitted", pid=os.getpid())
     os.close(gate)
     os.close(data)
 
@@ -281,6 +302,13 @@ def _run_frozen_helper_bootstrap() -> None:
         if os.read(gate, 1) != b"1":
             raise ValueError
         os.write(data, b"READY:" + nonce)
+        if "_YASB_NATIVE_PROOF_DIAGNOSTICS_ROOT" in os.environ:
+            try:
+                from ._native_proof_observability import record_from_environment
+
+                record_from_environment("helper", "ready_emitted", pid=os.getpid())
+            except Exception:
+                pass
         os.environ[_GATE] = str(gate)
         os.environ[_DATA] = str(data)
         os.environ["_YASB_HELPER_NONCE"] = nonce.decode("ascii")
@@ -333,8 +361,9 @@ class _PersistentTransport(_PipeTransport):
 class CodexHelperExecutor:
     """Own one supervisor and dispatch only after its READY authorization."""
 
-    def __init__(self, supervisor_factory: Callable[..., Any] = _CodexSupervisor, timeout_seconds: float = 2.0) -> None:
+    def __init__(self, supervisor_factory: Callable[..., Any] = _CodexSupervisor, timeout_seconds: float = 2.0, *, diagnostic_root: object | None = None) -> None:
         self._factory, self._timeout, self._pending_supervisor = supervisor_factory, timeout_seconds, None
+        self._diagnostic_root = diagnostic_root
         self._lifecycle, self._active, self._retrying = threading.Lock(), False, False
         self._last_supervisor = None
 
@@ -364,14 +393,21 @@ class CodexHelperExecutor:
             return transport
 
         supervisor, result, decoded = None, _error(SafeErrorCode.INTERNAL_ERROR), False
+        stage = "startup"
+        _observe(self._diagnostic_root, "executor", "executor_started")
         try:
-            supervisor = self._factory(
-                command=_helper_command(),
-                transport_factory=transport_factory,
-                timeout_seconds=self._timeout,
-            )
+            kwargs = {"command": _helper_command(), "transport_factory": transport_factory, "timeout_seconds": self._timeout}
+            if self._diagnostic_root is not None:
+                if self._factory is _CodexSupervisor:
+                    kwargs["diagnostic_root"] = self._diagnostic_root
+                else:
+                    _observe(self._diagnostic_root, "executor", "supervisor_hooks_unavailable", state="unknown")
+                _observe(self._diagnostic_root, "executor", "helper_start_requested")
+            supervisor = self._factory(**kwargs)
             self._last_supervisor = supervisor
             supervisor.acquire()
+            stage = "request"
+            _observe(self._diagnostic_root, "executor", "ready_observed", state="alive")
             transport = transport_box[0]
             nonce = getattr(supervisor, "_nonce", b"")
             if not isinstance(nonce, bytes):
@@ -381,8 +417,11 @@ class CodexHelperExecutor:
                 separators=(",", ":"),
             ).encode("utf-8")
             if len(request) > _MAX_REQUEST:
-                return _error(SafeErrorCode.INVOCATION_INVALID)
+                result = _error(SafeErrorCode.INVOCATION_INVALID)
+                return result
             transport.write_control(struct.pack(">I", len(request)) + request, timeout_seconds=self._timeout)
+            _observe(self._diagnostic_root, "executor", "request_emitted")
+            stage = "response"
             result = _decode(transport.read_response(self._timeout))
             decoded = result.outcome in (
                 ProviderOutcome.SNAPSHOT,
@@ -390,17 +429,29 @@ class CodexHelperExecutor:
                 ProviderOutcome.NOT_RUN,
             )
         except Exception as error:  # noqa: BLE001 - map worker failures to public safe errors
+            _observe(self._diagnostic_root, "executor", "original_exception", failure_stage=stage, error_type=type(error).__name__)
             code = SafeErrorCode.TIMEOUT if isinstance(error, (_TransportTimeout, TimeoutError)) else SafeErrorCode.PROVIDER_ERROR
             result = _error(code)
         finally:
             if supervisor is not None:
+                _observe(self._diagnostic_root, "executor", "cleanup_started", failure_stage="cleanup")
                 try:
                     supervisor.close(self._timeout)
-                except Exception:  # noqa: BLE001 - cleanup failure is a safe error
+                    _observe(self._diagnostic_root, "executor", "cleanup_completed")
+                except Exception as cleanup_error:  # noqa: BLE001 - cleanup failure is a safe error
+                    _observe(self._diagnostic_root, "executor", "cleanup_incomplete", failure_stage="cleanup", error_type=type(cleanup_error).__name__)
                     with self._lifecycle:
                         self._pending_supervisor = supervisor
                     if not decoded:
                         result = _error(SafeErrorCode.INTERNAL_ERROR)
+                try:
+                    process = getattr(supervisor, "_diagnostic_process", None)
+                    code = getattr(process, "returncode", None)
+                    if type(code) is int:
+                        _observe(self._diagnostic_root, "supervisor", "helper_exit_observed", exit_code=code, state="exited")
+                except Exception:  # noqa: BLE001 - status lookup is observational only
+                    pass
+            _observe(self._diagnostic_root, "executor", "executor_result", state=result.state.value, outcome=_safe_outcome(result), error_code=result.error.code.value if result.error is not None else None)
             with self._lifecycle:
                 self._active = False
         return result
@@ -439,22 +490,32 @@ class CodexHelperExecutor:
             return transport
 
         supervisor, result, decoded = None, _error(SafeErrorCode.INTERNAL_ERROR), False
+        stage = "startup"
+        _observe(self._diagnostic_root, "executor", "executor_started")
         try:
-            supervisor = self._factory(
-                command=_helper_command(),
-                transport_factory=transport_factory,
-                timeout_seconds=self._timeout,
-            )
+            kwargs = {"command": _helper_command(), "transport_factory": transport_factory, "timeout_seconds": self._timeout}
+            if self._diagnostic_root is not None:
+                if self._factory is _CodexSupervisor:
+                    kwargs["diagnostic_root"] = self._diagnostic_root
+                else:
+                    _observe(self._diagnostic_root, "executor", "supervisor_hooks_unavailable", state="unknown")
+                _observe(self._diagnostic_root, "executor", "helper_start_requested")
+            supervisor = self._factory(**kwargs)
             self._last_supervisor = supervisor
             supervisor.acquire_with_deadline(context)
+            stage = "request"
+            _observe(self._diagnostic_root, "executor", "ready_observed", state="alive")
             transport = transport_box[0]
             nonce = getattr(supervisor, "_nonce", b"")
             if not isinstance(nonce, bytes):
                 raise TypeError
             request = json.dumps({"nonce": nonce.decode("ascii"), "runner": list(runner)}, separators=(",", ":")).encode("utf-8")
             if len(request) > _MAX_REQUEST:
-                return _error(SafeErrorCode.INVOCATION_INVALID)
+                result = _error(SafeErrorCode.INVOCATION_INVALID)
+                return result
             transport.write_control_with_deadline(struct.pack(">I", len(request)) + request, context=context)
+            _observe(self._diagnostic_root, "executor", "request_emitted")
+            stage = "response"
             result = _decode(transport.read_response_with_deadline(context))
             decoded = result.outcome in (
                 ProviderOutcome.SNAPSHOT,
@@ -462,17 +523,29 @@ class CodexHelperExecutor:
                 ProviderOutcome.NOT_RUN,
             )
         except Exception as error:  # noqa: BLE001 - map worker failures to public safe errors
+            _observe(self._diagnostic_root, "executor", "original_exception", failure_stage=stage, error_type=type(error).__name__)
             code = SafeErrorCode.TIMEOUT if isinstance(error, (_TransportTimeout, TimeoutError)) else SafeErrorCode.PROVIDER_ERROR
             result = _error(code)
         finally:
             if supervisor is not None:
+                _observe(self._diagnostic_root, "executor", "cleanup_started", failure_stage="cleanup")
                 try:
                     supervisor.close_with_deadline(context)
-                except Exception:  # noqa: BLE001 - retain owner for bounded retry
+                    _observe(self._diagnostic_root, "executor", "cleanup_completed")
+                except Exception as cleanup_error:  # noqa: BLE001 - retain owner for bounded retry
+                    _observe(self._diagnostic_root, "executor", "cleanup_incomplete", failure_stage="cleanup", error_type=type(cleanup_error).__name__)
                     with self._lifecycle:
                         self._pending_supervisor = supervisor
                     if not decoded:
                         result = _error(SafeErrorCode.INTERNAL_ERROR)
+                try:
+                    process = getattr(supervisor, "_diagnostic_process", None)
+                    code = getattr(process, "returncode", None)
+                    if type(code) is int:
+                        _observe(self._diagnostic_root, "supervisor", "helper_exit_observed", exit_code=code, state="exited")
+                except Exception:  # noqa: BLE001 - status lookup is observational only
+                    pass
+            _observe(self._diagnostic_root, "executor", "executor_result", state=result.state.value, outcome=_safe_outcome(result), error_code=result.error.code.value if result.error is not None else None)
             with self._lifecycle:
                 self._active = False
         return result
@@ -516,6 +589,10 @@ class CodexHelperExecutor:
             if released:
                 self._pending_supervisor = None
         return released
+
+
+def _safe_outcome(view: ProviderView) -> str:
+    return view.outcome.value if view.outcome is not None else "unknown"
 
 
 def _error(code: SafeErrorCode) -> ProviderView:
