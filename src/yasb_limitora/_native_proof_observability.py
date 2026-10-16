@@ -14,7 +14,7 @@ _MAX_LINE_BYTES = 512
 _MAX_EVENTS = 64
 _ROLES = frozenset(("executor", "supervisor", "helper", "fixture"))
 _ERROR_TYPES = frozenset(("TimeoutError", "OSError", "FileNotFoundError", "PermissionError", "BrokenPipeError", "RuntimeError", "TypeError", "ValueError", "EOFError", "KeyError", "AttributeError", "AssertionError", "UnicodeError"))
-_STATES = frozenset(("loading", "success", "unavailable", "safe_error", "alive", "exited", "unknown", "complete", "incomplete"))
+_STATES = frozenset(("loading", "success", "unavailable", "safe_error", "alive", "exited", "unknown", "complete", "incomplete", "source_capable"))
 _OUTCOMES = frozenset(("snapshot", "undetected", "not_run", "execution_error", "unknown"))
 _ERROR_CODES = frozenset(("timeout", "provider_error", "internal_error", "configuration_invalid", "invocation_invalid", "invalid_provider_data", "unknown_provider_state", "guard_acquisition_failed", "guard_wait_timeout", "deadline_exhausted", "cleanup_failed", "none", "unknown"))
 _EVENTS = frozenset(
@@ -23,6 +23,7 @@ _EVENTS = frozenset(
         "ready_emitted", "ready_observed", "request_emitted", "request_received", "stream_summary",
         "authorization_processed", "response_emitted", "executor_result", "original_exception",
         "cleanup_started", "cleanup_completed", "cleanup_incomplete", "fixture_started", "descendant_started", "helper_exit_observed", "observer_truncated", "supervisor_hooks_unavailable",
+        "helper_bootstrap_capability",
     )
 )
 

@@ -21,7 +21,15 @@ occur. Producer-emitted events remain distinct from parent-observed READY and
 executor events.
 
 The helper READY-emitted hook exists in both the isolated non-frozen bootstrap
-and frozen internal-helper bootstrap. The supervisor records helper creation
+and frozen internal-helper bootstrap. Once the diagnostic recorder imports, the
+helper records availability as `ready_emitted` with `state: source_capable`, and
+both that state and the `helper_bootstrap_capability` event are part of the
+observer schema so bootstrap capability is represented rather than dropped. When
+that import fails, the bootstrap instead writes its own minimal stdlib-only
+`helper_bootstrap_capability` record with a `state` of `root_present` or
+`import_failed` and an allowlisted exception type; that breadcrumb necessarily
+bypasses the observer because the observer is the component that failed to
+import. The supervisor records helper creation
 and READY observation. The helper records validated request receipt,
 authorization processing, and response emission. The fixture records start,
 request receipt, authorization processing, response emission, and byte counts
