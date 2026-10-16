@@ -28,6 +28,23 @@ owner is serviced by bounded waiter retries. A dead or mismatched owner is
 reclaimed with a higher generation, and a producer MUST verify its exact claim
 before publication. Unknown account identity MUST fail closed for cache reuse.
 
+Windows cache filesystem calls use the extended-length native representation for
+absolute drive paths of at least 248 UTF-16 code units (a conservative directory
+creation boundary, not a measured universal failure threshold). Logical paths,
+full fingerprints, filenames, marker schema, guard keys and physical files remain
+unchanged, so existing owners are not bypassed by a second layout. Normalization
+and reparse-point/account/access checks still apply to the same existing objects;
+metadata, read, atomic replace and temporary-file cleanup use consistent native
+paths. Temporary directories always use the native representation on Windows
+before `mkstemp` appends its child filename: a directory below the ordinary
+threshold can still produce a child path beyond it. This does not depend on the
+random-name length, change that name, or create a second persistent layout.
+This is not a new accepted configuration/CLI namespace or a global Windows
+policy change. There is no fallback retry, truncation or longer deadline.
+Other short-path calls and all non-Windows filesystem arguments are unchanged.
+Native API limitations still fail closed rather than reporting a successful
+publication.
+
 ## 1. Normative Language
 
 The terms **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** are
