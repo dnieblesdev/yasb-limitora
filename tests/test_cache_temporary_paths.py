@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from tests.test_cache import context, public_bytes
-from tests.test_cache_native_paths import _coordinator, _native, _producer
+from tests.test_cache_native_paths import _coordinator, _native, _producer, _short_control_root
 from yasb_limitora import cache as cache_module
 
 
@@ -17,7 +17,9 @@ def _units(value):
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows temporary path boundary")
 @pytest.mark.parametrize("directory_units", (142, 236, *range(237, 248), 248, 250))
-def test_temporary_path_boundary_publishes_without_leftovers(tmp_path, monkeypatch, directory_units):
+def test_temporary_path_boundary_publishes_without_leftovers(tmp_path, monkeypatch, directory_units, request):
+    if directory_units == 142:
+        tmp_path = _short_control_root(tmp_path, request)
     cache = _coordinator(tmp_path, directory_units + 98)
     directory = str(Path(cache.path).parent)
     assert _units(directory) == directory_units

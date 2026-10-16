@@ -4,6 +4,7 @@ import json
 import os
 import stat
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 import pytest
@@ -31,6 +32,20 @@ def _coordinator(tmp_path, marker_length, *, suffix="", **options):
     return result
 
 
+def _short_control_root(tmp_path, request):
+    # Only the 240-character controls need a fallback when TEMP exhausts their budget.
+    desired = 240 - len("\\yasb-limitora\\") - 97
+    if desired - len(str(tmp_path.parent)) - 1 >= 8:
+        return tmp_path
+    parent = Path(__file__).resolve().parents[1] / "tmp"
+    parent.mkdir(exist_ok=True)
+    owned = TemporaryDirectory(prefix="c1-", dir=parent)
+    request.addfinalizer(owned.cleanup)
+    control = Path(owned.name) / tmp_path.name
+    control.mkdir()
+    return control
+
+
 def _native(path):
     # Fixture-only access seeds the SAME existing file, not an alternate layout.
     return Path("\\\\?\\" + str(path))
@@ -45,7 +60,9 @@ def _producer(calls):
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows cache path regression")
 @pytest.mark.parametrize("marker_length", (240, 260, 280))
-def test_native_refresh_publishes_and_reuses_exact_legacy_paths(tmp_path, marker_length):
+def test_native_refresh_publishes_and_reuses_exact_legacy_paths(tmp_path, marker_length, request):
+    if marker_length == 240:
+        tmp_path = _short_control_root(tmp_path, request)
     cache = _coordinator(tmp_path, marker_length)
     calls = []
     result = cache.get_or_refresh(context(), _producer(calls))
