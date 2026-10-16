@@ -34,7 +34,11 @@ and READY observation. The helper records validated request receipt,
 authorization processing, and response emission. The fixture records start,
 request receipt, authorization processing, response emission, and byte counts
 for its known stdin/stdout/stderr writes. The executor records bounded result,
-original exception type and failure stage, and cleanup outcome. Sidecar failures
+original exception type and failure stage, and cleanup outcome. The adapter also
+records one sanitized `original_exception` at the point where it receives a
+released provider failure, before that boundary maps and redacts it; only the
+allowlisted exception type and the failure stage are recorded, never the message,
+and the observation cannot change the mapped result or its evidence. Sidecar failures
 are best-effort and cannot replace the IPC result or original failure.
 
 When the existing fixture evidence wait reaches its existing failure boundary,

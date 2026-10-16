@@ -222,6 +222,24 @@ def _snapshot_view(provider: ProviderKey, result: StatusSnapshotResult) -> Provi
 
 
 _FAILURE_EVIDENCE = {ProviderErrorKind.UNAUTHORIZED: OpenCodeFailureEvidence.CREDENTIAL_INVALID, ProviderErrorKind.RATE_LIMITED: OpenCodeFailureEvidence.RATE_LIMITED}
+
+
+def _observe_provider_error(error: ProviderError) -> None:
+    """Record the released provider failure before this boundary maps and redacts it.
+
+    Observation is best-effort and strictly optional: it cannot change the returned view,
+    the mapped safe code, or the failure evidence. Only the allowlisted exception type and
+    the existing failure stage are recorded; nothing from the message is persisted.
+    """
+    try:
+        from ._native_proof_observability import record_from_environment
+
+        record_from_environment("helper", "original_exception",
+                                error_type=type(error).__name__, failure_stage="response")
+    except BaseException:  # noqa: BLE001 - diagnostics must not replace provider results
+        return
+
+
 def _failure_evidence(error: ProviderError) -> OpenCodeFailureEvidence:
     if error.kind is ProviderErrorKind.TRANSPORT and error.safe_message in _TRANSPORT_TIMEOUT_MESSAGES:
         return OpenCodeFailureEvidence.TIMEOUT
@@ -236,6 +254,7 @@ def _read(provider: ProviderKey, client: StatusClient, evidence: list[OpenCodeFa
             evidence.append(OpenCodeFailureEvidence.TIMEOUT)
         return _error(provider, SafeErrorCode.TIMEOUT)
     except ProviderError as error:
+        _observe_provider_error(error)
         code = SafeErrorCode.TIMEOUT if error.kind is ProviderErrorKind.TRANSPORT and error.safe_message in _TRANSPORT_TIMEOUT_MESSAGES else SafeErrorCode.PROVIDER_ERROR
         if evidence is not None:
             evidence.append(_failure_evidence(error))
