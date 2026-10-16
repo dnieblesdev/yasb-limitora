@@ -63,7 +63,129 @@ _WINDOW_FIELDS = frozenset(
 )
 _QUANTITY_FIELDS = frozenset(("metric", "value", "unit"))
 _ERROR_FIELDS = frozenset(("code",))
+# Definition text is shared with the isolated child; no filesystem I/O here.
+_BOOTSTRAP_METADATA = r'''
+def _import_evidence(error):
+    import sys, stat
+    target = "yasb_limitora._native_proof_observability"
+    expected = os.path.dirname(os.path.dirname(_expected_helper_file))
+    package = os.path.join(expected, "yasb_limitora")
+    # A frozen helper file identifies bundle storage, not a source checkout.
+    source_known = not bool(getattr(sys, "frozen", False) or getattr(sys, "_MEIPASS", None))
+    def available(path, directory=False):
+        try:
+            mode = os.stat(path).st_mode
+            return stat.S_ISDIR(mode) if directory else stat.S_ISREG(mode)
+        except FileNotFoundError:
+            return False
+        except Exception:
+            return "unknown"
+    def classify(path):
+        if not isinstance(path, str) or not path:
+            return "unknown"
+        if path in ("frozen", "built-in"):
+            return "frozen_bundle" if path == "frozen" else "stdlib"
+        try:
+            path = os.path.normcase(os.path.abspath(path))
+            def inside(root):
+                root = os.path.normcase(os.path.abspath(root))
+                try:
+                    return os.path.commonpath((path, root)) == root
+                except ValueError:
+                    return False
+            if getattr(sys, "_MEIPASS", None) and inside(sys._MEIPASS):
+                return "frozen_bundle"
+            if source_known and inside(expected):
+                return "expected_worktree"
+            if any(p in ("site-packages", "dist-packages") for p in path.replace("\\", "/").split("/")):
+                return "site_packages"
+            if inside(os.path.join(sys.base_prefix, "Lib")) or inside(os.path.join(sys.base_prefix, "lib")):
+                return "stdlib"
+            return "other_source"
+        except Exception:
+            return "unknown"
+    def attribute(value, key):
+        try:
+            return getattr(value, key, None)
+        except Exception:
+            return None
+    def mask(paths):
+        codes = ("expected_worktree", "other_source", "site_packages", "stdlib", "frozen_bundle", "unknown")
+        result = 0
+        try:
+            for path in paths:
+                result |= 1 << codes.index(classify(path))
+        except Exception:
+            result |= 32
+        return result
+    module = sys.modules.get("yasb_limitora")
+    origin = attribute(attribute(module, "__spec__"), "origin") or attribute(module, "__file__")
+    roots = mask(sys.path)
+    package_roots = mask(attribute(module, "__path__"))
+    missing = attribute(error, "name") if isinstance(error, ModuleNotFoundError) else None
+    category = ("target" if missing == target else "package" if missing == "yasb_limitora"
+                else "other_dependency" if isinstance(missing, str) and missing else "unknown")
+    return {
+        "target_module": target, "missing_category": category,
+        "expected_repo_available": available(os.path.dirname(expected), True) if source_known else "unknown",
+        "expected_package_available": available(package, True),
+        "expected_recorder_available": available(os.path.join(package, "_native_proof_observability.py")),
+        "package_origin": classify(origin), "search_root_mask": roots,
+        "package_root_mask": package_roots,
+        "expected_root_on_path": bool(roots & 1) if source_known else "unknown",
+    }
+'''
+_expected_helper_file = __file__
+_metadata_namespace = {"os": os, "_expected_helper_file": _expected_helper_file}
+exec(_BOOTSTRAP_METADATA, _metadata_namespace)
+_import_evidence = _metadata_namespace["_import_evidence"]
 _CHILD_BOOTSTRAP = f"""import os,runpy
+_expected_helper_file = {_expected_helper_file!r}
+{_BOOTSTRAP_METADATA}
+
+def _breadcrumb(state, error=None):
+    try:
+        root = os.environ.get("_YASB_NATIVE_PROOF_DIAGNOSTICS_ROOT")
+        if not root or not os.path.isabs(root) or not os.path.isdir(root):
+            return
+        import json, time
+        name = type(error).__name__ if error is not None else "unknown"
+        allowed = {{"ImportError", "ModuleNotFoundError", "OSError", "PermissionError", "FileNotFoundError"}}
+        row = {{
+            "role": "helper",
+            "event": "helper_bootstrap_capability",
+            "state": state,
+            "error_type": name if name in allowed else "unknown",
+            "monotonic_ns": time.monotonic_ns(),
+        }}
+        if error is not None:
+            row.update(_import_evidence(error))
+        line = (json.dumps(row, separators=(",", ":")) + "\\n").encode("ascii")
+        path = os.path.join(root, "helper.jsonl")
+        with open(path, "a+b") as stream:
+            stream.seek(0)
+            prior = stream.read(16384)
+            count = prior.count(b"\\n")
+            if b'"event":"observer_truncated"' in prior:
+                return
+            marker = (
+                json.dumps(
+                    {{"role": "helper", "event": "observer_truncated",
+                     "monotonic_ns": time.monotonic_ns(), "reason": "capacity"}},
+                    separators=(",", ":"),
+                ) + "\\n"
+            ).encode("ascii")
+            full = len(line) > 512 or count >= 63 or len(prior) + len(line) + len(marker) > 16384
+            if full:
+                if count < 64 and len(prior) + len(marker) <= 16384:
+                    stream.seek(0, os.SEEK_END)
+                    stream.write(marker)
+                return
+            stream.seek(0, os.SEEK_END)
+            stream.write(line)
+    except BaseException:
+        return
+
 try:
     gate=int(os.environ.pop({_GATE!r})); data=int(os.environ.pop({_DATA!r}))
     if os.name == "nt":
@@ -75,9 +197,10 @@ try:
     if "_YASB_NATIVE_PROOF_DIAGNOSTICS_ROOT" in os.environ:
         try:
             from yasb_limitora._native_proof_observability import record_from_environment
-            record_from_environment("helper", "ready_emitted", pid=os.getpid())
-        except Exception:
-            pass
+            record_from_environment("helper", "ready_emitted", pid=os.getpid(), state="source_capable")
+        except Exception as error:
+            _breadcrumb("root_present")
+            _breadcrumb("import_failed", error)
     os.environ[{_GATE!r}]=str(gate); os.environ[{_DATA!r}]=str(data); os.environ["_YASB_HELPER_NONCE"]=nonce.decode("ascii")
     runpy.run_module("yasb_limitora.codex_helper", run_name="__main__")
 except SystemExit:
@@ -94,7 +217,48 @@ def _observe(root: object, role: str, event: str, **facts: Any) -> None:
         from ._native_proof_observability import record
 
         record(root, role, event, **facts)
-    except Exception:  # noqa: BLE001 - observation cannot change IPC
+    except BaseException:  # noqa: BLE001 - observation cannot change IPC
+        return
+
+
+def _frozen_bootstrap_breadcrumb(root: object, state: str, error: BaseException | None = None) -> None:
+    """Persist minimal stdlib evidence if the frozen recorder import fails."""
+    try:
+        if not isinstance(root, (str, os.PathLike)):
+            return
+        directory = os.fspath(root)
+        if not os.path.isabs(directory) or not os.path.isdir(directory):
+            return
+        import time
+        name = type(error).__name__ if error is not None else "unknown"
+        allowed = {"ImportError", "ModuleNotFoundError", "OSError", "PermissionError", "FileNotFoundError"}
+        row = {
+            "role": "helper", "event": "helper_bootstrap_capability", "state": state,
+            "error_type": name if name in allowed else "unknown", "monotonic_ns": time.monotonic_ns(),
+        }
+        if error is not None:
+            row.update(_import_evidence(error))
+        line = (json.dumps(row, separators=(",", ":")) + "\n").encode("ascii")
+        marker = (json.dumps({"role": "helper", "event": "observer_truncated",
+                              "monotonic_ns": time.monotonic_ns(), "reason": "capacity"},
+                             separators=(",", ":")) + "\n").encode("ascii")
+        if len(line) > 512:
+            return
+        path = os.path.join(directory, "helper.jsonl")
+        with open(path, "a+b") as stream:
+            stream.seek(0)
+            prior = stream.read(16_384)
+            count = prior.count(b"\n")
+            if b'"event":"observer_truncated"' in prior:
+                return
+            full = count >= 63 or len(prior) + len(line) + len(marker) > 16_384
+            stream.seek(0, os.SEEK_END)
+            if full:
+                if count < 64 and len(prior) + len(marker) <= 16_384:
+                    stream.write(marker)
+                return
+            stream.write(line)
+    except BaseException:  # noqa: BLE001 - bootstrap diagnostics are fail-silent
         return
 
 
@@ -303,12 +467,14 @@ def _run_frozen_helper_bootstrap() -> None:
             raise ValueError
         os.write(data, b"READY:" + nonce)
         if "_YASB_NATIVE_PROOF_DIAGNOSTICS_ROOT" in os.environ:
+            root = os.environ.get("_YASB_NATIVE_PROOF_DIAGNOSTICS_ROOT")
             try:
                 from ._native_proof_observability import record_from_environment
 
-                record_from_environment("helper", "ready_emitted", pid=os.getpid())
-            except Exception:
-                pass
+                record_from_environment("helper", "ready_emitted", pid=os.getpid(), state="source_capable")
+            except Exception as error:
+                _frozen_bootstrap_breadcrumb(root, "root_present")
+                _frozen_bootstrap_breadcrumb(root, "import_failed", error)
         os.environ[_GATE] = str(gate)
         os.environ[_DATA] = str(data)
         os.environ["_YASB_HELPER_NONCE"] = nonce.decode("ascii")
