@@ -9,6 +9,20 @@ import subprocess
 import sys
 import time
 
+_DIAGNOSTICS_ENV = "_YASB_NATIVE_PROOF_DIAGNOSTICS_ROOT"
+
+
+def _observe(event: str, **facts: object) -> None:
+    if _DIAGNOSTICS_ENV not in os.environ:
+        return
+    try:
+        from yasb_limitora._native_proof_observability import record_from_environment
+
+        record_from_environment("fixture", event, **facts)
+    except Exception:  # noqa: BLE001 - fixture behavior is independent of diagnostics
+        return
+
+
 _RATE_LIMITS = {
     "rateLimits": {
         "limitId": "codex",
@@ -30,10 +44,14 @@ def _descendant(marker: Path, sentinel: str) -> None:
         time.sleep(1)
 
 def _response(identifier: int, result: dict[str, object]) -> None:
-    sys.stdout.write(json.dumps({"id": identifier, "result": result}, separators=(",", ":")) + "\n")
+    wire = json.dumps({"id": identifier, "result": result}, separators=(",", ":")) + "\n"
+    sys.stdout.write(wire)
     sys.stdout.flush()
+    _observe("response_emitted", pid=os.getpid())
+    _observe("stream_summary", pid=os.getpid(), stream="stdout", byte_count=len(wire.encode("utf-8")))
 
 def _run(mode: str, evidence: Path, sentinel: str, descendant_marker: Path) -> None:
+    _observe("fixture_started", pid=os.getpid(), state="alive")
     descendant = subprocess.Popen(
         [sys.executable, __file__, "--descendant", str(descendant_marker), sentinel],
         stdin=subprocess.DEVNULL,
@@ -41,6 +59,7 @@ def _run(mode: str, evidence: Path, sentinel: str, descendant_marker: Path) -> N
         stderr=subprocess.DEVNULL,
         close_fds=True,
     )
+    _observe("descendant_started", child_pid=descendant.pid, state="alive")
     deadline = time.monotonic() + 4.0
     while time.monotonic() < deadline and not descendant_marker.exists():
         time.sleep(0.01)
@@ -56,22 +75,30 @@ def _run(mode: str, evidence: Path, sentinel: str, descendant_marker: Path) -> N
     _write(evidence, record)
     if sentinel:
         os.write(2, sentinel.encode("ascii") + b"\n")
+        _observe("stream_summary", pid=os.getpid(), stream="stderr", byte_count=len(sentinel.encode("ascii")) + 1)
         record["fixture_stderr_attempted"] = True
         _write(evidence, record)
     if mode == "timeout":
         for line in sys.stdin:
             if line:
+                _observe("request_received", pid=os.getpid())
+                _observe("stream_summary", pid=os.getpid(), stream="stdin", byte_count=len(line.encode("utf-8")))
                 record["authorized"] = True
+                _observe("authorization_processed", pid=os.getpid())
                 _write(evidence, record)
                 break
         while True:
             time.sleep(1)
 
     for line in sys.stdin:
+        if line:
+            _observe("stream_summary", pid=os.getpid(), stream="stdin", byte_count=len(line.encode("utf-8")))
+        _observe("request_received", pid=os.getpid())
         message = json.loads(line)
         if "id" not in message:
             continue
         record["authorized"] = True
+        _observe("authorization_processed", pid=os.getpid())
         _write(evidence, record)
         if message["id"] == 1:
             _response(1, {"serverInfo": {"name": "fixture"}})

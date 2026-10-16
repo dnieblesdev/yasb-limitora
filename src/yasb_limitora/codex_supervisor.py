@@ -258,6 +258,27 @@ _GATE_ENV = "_YASB_CODEX_GATE_HANDLE"
 _DATA_ENV = "_YASB_CODEX_DATA_HANDLE"
 _NONCE_ENV = "_YASB_CODEX_READY_NONCE"
 _NONCE_LIMIT = 128
+_DIAGNOSTICS_ENV = "_YASB_NATIVE_PROOF_DIAGNOSTICS_ROOT"
+
+
+def _observe(root, event, **facts):
+    if root is None:
+        return
+    try:
+        from ._native_proof_observability import record
+
+        record(root, "supervisor", event, **facts)
+    except Exception:
+        return
+
+
+def _observe_process(root, event, process):
+    try:
+        _observe(root, event, pid=getattr(process, "pid", None), state="alive")
+    except Exception:
+        return
+
+
 _BOOTSTRAP = "\n".join(
     (
         "import os,msvcrt",
@@ -290,6 +311,7 @@ def _environment(
     gate_read: int,
     data_write: int,
     nonce: bytes,
+    diagnostic_root: object | None = None,
 ) -> dict[str, str]:
     """Copy the supplied environment and replace only private protocol keys."""
     if type(nonce) is not bytes or not 0 < len(nonce) <= _NONCE_LIMIT:
@@ -299,11 +321,18 @@ def _environment(
     except UnicodeDecodeError:
         raise ValueError("invalid readiness nonce") from None
     environment = dict(source)
-    for protocol_key in _PROTOCOL_ENV_KEYS:
+    for protocol_key in (*_PROTOCOL_ENV_KEYS, _DIAGNOSTICS_ENV):
         for existing_key in tuple(environment):
             if existing_key.casefold() == protocol_key.casefold():
                 environment.pop(existing_key)
     environment.update({_GATE_ENV: str(gate_read), _DATA_ENV: str(data_write), _NONCE_ENV: nonce_text})
+    if diagnostic_root is not None:
+        try:
+            root = _os.fspath(diagnostic_root)
+            if _os.path.isabs(root) and _os.path.isdir(root):
+                environment[_DIAGNOSTICS_ENV] = root
+        except (OSError, TypeError, ValueError):
+            pass
     return environment
 
 
@@ -600,6 +629,7 @@ class _CodexSupervisor:
         startup_factory: _typing.Callable[[], object] | None = None,
         environment_source: _typing.Mapping[str, str] | None = None,
         timeout_seconds: object = _DEFAULT_TRANSPORT_TIMEOUT,
+        diagnostic_root: object | None = None,
     ) -> None:
         self._command = (
             tuple(command)
@@ -619,6 +649,8 @@ class _CodexSupervisor:
         self._transport_factory = transport_factory
         self._startup_factory = startup_factory
         self._environment_source = dict(_os.environ) if environment_source is None else environment_source
+        self._diagnostic_root = diagnostic_root
+        self._diagnostic_process = None
         self._timeout_seconds = timeout_seconds
         self._state = _SupervisorState.OPEN
         self._prepared: _PreparedAcquisition | None = None
@@ -664,6 +696,7 @@ class _CodexSupervisor:
                 )
                 if received != expected:
                     raise _TransportError("ready_mismatch") from None
+                _observe_process(self._diagnostic_root, "ready_observed", self._diagnostic_process)
                 prepared._release_for_commit()
             except Exception as error:  # noqa: BLE001 - retain Unit B cleanup owner
                 return self._abort_prepared(prepared, error)
@@ -728,6 +761,7 @@ class _CodexSupervisor:
                 gate_read=gate_handle,
                 data_write=data_handle,
                 nonce=nonce,
+                diagnostic_root=self._diagnostic_root,
             )
             resetter = _InheritableHandleReset(self._set_inheritable)
             reset_entry = transaction.add(resetter.close)
@@ -746,10 +780,16 @@ class _CodexSupervisor:
                 popen_kwargs["creationflags"] = _subprocess.CREATE_BREAKAWAY_FROM_JOB
             if _os.name != "nt":
                 popen_kwargs["pass_fds"] = (gate_read, data_write)
-            popen = self._popen_factory(
-                list(command if command is not None else self._command),
-                **popen_kwargs,
-            )
+            try:
+                popen = self._popen_factory(
+                    list(command if command is not None else self._command),
+                    **popen_kwargs,
+                )
+            except Exception as error:
+                _observe(self._diagnostic_root, "helper_start_failed", error_type=type(error).__name__, failure_stage="startup")
+                raise
+            self._diagnostic_process = popen
+            _observe_process(self._diagnostic_root, "helper_started", popen)
             process_owner = _PopenProcessOwner.register(popen)
             process_entry = transaction.add(process_owner.close)
             resetter.reset()
