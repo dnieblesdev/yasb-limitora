@@ -3,10 +3,10 @@ widgets:
     type: yasb.custom.CustomWidget
     options:
       class_name: limitora-r9
-      label: "{data[providers][0][compact_text]}"
-      label_alt: "{data[providers][0][alternate_text]}"
+      label: "{data[general][compact_text]}"
+      label_alt: "{data[general][alternate_text]}"
       tooltip: true
-      tooltip_label: "{data[providers][0][tooltip_text]}"
+      tooltip_label: "{data[general][tooltip_text]}"
       exec_options:
         run_cmd: "yasb-limitora"
         run_once: false

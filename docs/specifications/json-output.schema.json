@@ -5,10 +5,11 @@
   "description": "Structural support for the normative current JSON contract. Semantic and deadline rules remain normative in json-output.md.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["execution_state", "execution_error", "providers"],
+  "required": ["execution_state", "execution_error", "general", "providers"],
   "properties": {
     "execution_state": {"enum": ["complete", "partial", "not_run", "execution_error"]},
     "execution_error": {"$ref": "#/$defs/executionErrorOrNull"},
+    "general": {"$ref": "#/$defs/general"},
     "providers": {
       "type": "array",
       "minItems": 2,
@@ -370,6 +371,16 @@
     }
   ],
   "$defs": {
+    "general": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compact_text", "alternate_text", "tooltip_text"],
+      "properties": {
+        "compact_text": {"type": "string", "maxLength": 263, "pattern": "^(?![\\s\\S]*[\\u0000-\\u001f\\u007f])[\\s\\S]*$"},
+        "alternate_text": {"type": "string", "maxLength": 265, "pattern": "^(?![\\s\\S]*[\\u0000-\\u001f\\u007f])[\\s\\S]*$"},
+        "tooltip_text": {"type": "string", "maxLength": 8194, "pattern": "^(?![\\s\\S]*[\\u0000-\\u0009\\u000b-\\u001f\\u007f])[\\s\\S]*$"}
+      }
+    },
     "identity": {
       "type": "string",
       "minLength": 1,

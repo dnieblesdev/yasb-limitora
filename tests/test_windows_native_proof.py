@@ -407,7 +407,8 @@ def test_native_yasb_limitora_launcher_contract(tmp_path: Path) -> None:
     assert valid.returncode == 0
     assert valid.stdout == expected
     assert valid.stderr == b""
-    assert list(document) == ["execution_state", "execution_error", "providers"]
+    assert list(document) == ["execution_state", "execution_error", "general", "providers"]
+    assert document["general"] == {"compact_text": "—", "alternate_text": "No providers enabled", "tooltip_text": "No providers enabled"}
     assert "version" not in document
     assert all(
         all(

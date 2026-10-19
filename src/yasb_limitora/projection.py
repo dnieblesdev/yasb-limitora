@@ -51,7 +51,7 @@ _PROVIDER_DISPLAY_NAMES = {
     ProviderKey.OPENCODE_GO: "OpenCode Go",
 }
 _PERIOD_DISPLAY_NAMES = {
-    "five_hour": "5-hour",
+    "five_hour": "5h",
     "monthly": "Monthly",
     "weekly": "Weekly",
 }
@@ -222,18 +222,16 @@ def _error(code: SafeErrorCode, evidence: object | None = None) -> dict[str, str
         SafeErrorCode.DEADLINE_EXHAUSTED: "deadline_exhausted",
     }.get(code, "provider_failed")
     return {"code": mapped, "phase": "provider"}
-def _fallback(outcome: str) -> dict[str, Any]:
-    text = {
-        "snapshot": "Quota unavailable",
-        "undetected": "Quota not detected",
-        "not_run": "Quota not run",
-        "execution_error": "Quota error",
-    }[outcome]
+def _general(providers: list[dict[str, Any]]) -> dict[str, str]:
+    """Compose canonical provider presentation, never aggregate quota evidence."""
+    selected = [item for item in providers if item["not_run_reason"] != "disabled"]
+    if not selected:
+        return {"compact_text": "—", "alternate_text": "No providers enabled", "tooltip_text": "No providers enabled"}
+    identities = {"codex": "C", "opencode_go": "O"}
     return {
-        "most_depleted_window": None,
-        "compact_text": text,
-        "alternate_text": text,
-        "tooltip_text": text,
+        "compact_text": " · ".join(f"{identities[item['provider']]}={item['compact_text']}" for item in selected),
+        "alternate_text": " · ".join(f"{identities[item['provider']]}: {item['alternate_text']}" for item in selected),
+        "tooltip_text": "\n\n".join(item["tooltip_text"] for item in selected),
     }
 
 
@@ -259,7 +257,7 @@ def _percentage(window: dict[str, Any]) -> str | None:
         rendered = rendered.rstrip("0").rstrip(".")
     rendered = rendered or "0"
     significant_digits = len(rendered.replace(".", "").lstrip("0")) or 1
-    if len(rendered) > 128 or significant_digits > 34:
+    if len(rendered) + len("%") > 128 or significant_digits > 34:
         return None
     return rendered
 
@@ -321,12 +319,19 @@ def _presentation(
     reason: str | None = None,
     tooltip_limit: int = _MAX_TOOLTIP_SCALARS,
     timestamp_formatter: Callable[[datetime], str] = _format_local_datetime,
+    execution_error: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     if outcome != ProviderOutcome.SNAPSHOT.value:
-        fallback = _fallback(outcome)
-        if outcome == ProviderOutcome.NOT_RUN.value and reason in _NOT_RUN_TEXT:
-            fallback["tooltip_text"] += f": {_NOT_RUN_TEXT[reason]}"
-        return fallback
+        text = "Provider not detected" if outcome == "undetected" else "Quota unavailable"
+        if outcome == "execution_error":
+            text += " · timeout" if execution_error and execution_error["code"] == "provider_timeout" else " · request failed"
+        detail = _NOT_RUN_TEXT.get(reason or "")
+        if execution_error:
+            detail = execution_error["code"]
+        tooltip = f"{_PROVIDER_DISPLAY_NAMES[provider]}\n{text}"
+        if detail:
+            tooltip += f": {detail}"
+        return {"most_depleted_window": None, "compact_text": "—", "alternate_text": text, "tooltip_text": tooltip}
     if public_state is None or freshness is None:
         raise ValueError("invalid snapshot presentation") from None
     ordered_windows = sorted(windows, key=_window_sort_key)
@@ -343,38 +348,31 @@ def _presentation(
             "source_id": selected["source_id"],
             "remaining_percentage": percentage,
         }
-        value = f"{percentage}% remaining"
-        compact_base = f"Quota {value}"
-        alternate_base = f"Quota {_presentation_identity(selected['scope'])} / {_presentation_identity(selected['period'])}: {value}"
+        compact = f"{percentage}%"
+        alternate_base = f"{_tooltip_period(selected['period'])}: {percentage}% left"
     else:
         depleted = None
-        value = "percentage unavailable"
-        compact_base = alternate_base = "Quota percentage unavailable"
-    qualifier = f"; state={public_state}; freshness={freshness}"
-    compact = _bounded_summary(compact_base, qualifier)
+        compact = "—"
+        alternate_base = "Quota unavailable"
+    qualifier = (" · partial" if public_state == "partial" else "") + (" · stale" if freshness == "stale" else "")
     alternate = _bounded_summary(alternate_base, qualifier)
     lines = [
         _PROVIDER_DISPLAY_NAMES[provider],
         f"State: {_tooltip_state(public_state)} · {_tooltip_state(freshness)}",
-        f"Lowest quota: {value if depleted is not None else 'Quota unavailable'}",
+        "Quota remaining:",
     ]
-    reset_lines: list[str] = []
     for window in ordered_windows:
         percentage = _percentage(window)
         reset = _tooltip_timestamp(window["reset_at"], timestamp_formatter)
         if percentage is not None:
-            line = f"{_tooltip_period(window['period'])}: {percentage}% remaining"
+            line = f"{_tooltip_period(window['period'])}: {percentage}%"
         else:
-            line = f"{_tooltip_period(window['period'])}: Quota unavailable"
-        if reset is not None:
-            if provider is ProviderKey.OPENCODE_GO:
-                line += f" · resets {reset}"
-            else:
-                reset_lines.append(f"Resets: {reset}")
+            line = f"{_tooltip_period(window['period'])}: Unavailable"
         lines.append(line)
+        if reset is not None:
+            lines.append(f"  Renews: {reset}")
     if not ordered_windows:
         lines.append("No quota windows")
-    lines.extend(reset_lines)
     tooltip = "\n".join(lines[:3])
     for line in lines[3:]:
         candidate = line if not tooltip else f"{tooltip}\n{line}"
@@ -457,6 +455,7 @@ def _provider(
             item["not_run_reason"],
             tooltip_limit,
             timestamp_formatter,
+            item["execution_error"],
         )
     )
     return item, outcome.value
@@ -507,6 +506,7 @@ def _project_document(
     return {
         "execution_state": execution_state,
         "execution_error": execution_error,
+        "general": _general(list(providers)),
         "providers": list(providers),
     }
 
@@ -591,6 +591,7 @@ def project_failure_bytes(code: str | SafeErrorCode) -> bytes:
         {
             "execution_state": "execution_error",
             "execution_error": {"code": value, "phase": phase},
+            "general": _general(providers),
             "providers": providers,
         }
     )

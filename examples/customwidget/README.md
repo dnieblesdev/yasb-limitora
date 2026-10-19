@@ -21,8 +21,8 @@ verified guide to the installer's no-PATH integration route.
 4. For the OpenCode flow, temporarily merge the named
    `limitora_r9_opencode_manual` entry from `customwidget.yaml` into YASB's
    `widgets:` map and register `limitora_r9_opencode_manual` in the desired bar.
-   It reads `providers[1]`. The default `limitora_r9` entry is Codex-only: it
-   reads `providers[0]` and its label is not an OpenCode indicator.
+   It reads `providers[1]`. The default `limitora_r9` entry reads `general`
+   and includes every enabled provider, including enabled failures.
 5. Merge the named `limitora_r9` entry from `customwidget.yaml` into YASB's
    `widgets:` map, then add `limitora_r9` to the desired bar widget list.
 6. Copy or merge `styles.css` into the YASB stylesheet.
@@ -58,11 +58,19 @@ intentionally literal and uses `use_shell: false`; the inherited environment
 carries the key. Never place the key in YAML, `run_cmd`, argv, JSON, logs,
 fixtures, or dumps.
 
-YASB's formatter has no provider identity selector within one widget. The
-copy-ready `limitora_r9` entry therefore uses the explicitly bounded provider
-order `[codex, opencode_go]` and `providers[0]` is the codex adapter. The order
-is part of the current JSON contract; do not reuse this path for an unverified
-provider order.
+The copy-ready `limitora_r9` entry reads `general` presentation directly:
+compact `C=38% · O=72%`, alternate `C: 5h: 38% left · O: Monthly: 72% left`,
+and identical individual tooltip sections separated by a blank line. Disabled
+providers are omitted, and a single enabled provider keeps its identity prefix.
+With none enabled, compact is `—` and alternate/tooltip are `No providers enabled`.
+
+Individual paths remain available: `providers[0]` is Codex and `providers[1]`
+is OpenCode Go in the fixed current contract order. Individual compact is `38%`;
+alternate identifies the lowest-percentage period, not the earliest renewal.
+Partial/stale qualifiers appear only in alternate; tooltip uses `Quota remaining:`,
+percentages per period, and an indented `Renews:` immediately below each valid
+renewal. Missing percentages are never zero. JSON bounds do not establish visual
+clipping behavior in YASB; no rendering proof is claimed for this change.
 
 `styles.css` is static. It targets `.custom-widget.limitora-r9` and supported
 descendants only. It does not promise JSON-driven, severity, freshness, or

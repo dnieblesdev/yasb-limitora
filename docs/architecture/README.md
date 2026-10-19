@@ -37,7 +37,7 @@ automated YASB rendering.
 ## Current JSON contract
 
 The current JSON document is the sole supported output. Its root order is
-`execution_state`, `execution_error`, `providers`; there is no root `version` field.
+`execution_state`, `execution_error`, `general`, `providers`; there is no root `version` field.
 Provider outcomes (`snapshot`, `undetected`, `not_run`, or `execution_error`),
 public states, freshness, and sanitized errors remain unchanged. Stdout remains
 one UTF-8 JSON document plus one LF, with unchanged stream and exit behavior.
@@ -79,7 +79,7 @@ producer cannot overwrite a newer result. Coordination failures never start an
 uncoordinated producer or rewrite a valid provider result.
 
 The runtime also uses a shared quota cache below the default local Limitora
-directory. It stores only a schema-3 envelope containing `cached_at`, a
+directory. It stores only a schema-4 envelope containing `cached_at`, a
 digest-only effective account/config/path fingerprint, and the already
 projected public JSON document. Cache reads and writes are atomic, size- and
 deadline-bounded, canonical, and fail closed. A previous-schema entry is stale

@@ -68,6 +68,27 @@ def test_invalid_arguments_are_safe_and_exit_two(bad):
     assert "secret" not in stdout.getvalue().decode() + stderr.getvalue()
 
 
+def test_cli_general_exact_stdout_exit_and_stderr(monkeypatch):
+    from tests.test_json_projection import _document, _snapshot, _window
+
+    document = _document(
+        _snapshot(ProviderKey.CODEX, [_window("five_hour", remaining_value="38", reset=None)]),
+        _snapshot(ProviderKey.OPENCODE_GO, [_window("monthly", source="opencode-go-api", remaining_value="72", reset=None)]),
+    )
+    monkeypatch.setattr(cli, "read_config", lambda path, context: json.dumps({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {"enabled": True}}))
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", lambda: _FakeOrchestrator(document))
+    monkeypatch.setattr(cli, "RefreshCoordinator", lambda *args: None)
+    stdout, stderr = io.BytesIO(), io.StringIO()
+    assert main((), environment={"LOCALAPPDATA": r"C:\\runtime-test", "LIMITORA_OPENCODE_API_KEY": "key"}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 0
+    expected = project_bytes(ProjectionInput(document, frozenset(ProviderKey)))
+    assert stdout.getvalue() == expected
+    assert stderr.getvalue() == ""
+    general = json.loads(expected)["general"]
+    assert general["compact_text"] == "C=38% · O=72%"
+    assert general["alternate_text"] == "C: 5h: 38% left · O: Monthly: 72% left"
+    assert general["tooltip_text"] == "Codex\nState: Available · Fresh\nQuota remaining:\n5h: 38%\n\nOpenCode Go\nState: Available · Fresh\nQuota remaining:\n5h: Unavailable\nMonthly: 72%\nWeekly: Unavailable"
+
+
 def test_missing_cookie_is_unavailable_and_streams_are_isolated(monkeypatch):
     monkeypatch.setattr(cli, "read_config", lambda path, context: json.dumps({"codex": {}, "opencode_go": {}}))
     orchestrator = _FakeOrchestrator(

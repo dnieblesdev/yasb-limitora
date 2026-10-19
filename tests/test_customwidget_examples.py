@@ -75,14 +75,14 @@ RUNTIME_METADATA = {
         "stderr": b"yasb-limitora: guard_wait_timeout" + bytes([0x0A]),
         "document": {"code": "guard_wait_timeout", "phase": "guard_wait"},
         "reason": "guard_wait_timeout",
-        "tooltip": "Quota not run: guard wait timeout",
+        "tooltip": "Quota unavailable: guard wait timeout",
     },
     "deadline-not-run": {
         "exit_code": 2,
         "stderr": b"yasb-limitora: runtime_error" + bytes([0x0A]),
         "document": {"code": "deadline_exhausted", "phase": "document"},
         "reason": "deadline_exhausted",
-        "tooltip": "Quota not run: deadline exhausted",
+        "tooltip": "Quota unavailable: deadline exhausted",
     },
 }
 def _json_document(path):
@@ -128,29 +128,39 @@ def _assert_provider(provider, expected, percentage, display_state=None, tooltip
     _assert_safe_leaf(provider["alternate_text"])
     _assert_safe_leaf(provider["tooltip_text"], tooltip=True)
     if percentage is not None:
-        assert provider["compact_text"] == f"Quota {percentage}% remaining; state={display_state}; freshness={freshness}"
-        assert provider["alternate_text"] == f"Quota account / {provider['most_depleted_window']['period']}: {percentage}% remaining; state={display_state}; freshness={freshness}"
+        assert provider["compact_text"] == f"{percentage}%"
+        period = provider['most_depleted_window']['period']
+        period = {"five_hour": "5h", "weekly": "Weekly", "monthly": "Monthly"}.get(period, period.capitalize())
+        qualifier = (" · partial" if state == "partial" else "") + (" · stale" if freshness == "stale" else "")
+        assert provider["alternate_text"] == f"{period}: {percentage}% left{qualifier}"
         provider_name = "Codex" if provider["provider"] == "codex" else "OpenCode Go"
         state_label = display_state.replace("_", " ").capitalize()
         freshness_label = freshness.replace("_", " ").capitalize()
-        assert provider["tooltip_text"].startswith(f"{provider_name}\nState: {state_label} · {freshness_label}\nLowest quota: {percentage}% remaining")
+        assert provider["tooltip_text"].startswith(f"{provider_name}\nState: {state_label} · {freshness_label}\nQuota remaining:\n")
+        assert f": {percentage}%" in provider["tooltip_text"]
         assert provider["most_depleted_window"]["remaining_percentage"] == str(percentage)
     elif outcome == "snapshot":
-        assert provider["compact_text"] == f"Quota percentage unavailable; state={display_state}; freshness={freshness}"
-        assert provider["alternate_text"] == provider["compact_text"]
+        assert provider["compact_text"] == "—"
+        qualifier = (" · partial" if state == "partial" else "") + (" · stale" if freshness == "stale" else "")
+        assert provider["alternate_text"] == f"Quota unavailable{qualifier}"
         provider_name = "Codex" if provider["provider"] == "codex" else "OpenCode Go"
         state_label = display_state.replace("_", " ").capitalize()
         freshness_label = freshness.replace("_", " ").capitalize()
-        assert provider["tooltip_text"].startswith(f"{provider_name}\nState: {state_label} · {freshness_label}\nLowest quota: Quota unavailable")
+        assert provider["tooltip_text"].startswith(f"{provider_name}\nState: {state_label} · {freshness_label}\nQuota remaining:")
         assert provider["most_depleted_window"] is None
     elif outcome == "undetected":
-        assert provider["compact_text"] == provider["alternate_text"] == provider["tooltip_text"] == "Quota not detected"
+        assert provider["compact_text"] == "—"
+        assert provider["alternate_text"] == "Provider not detected"
+        assert provider["tooltip_text"] == ("Codex" if provider["provider"] == "codex" else "OpenCode Go") + "\nProvider not detected"
     elif outcome == "not_run":
         reason_text = NOT_RUN_PRESENTATION[provider["not_run_reason"]]
-        assert provider["compact_text"] == provider["alternate_text"] == "Quota not run"
-        assert provider["tooltip_text"] == f"Quota not run: {reason_text}"
+        assert provider["compact_text"] == "—"
+        assert provider["alternate_text"] == "Quota unavailable"
+        assert provider["tooltip_text"] == ("Codex" if provider["provider"] == "codex" else "OpenCode Go") + f"\nQuota unavailable: {reason_text}"
     else:
-        assert provider["compact_text"] == provider["alternate_text"] == provider["tooltip_text"] == "Quota error"
+        assert provider["compact_text"] == "—"
+        assert provider["alternate_text"] == "Quota unavailable · request failed"
+        assert provider["tooltip_text"] == ("Codex" if provider["provider"] == "codex" else "OpenCode Go") + f"\nQuota unavailable · request failed: {provider['execution_error']['code']}"
 
 
 class CustomWidgetExamplesTests(unittest.TestCase):
@@ -164,7 +174,12 @@ class CustomWidgetExamplesTests(unittest.TestCase):
             raw = (FIXTURES / f"{name}.json").read_bytes()
             assert raw.endswith(bytes([0x0A])) and b"\r" not in raw
             value = _json_document(FIXTURES / f"{name}.json")
-            assert list(value) == ["execution_state", "execution_error", "providers"]
+            assert list(value) == ["execution_state", "execution_error", "general", "providers"]
+            selected = [p for p in value["providers"] if p["not_run_reason"] != "disabled"]
+            if selected:
+                assert value["general"]["tooltip_text"] == "\n\n".join(p["tooltip_text"] for p in selected)
+            else:
+                assert value["general"] == {"compact_text": "—", "alternate_text": "No providers enabled", "tooltip_text": "No providers enabled"}
             assert value["execution_state"] == execution_state and len(value["providers"]) == 2
             assert [provider["provider"] for provider in value["providers"]] == ["codex", "opencode_go"]
             serialized = json.dumps(value).lower()
@@ -221,19 +236,20 @@ class CustomWidgetExamplesTests(unittest.TestCase):
             assert value["execution_error"] == expected["document"]
             assert [provider["outcome"] for provider in value["providers"]] == ["not_run", "not_run"]
             assert [provider["not_run_reason"] for provider in value["providers"]] == [expected["reason"]] * 2
-            assert [provider["tooltip_text"] for provider in value["providers"]] == [expected["tooltip"]] * 2
+            assert [provider["tooltip_text"] for provider in value["providers"]] == [f"{name}\n{expected['tooltip']}" for name in ("Codex", "OpenCode Go")]
             serialized = json.dumps(value).lower()
             assert "exit_code" not in serialized and "stderr" not in serialized
 
     def test_yaml_uses_only_bounded_public_paths_and_verified_options(self):
         text = (EXAMPLE / "customwidget.yaml").read_text(encoding="utf-8")
         default, manual = text.split("  limitora_r9_opencode_manual:", 1)
-        assert text.endswith("\n") and "providers][0]" in default
+        assert text.endswith("\n") and "data[general]" in default
         assert text.startswith("widgets:\n  limitora_r9:\n    type: yasb.custom.CustomWidget\n    options:\n")
         assert "providers[1]" not in default and "callbacks" not in text and "keybindings" not in text
         assert "providers][1]" in manual
-        assert 'label: "{data[providers][0][compact_text]}"' in default
-        assert 'tooltip_label: "{data[providers][0][tooltip_text]}"' in default
+        assert 'label: "{data[general][compact_text]}"' in default
+        assert 'label_alt: "{data[general][alternate_text]}"' in default
+        assert 'tooltip_label: "{data[general][tooltip_text]}"' in default
         assert 'label: "{data[providers][1][compact_text]}"' in manual
         assert 'label_alt: "{data[providers][1][alternate_text]}"' in manual
         assert 'tooltip_label: "{data[providers][1][tooltip_text]}"' in manual
@@ -284,9 +300,9 @@ class CustomWidgetExamplesTests(unittest.TestCase):
         assert "0%" not in serialized
         for provider in value["providers"]:
             assert provider["most_depleted_window"] is None
-            assert provider["compact_text"] == "Quota percentage unavailable; state=partial; freshness=stale"
-            assert provider["alternate_text"] == provider["compact_text"]
-            assert "Lowest quota: Quota unavailable" in provider["tooltip_text"]
+            assert provider["compact_text"] == "—"
+            assert provider["alternate_text"] == "Quota unavailable · partial · stale"
+            assert "Quota remaining:" in provider["tooltip_text"]
 
 
 if __name__ == "__main__":

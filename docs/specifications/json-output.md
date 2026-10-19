@@ -95,8 +95,8 @@ The contract MUST keep these concepts separate:
 
 ## 3. Exact Envelope
 
-The current document has exactly three root fields, in this order:
-`execution_state`, `execution_error`, and `providers`. There is no public root
+The current document has exactly four root fields, in this order:
+`execution_state`, `execution_error`, `general`, and `providers`. There is no public root
 `version` field. Unknown fields MUST be rejected. All fields in this table are
 present; nullable fields contain JSON `null`, never an arbitrary omission.
 
@@ -104,10 +104,11 @@ present; nullable fields contain JSON `null`, never an arbitrary omission.
 |-------|------|---------------|
 | `execution_state` | string | One of `complete`, `partial`, `not_run`, `execution_error` |
 | `execution_error` | object or `null` | Required; document-level sanitized error, subject to the legal matrix |
+| `general` | object | Required; `compact_text`, `alternate_text`, `tooltip_text`, in that order |
 | `providers` | array | Required; exactly two provider objects, ordered `codex`, then `opencode_go` |
 
 The current output is one UTF-8 JSON document followed by exactly one LF byte.
-The current projection emits only this three-field root and preserves validated
+The current projection emits only this four-field root and preserves validated
 provider outcomes, safe quota evidence, and provider identities. A document that
 cannot be represented within the limits in section 9 MUST fail closed and MUST
 NOT emit a partial JSON document.
@@ -476,7 +477,14 @@ remaining_percentage = remaining.value / limit.value * 100
 
 The division and multiplication occur in that Decimal context, followed by the
 percentage renderer: fixed-point, no exponent, at most 34 significant digits,
-and at most 128 rendered ASCII characters. A derived percentage MUST be in the
+and at most 128 rendered ASCII characters. Presentation eligibility additionally
+requires that the numeric text plus its `%` suffix fit the 128-scalar individual
+compact limit (at most 127 numeric characters). A result exceeding that
+presentation budget is ineligible everywhere presentation is derived, including
+selection and tooltip: compact is `—`, alternate is `Quota unavailable` (plus
+any snapshot qualifiers), and the window tooltip says `Unavailable`. The exact
+structured quantities remain unchanged; digits are never arbitrarily truncated
+to manufacture a shorter percentage. A derived percentage MUST be in the
 closed interval `[0, 100]`; a result below 0 or above 100 is invalid provider
 data and MUST fail closed, never clamped. A window with a missing `limit`, a
 missing `remaining`, or `limit == 0` is not eligible for a derived percentage
@@ -514,8 +522,10 @@ IPC (`CONTROL_MAX_BYTES = 16 KiB`, `RESPONSE_MAX_BYTES = 64 KiB`):
 | Providers | Exactly 2 |
 | Windows per provider | 32 |
 | Identity strings | 64 Unicode scalar values each |
-| `compact_text` / `alternate_text` | 128 Unicode scalar values each |
-| `tooltip_text` | 4096 Unicode scalar values |
+| Provider `compact_text` / `alternate_text` | 128 Unicode scalar values each |
+| Provider `tooltip_text` | 4096 Unicode scalar values |
+| General `compact_text` / `alternate_text` | 263 / 265 Unicode scalar values |
+| General `tooltip_text` | 8194 Unicode scalar values |
 | Original quantity text | 256 ASCII characters and 128 significant digits |
 | Derived percentage text | 128 ASCII characters and 34 significant digits |
 | Current JSON stdout document including final LF | 65,536 bytes |
@@ -546,45 +556,54 @@ windows by `(kind, scope, period)`, not by position.
 
 ## 10. Presentation Fields
 
-Presentation fields are bounded, sanitized, provider-local evidence. The
-current JSON contract MUST keep the existing `compact_text`, `alternate_text`,
-and `tooltip_text`
-trio, in the existing provider object and field order. It MUST NOT add a
-wrapper, duplicate state, or synthetic evidence. All three fields are present
-for every provider outcome.
+Provider presentation preserves the existing trio and provider field order.
+The root `general` object composes those presentations without aggregating quotas.
+All three presentation fields are present in every outcome. General omits only
+providers whose `not_run_reason` is `disabled`; enabled failures remain visible.
+Unknown configuration does not imply that every provider is disabled.
+General compact uses `C=<compact> · O=<compact>` and alternate uses
+`C: <alternate> · O: <alternate>`, preserving canonical provider order and the
+identity prefix even with one provider. General tooltip joins identical individual
+sections with one blank line. With no enabled providers, compact is `—` and
+alternate/tooltip are `No providers enabled`. General limits allow two bounded
+individual summaries and their identity/separator overhead, without truncating
+away either provider identity.
 
-For a `snapshot`, `value` is `<percentage>% remaining` when an eligible window
-exists and `percentage unavailable` otherwise. The exact grammar is:
+For a snapshot, select the eligible lowest remaining percentage, never the
+earliest renewal, using the same selected window for both short texts:
 
 ```text
-compact_text = B("Quota <value>", "; state=<public_state>; freshness=<freshness>", 128)
-alternate_text = B("Quota <scope> / <period>: <value>" if eligible else "Quota percentage unavailable", "; state=<public_state>; freshness=<freshness>", 128)
+compact_text = "<percentage>%" if eligible else "—"
+alternate_text = B("<period>: <percentage>% left" if eligible else "Quota unavailable", qualifier, 128)
+qualifier = (" · partial" if public_state == "partial" else "") + (" · stale" if freshness == "stale" else "")
 ```
 
 `B` truncates only its base to the first Unicode scalars needed to preserve the
 complete qualifier and the limit; it never adds a replacement marker. The
-qualifier order is normative. An ineligible snapshot therefore says
-`Quota percentage unavailable`, not zero, `0%`, or `Quota unavailable`.
-Partial snapshots preserve `state=partial`; stale snapshots preserve
-`freshness=stale` in every form, including when no eligible basis exists.
+qualifier order is normative. Compact never adds state words or symbols.
+Partial is shown only for explicit snapshot state `partial`, not inferred from
+missing windows. Alternate preserves ` · partial · stale` together, including
+when no eligible percentage exists. Missing percentage is `—`, never zero.
 
 `tooltip_text` begins exactly with the provider display name, followed by
-`State: <display_state> · <display_freshness>\nLowest quota: <value>\n`. The
-display state and freshness are capitalized English labels. `<value>` is
-`<percentage>% remaining` when an eligible window exists and `Quota unavailable`
-otherwise. A snapshot then appends every window in section 9 order using a
+`State: <display_state> · <display_freshness>\nQuota remaining:\n`. The
+display state and freshness are capitalized English labels. `Quota remaining:`
+appears once, with no Lowest quota summary. A snapshot then appends every window in section 9 order using a
 human-readable period label:
 
 ```text
-<period>: <percentage>% remaining [· resets <local date/time>]
-<period>: Quota unavailable
+<period>: <percentage>%
+  Renews: <local date/time>
+<period>: Unavailable
 ```
 
-Known periods use `5-hour`, `Monthly`, and `Weekly`; other periods are rendered
-by replacing underscores with spaces and capitalizing the first letter. OpenCode
-renders each valid reset inline, including when that window's percentage is
-unavailable. Codex renders valid reset times as `Resets: <local date/time>`
-lines after its window lines, also independent of percentage availability.
+Known periods use `5h`, `Monthly`, and `Weekly`; other periods are rendered
+by replacing underscores with spaces and capitalizing the first letter. Each
+valid renewal appears directly below its window with two-space indentation,
+independent of percentage availability. Missing/invalid renewal is omitted.
+An empty snapshot appends `No quota windows`. Codex missing windows are not
+invented; OpenCode retains its fixed slots. Reset-credit reporting is excluded
+from this work unit.
 The canonical `reset_at` value remains UTC in JSON. For tooltip presentation, the
 aware timestamp is converted with the machine's local timezone and formatted
 with the process locale's `%x %X` date/time format, without changing global
@@ -592,7 +611,7 @@ locale state. Fractional seconds are omitted. If locale formatting is
 unavailable, the stable `YYYY-MM-DD HH:MM:SS` fallback is used. Internal
 identities such as kind, scope, plan ID, unit, and source ID are never included
 in the tooltip. Missing reset evidence is omitted, and unavailable or unknown
-windows remain `Quota unavailable` rather than becoming zero.
+windows remain `Unavailable` rather than becoming zero.
 Tooltip lines are appended whole, in order, only while the complete result
 remains within 4096 Unicode scalars. Missing evidence remains missing: no
 synthetic value, zero, reset, identity, or raw error is allowed.
@@ -612,8 +631,9 @@ the unchanged whole-document `internal_error` fallback is used. Therefore a
 valid near-cap document remains a provider snapshot at exactly 65,535 and
 65,536 bytes; only a genuinely over-cap document becomes a document failure.
 
-For example, a near-cap tooltip may end after `Quota: 75% remaining` or after
-a complete `Window: ...` line when later presentation lines cannot fit. The
+The size calculation includes general presentation and its duplicate tooltip
+sections. For example, a near-cap tooltip may end after `Quota remaining:` or
+a complete window line when later presentation lines cannot fit. The
 corresponding canonical window objects remain present in `windows`, so omitted
 tooltip detail is bounded presentation rather than fabricated or discarded
 provider evidence.
@@ -626,10 +646,13 @@ retains exactly `kind`, `scope`, `period`, `plan_id`, `unit`, `source_id`, and
 `remaining_percentage`; nullable identities remain JSON `null`. No eligible
 window means the whole field is `null`. Ties use the section 9 sort key.
 
-Non-snapshot presentation is exact: `undetected` uses `Quota not detected` in
-the trio; `not_run` uses `Quota not run` in compact/alternate and
-`Quota not run: <mapped reason text>` in the tooltip; `execution_error` uses
-`Quota error` in the trio and tooltip. The machine outcome token remains
+Non-snapshot compact is always `—`. Alternate is `Provider not detected` for
+`undetected`, `Quota unavailable` for `not_run`, `Quota unavailable · timeout`
+for `provider_timeout`, and `Quota unavailable · request failed` for other
+execution errors. Tooltip begins with the provider display name and LF, then
+the alternate text, followed by `: <mapped reason text>` for not-run reasons
+or `: <safe error code>` for execution errors. No snapshot state or freshness
+is fabricated. The machine outcome token remains
 `not_run`, never the human fallback. Baseline mappings are
 `disabled -> provider disabled`, `invalid_configuration -> configuration
 invalid`, `invocation_invalid -> invocation invalid`, and `document_aborted ->
@@ -642,17 +665,17 @@ the aggregate remains `provider_failed`. Raw reasons and errors MUST NOT appear.
 
 `execution_error.code: cleanup_failed` MUST remain independently visible while
 each provider's recorded presentation remains truthful; a valid snapshot is
-not relabeled as unavailable or error. These presentation rules change no
-existing current fields, schema, model, object-key order, or historical output.
+not relabeled as unavailable or error. These presentation rules preserve
+provider fields, model, state enums, source validation, TTL and freshness policy.
 They add no new synthetic windows, percentages, resets, plans, periods,
-severity, CSS/classes, refresh, defaults, execution guards, deadlines, YASB
-assets, unsupported providers/metrics, or unrelated behavior.
+severity, CSS/classes, refresh, defaults, execution guards, deadlines,
+unsupported providers/metrics, or unrelated behavior.
 
 ## 11. Current contract boundary
 
 The current JSON document is the sole supported output. It is the only current
-contract, and its root contains exactly `execution_state`, `execution_error`, and
-`providers` in that order. There is no public root `version` field. Historical
+contract, and its root contains exactly `execution_state`, `execution_error`,
+`general`, and `providers` in that order. There is no public root `version` field. Historical
 versioned material is retained only in `docs/roadmap.md`; it is not an active
 output, serializer, schema, or fixture contract.
 
@@ -854,7 +877,7 @@ current CustomWidget `stop()` behavior is not a process-termination primitive.
 
 The shared quota cache is an optional, non-authoritative output artifact, not a
 second execution boundary. It uses the preserved `quota-v2-cache.json` filename
-and per-config/fingerprint state with strictly validated schema-3 bytes. Any
+and per-config/fingerprint state with strictly validated schema-4 bytes. Any
 older cache schema is stale: it MUST be rejected and cold-refreshed, never
 migrated or served. Publication occurs only after the provider guard has been
 released and closed and a clean current result has been projected. It uses an
@@ -1031,6 +1054,11 @@ this specification.
 {
   "execution_state": "complete",
   "execution_error": null,
+  "general": {
+    "compact_text": "C=75% · O=60%",
+    "alternate_text": "C: 5h: 75% left · O: Weekly: 60% left",
+    "tooltip_text": "Codex\nState: Available · Fresh\nQuota remaining:\n5h: 75%\n  Renews: 2026-08-01 16:00:00\n\nOpenCode Go\nState: Available · Fresh\nQuota remaining:\n5h: Unavailable\nMonthly: Unavailable\nWeekly: 60%\n  Renews: 2026-08-08 12:00:01"
+  },
   "providers": [
     {
       "provider": "codex",
@@ -1049,9 +1077,21 @@ this specification.
           "plan_id": "plus",
           "availability": "known",
           "source_id": "codex-app-server-v2",
-          "limit": {"value": "100", "metric": "commercial_quota", "unit": "percentage_points"},
-          "used": {"value": "25", "metric": "commercial_quota", "unit": "percentage_points"},
-          "remaining": {"value": "75", "metric": "commercial_quota", "unit": "percentage_points"},
+          "limit": {
+            "value": "100",
+            "metric": "commercial_quota",
+            "unit": "percentage_points"
+          },
+          "used": {
+            "value": "25",
+            "metric": "commercial_quota",
+            "unit": "percentage_points"
+          },
+          "remaining": {
+            "value": "75",
+            "metric": "commercial_quota",
+            "unit": "percentage_points"
+          },
           "reset_at": "2026-08-01T16:00:00.000000Z"
         }
       ],
@@ -1066,9 +1106,9 @@ this specification.
         "source_id": "codex-app-server-v2",
         "remaining_percentage": "75"
       },
-      "compact_text": "Quota 75% remaining; state=available; freshness=fresh",
-      "alternate_text": "Quota account / five_hour: 75% remaining; state=available; freshness=fresh",
-      "tooltip_text": "State: available\nFreshness: fresh\nQuota: 75% remaining\nWindow: kind=commercial_quota; scope=account; period=five_hour; plan_id=\"plus\"; unit=percentage_points; source_id=\"codex-app-server-v2\"; result=75% remaining\nReset: 2026-08-01T16:00:00.000000Z"
+      "compact_text": "75%",
+      "alternate_text": "5h: 75% left",
+      "tooltip_text": "Codex\nState: Available · Fresh\nQuota remaining:\n5h: 75%\n  Renews: 2026-08-01 16:00:00"
     },
     {
       "provider": "opencode_go",
@@ -1111,9 +1151,21 @@ this specification.
           "plan_id": null,
           "availability": "known",
           "source_id": "opencode-go-api",
-          "limit": {"value": "100", "metric": "commercial_quota", "unit": "percentage_points"},
-          "used": {"value": "40", "metric": "commercial_quota", "unit": "percentage_points"},
-          "remaining": {"value": "60", "metric": "commercial_quota", "unit": "percentage_points"},
+          "limit": {
+            "value": "100",
+            "metric": "commercial_quota",
+            "unit": "percentage_points"
+          },
+          "used": {
+            "value": "40",
+            "metric": "commercial_quota",
+            "unit": "percentage_points"
+          },
+          "remaining": {
+            "value": "60",
+            "metric": "commercial_quota",
+            "unit": "percentage_points"
+          },
           "reset_at": "2026-08-08T12:00:01.000000Z"
         }
       ],
@@ -1128,9 +1180,9 @@ this specification.
         "source_id": "opencode-go-api",
         "remaining_percentage": "60"
       },
-      "compact_text": "Quota 60% remaining; state=available; freshness=fresh",
-      "alternate_text": "Quota account / weekly: 60% remaining; state=available; freshness=fresh",
-      "tooltip_text": "State: available\nFreshness: fresh\nQuota: 60% remaining\nWindow: kind=commercial_quota; scope=account; period=five_hour; plan_id=null; unit=null; source_id=null; result=availability=unavailable\nWindow: kind=commercial_quota; scope=account; period=monthly; plan_id=null; unit=null; source_id=null; result=availability=unavailable\nWindow: kind=commercial_quota; scope=account; period=weekly; plan_id=null; unit=percentage_points; source_id=\"opencode-go-api\"; result=60% remaining\nReset: 2026-08-08T12:00:01.000000Z"
+      "compact_text": "60%",
+      "alternate_text": "Weekly: 60% left",
+      "tooltip_text": "OpenCode Go\nState: Available · Fresh\nQuota remaining:\n5h: Unavailable\nMonthly: Unavailable\nWeekly: 60%\n  Renews: 2026-08-08 12:00:01"
     }
   ]
 }
@@ -1142,6 +1194,11 @@ this specification.
 {
   "execution_state": "complete",
   "execution_error": null,
+  "general": {
+    "compact_text": "C=10% · O=—",
+    "alternate_text": "C: 5h: 10% left · partial · stale · O: Provider not detected",
+    "tooltip_text": "Codex\nState: Partial · Stale\nQuota remaining:\n5h: 10%\n  Renews: 2026-08-01 14:00:00\nWeekly: Unavailable\n\nOpenCode Go\nProvider not detected"
+  },
   "providers": [
     {
       "provider": "codex",
@@ -1160,9 +1217,21 @@ this specification.
           "plan_id": "plus",
           "availability": "known",
           "source_id": "codex-app-server-v2",
-          "limit": {"value": "100", "metric": "commercial_quota", "unit": "percentage_points"},
-          "used": {"value": "90", "metric": "commercial_quota", "unit": "percentage_points"},
-          "remaining": {"value": "10", "metric": "commercial_quota", "unit": "percentage_points"},
+          "limit": {
+            "value": "100",
+            "metric": "commercial_quota",
+            "unit": "percentage_points"
+          },
+          "used": {
+            "value": "90",
+            "metric": "commercial_quota",
+            "unit": "percentage_points"
+          },
+          "remaining": {
+            "value": "10",
+            "metric": "commercial_quota",
+            "unit": "percentage_points"
+          },
           "reset_at": "2026-08-01T14:00:00.000000Z"
         },
         {
@@ -1189,9 +1258,9 @@ this specification.
         "source_id": "codex-app-server-v2",
         "remaining_percentage": "10"
       },
-      "compact_text": "Quota 10% remaining; state=partial; freshness=stale",
-      "alternate_text": "Quota account / five_hour: 10% remaining; state=partial; freshness=stale",
-      "tooltip_text": "State: partial\nFreshness: stale\nQuota: 10% remaining\nWindow: kind=commercial_quota; scope=account; period=five_hour; plan_id=\"plus\"; unit=percentage_points; source_id=\"codex-app-server-v2\"; result=10% remaining\nReset: 2026-08-01T14:00:00.000000Z\nWindow: kind=commercial_quota; scope=account; period=weekly; plan_id=\"plus\"; unit=null; source_id=\"codex-app-server-v2\"; result=availability=unavailable"
+      "compact_text": "10%",
+      "alternate_text": "5h: 10% left · partial · stale",
+      "tooltip_text": "Codex\nState: Partial · Stale\nQuota remaining:\n5h: 10%\n  Renews: 2026-08-01 14:00:00\nWeekly: Unavailable"
     },
     {
       "provider": "opencode_go",
@@ -1206,9 +1275,9 @@ this specification.
       "execution_error": null,
       "not_run_reason": null,
       "most_depleted_window": null,
-      "compact_text": "Quota not detected",
-      "alternate_text": "Quota not detected",
-      "tooltip_text": "Quota not detected"
+      "compact_text": "—",
+      "alternate_text": "Provider not detected",
+      "tooltip_text": "OpenCode Go\nProvider not detected"
     }
   ]
 }
@@ -1220,6 +1289,11 @@ this specification.
 {
   "execution_state": "complete",
   "execution_error": null,
+  "general": {
+    "compact_text": "C=— · O=—",
+    "alternate_text": "C: Provider not detected · O: Provider not detected",
+    "tooltip_text": "Codex\nProvider not detected\n\nOpenCode Go\nProvider not detected"
+  },
   "providers": [
     {
       "provider": "codex",
@@ -1234,9 +1308,9 @@ this specification.
       "execution_error": null,
       "not_run_reason": null,
       "most_depleted_window": null,
-      "compact_text": "Quota not detected",
-      "alternate_text": "Quota not detected",
-      "tooltip_text": "Quota not detected"
+      "compact_text": "—",
+      "alternate_text": "Provider not detected",
+      "tooltip_text": "Codex\nProvider not detected"
     },
     {
       "provider": "opencode_go",
@@ -1251,9 +1325,9 @@ this specification.
       "execution_error": null,
       "not_run_reason": null,
       "most_depleted_window": null,
-      "compact_text": "Quota not detected",
-      "alternate_text": "Quota not detected",
-      "tooltip_text": "Quota not detected"
+      "compact_text": "—",
+      "alternate_text": "Provider not detected",
+      "tooltip_text": "OpenCode Go\nProvider not detected"
     }
   ]
 }
@@ -1264,7 +1338,15 @@ this specification.
 ```json
 {
   "execution_state": "not_run",
-  "execution_error": {"code": "guard_wait_timeout", "phase": "guard_wait"},
+  "execution_error": {
+    "code": "guard_wait_timeout",
+    "phase": "guard_wait"
+  },
+  "general": {
+    "compact_text": "C=— · O=—",
+    "alternate_text": "C: Quota unavailable · O: Quota unavailable",
+    "tooltip_text": "Codex\nQuota unavailable: guard wait timeout\n\nOpenCode Go\nQuota unavailable: guard wait timeout"
+  },
   "providers": [
     {
       "provider": "codex",
@@ -1279,9 +1361,9 @@ this specification.
       "execution_error": null,
       "not_run_reason": "guard_wait_timeout",
       "most_depleted_window": null,
-      "compact_text": "Quota not run",
-      "alternate_text": "Quota not run",
-      "tooltip_text": "Quota not run: execution guard wait expired"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable",
+      "tooltip_text": "Codex\nQuota unavailable: guard wait timeout"
     },
     {
       "provider": "opencode_go",
@@ -1296,9 +1378,9 @@ this specification.
       "execution_error": null,
       "not_run_reason": "guard_wait_timeout",
       "most_depleted_window": null,
-      "compact_text": "Quota not run",
-      "alternate_text": "Quota not run",
-      "tooltip_text": "Quota not run: execution guard wait expired"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable",
+      "tooltip_text": "OpenCode Go\nQuota unavailable: guard wait timeout"
     }
   ]
 }
@@ -1310,6 +1392,11 @@ this specification.
 {
   "execution_state": "partial",
   "execution_error": null,
+  "general": {
+    "compact_text": "C=— · O=—",
+    "alternate_text": "C: Quota unavailable · timeout · O: Quota unavailable",
+    "tooltip_text": "Codex\nQuota unavailable · timeout: provider_timeout\n\nOpenCode Go\nState: Rate limited · Fresh\nQuota remaining:\nNo quota windows"
+  },
   "providers": [
     {
       "provider": "codex",
@@ -1321,12 +1408,15 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
-      "execution_error": {"code": "provider_timeout", "phase": "provider"},
+      "execution_error": {
+        "code": "provider_timeout",
+        "phase": "provider"
+      },
       "not_run_reason": null,
       "most_depleted_window": null,
-      "compact_text": "Quota error",
-      "alternate_text": "Quota error",
-      "tooltip_text": "Quota error"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable · timeout",
+      "tooltip_text": "Codex\nQuota unavailable · timeout: provider_timeout"
     },
     {
       "provider": "opencode_go",
@@ -1341,9 +1431,9 @@ this specification.
       "execution_error": null,
       "not_run_reason": null,
       "most_depleted_window": null,
-      "compact_text": "Quota percentage unavailable; state=rate_limited; freshness=fresh",
-      "alternate_text": "Quota percentage unavailable; state=rate_limited; freshness=fresh",
-      "tooltip_text": "State: rate_limited\nFreshness: fresh\nQuota: percentage unavailable\nNo eligible percentage basis"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable",
+      "tooltip_text": "OpenCode Go\nState: Rate limited · Fresh\nQuota remaining:\nNo quota windows"
     }
   ]
 }
@@ -1355,6 +1445,11 @@ this specification.
 {
   "execution_state": "not_run",
   "execution_error": null,
+  "general": {
+    "compact_text": "—",
+    "alternate_text": "No providers enabled",
+    "tooltip_text": "No providers enabled"
+  },
   "providers": [
     {
       "provider": "codex",
@@ -1369,9 +1464,9 @@ this specification.
       "execution_error": null,
       "not_run_reason": "disabled",
       "most_depleted_window": null,
-      "compact_text": "Quota not run",
-      "alternate_text": "Quota not run",
-      "tooltip_text": "Quota not run: provider disabled"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable",
+      "tooltip_text": "Codex\nQuota unavailable: provider disabled"
     },
     {
       "provider": "opencode_go",
@@ -1386,9 +1481,9 @@ this specification.
       "execution_error": null,
       "not_run_reason": "disabled",
       "most_depleted_window": null,
-      "compact_text": "Quota not run",
-      "alternate_text": "Quota not run",
-      "tooltip_text": "Quota not run: provider disabled"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable",
+      "tooltip_text": "OpenCode Go\nQuota unavailable: provider disabled"
     }
   ]
 }
@@ -1399,7 +1494,15 @@ this specification.
 ```json
 {
   "execution_state": "execution_error",
-  "execution_error": {"code": "configuration_invalid", "phase": "configuration"},
+  "execution_error": {
+    "code": "configuration_invalid",
+    "phase": "configuration"
+  },
+  "general": {
+    "compact_text": "C=— · O=—",
+    "alternate_text": "C: Quota unavailable · O: Quota unavailable",
+    "tooltip_text": "Codex\nQuota unavailable: configuration invalid\n\nOpenCode Go\nQuota unavailable: configuration invalid"
+  },
   "providers": [
     {
       "provider": "codex",
@@ -1414,9 +1517,9 @@ this specification.
       "execution_error": null,
       "not_run_reason": "invalid_configuration",
       "most_depleted_window": null,
-      "compact_text": "Quota not run",
-      "alternate_text": "Quota not run",
-      "tooltip_text": "Quota not run: configuration invalid"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable",
+      "tooltip_text": "Codex\nQuota unavailable: configuration invalid"
     },
     {
       "provider": "opencode_go",
@@ -1431,9 +1534,9 @@ this specification.
       "execution_error": null,
       "not_run_reason": "invalid_configuration",
       "most_depleted_window": null,
-      "compact_text": "Quota not run",
-      "alternate_text": "Quota not run",
-      "tooltip_text": "Quota not run: configuration invalid"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable",
+      "tooltip_text": "OpenCode Go\nQuota unavailable: configuration invalid"
     }
   ]
 }
@@ -1444,7 +1547,15 @@ this specification.
 ```json
 {
   "execution_state": "execution_error",
-  "execution_error": {"code": "invocation_invalid", "phase": "configuration"},
+  "execution_error": {
+    "code": "invocation_invalid",
+    "phase": "configuration"
+  },
+  "general": {
+    "compact_text": "C=— · O=—",
+    "alternate_text": "C: Quota unavailable · O: Quota unavailable",
+    "tooltip_text": "Codex\nQuota unavailable: invocation invalid\n\nOpenCode Go\nQuota unavailable: invocation invalid"
+  },
   "providers": [
     {
       "provider": "codex",
@@ -1459,9 +1570,9 @@ this specification.
       "execution_error": null,
       "not_run_reason": "invocation_invalid",
       "most_depleted_window": null,
-      "compact_text": "Quota not run",
-      "alternate_text": "Quota not run",
-      "tooltip_text": "Quota not run: invocation invalid"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable",
+      "tooltip_text": "Codex\nQuota unavailable: invocation invalid"
     },
     {
       "provider": "opencode_go",
@@ -1476,9 +1587,9 @@ this specification.
       "execution_error": null,
       "not_run_reason": "invocation_invalid",
       "most_depleted_window": null,
-      "compact_text": "Quota not run",
-      "alternate_text": "Quota not run",
-      "tooltip_text": "Quota not run: invocation invalid"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable",
+      "tooltip_text": "OpenCode Go\nQuota unavailable: invocation invalid"
     }
   ]
 }
@@ -1489,7 +1600,15 @@ this specification.
 ```json
 {
   "execution_state": "not_run",
-  "execution_error": {"code": "deadline_exhausted", "phase": "document"},
+  "execution_error": {
+    "code": "deadline_exhausted",
+    "phase": "document"
+  },
+  "general": {
+    "compact_text": "C=— · O=—",
+    "alternate_text": "C: Quota unavailable · O: Quota unavailable",
+    "tooltip_text": "Codex\nQuota unavailable: deadline exhausted\n\nOpenCode Go\nQuota unavailable: deadline exhausted"
+  },
   "providers": [
     {
       "provider": "codex",
@@ -1504,9 +1623,9 @@ this specification.
       "execution_error": null,
       "not_run_reason": "deadline_exhausted",
       "most_depleted_window": null,
-      "compact_text": "Quota not run",
-      "alternate_text": "Quota not run",
-      "tooltip_text": "Quota not run: document deadline exhausted"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable",
+      "tooltip_text": "Codex\nQuota unavailable: deadline exhausted"
     },
     {
       "provider": "opencode_go",
@@ -1521,9 +1640,9 @@ this specification.
       "execution_error": null,
       "not_run_reason": "deadline_exhausted",
       "most_depleted_window": null,
-      "compact_text": "Quota not run",
-      "alternate_text": "Quota not run",
-      "tooltip_text": "Quota not run: document deadline exhausted"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable",
+      "tooltip_text": "OpenCode Go\nQuota unavailable: deadline exhausted"
     }
   ]
 }
@@ -1534,7 +1653,15 @@ this specification.
 ```json
 {
   "execution_state": "execution_error",
-  "execution_error": {"code": "internal_error", "phase": "document"},
+  "execution_error": {
+    "code": "internal_error",
+    "phase": "document"
+  },
+  "general": {
+    "compact_text": "C=— · O=—",
+    "alternate_text": "C: Quota unavailable · O: Quota unavailable",
+    "tooltip_text": "Codex\nQuota unavailable: document aborted\n\nOpenCode Go\nQuota unavailable: document aborted"
+  },
   "providers": [
     {
       "provider": "codex",
@@ -1549,9 +1676,9 @@ this specification.
       "execution_error": null,
       "not_run_reason": "document_aborted",
       "most_depleted_window": null,
-      "compact_text": "Quota not run",
-      "alternate_text": "Quota not run",
-      "tooltip_text": "Quota not run: document aborted"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable",
+      "tooltip_text": "Codex\nQuota unavailable: document aborted"
     },
     {
       "provider": "opencode_go",
@@ -1566,9 +1693,9 @@ this specification.
       "execution_error": null,
       "not_run_reason": "document_aborted",
       "most_depleted_window": null,
-      "compact_text": "Quota not run",
-      "alternate_text": "Quota not run",
-      "tooltip_text": "Quota not run: document aborted"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable",
+      "tooltip_text": "OpenCode Go\nQuota unavailable: document aborted"
     }
   ]
 }
@@ -1579,7 +1706,15 @@ this specification.
 ```json
 {
   "execution_state": "execution_error",
-  "execution_error": {"code": "cleanup_failed", "phase": "cleanup"},
+  "execution_error": {
+    "code": "cleanup_failed",
+    "phase": "cleanup"
+  },
+  "general": {
+    "compact_text": "C=75% · O=—",
+    "alternate_text": "C: 5h: 75% left · O: Quota unavailable · request failed",
+    "tooltip_text": "Codex\nState: Available · Fresh\nQuota remaining:\n5h: 75%\n  Renews: 2026-08-01 16:03:00\n\nOpenCode Go\nQuota unavailable · request failed: provider_failed"
+  },
   "providers": [
     {
       "provider": "codex",
@@ -1598,9 +1733,21 @@ this specification.
           "plan_id": "plus",
           "availability": "known",
           "source_id": "codex-app-server-v2",
-          "limit": {"value": "100", "metric": "commercial_quota", "unit": "percentage_points"},
-          "used": {"value": "25", "metric": "commercial_quota", "unit": "percentage_points"},
-          "remaining": {"value": "75", "metric": "commercial_quota", "unit": "percentage_points"},
+          "limit": {
+            "value": "100",
+            "metric": "commercial_quota",
+            "unit": "percentage_points"
+          },
+          "used": {
+            "value": "25",
+            "metric": "commercial_quota",
+            "unit": "percentage_points"
+          },
+          "remaining": {
+            "value": "75",
+            "metric": "commercial_quota",
+            "unit": "percentage_points"
+          },
           "reset_at": "2026-08-01T16:03:00.000000Z"
         }
       ],
@@ -1615,9 +1762,9 @@ this specification.
         "source_id": "codex-app-server-v2",
         "remaining_percentage": "75"
       },
-      "compact_text": "Quota 75% remaining; state=available; freshness=fresh",
-      "alternate_text": "Quota account / five_hour: 75% remaining; state=available; freshness=fresh",
-      "tooltip_text": "State: available\nFreshness: fresh\nQuota: 75% remaining\nWindow: kind=commercial_quota; scope=account; period=five_hour; plan_id=\"plus\"; unit=percentage_points; source_id=\"codex-app-server-v2\"; result=75% remaining\nReset: 2026-08-01T16:03:00.000000Z"
+      "compact_text": "75%",
+      "alternate_text": "5h: 75% left",
+      "tooltip_text": "Codex\nState: Available · Fresh\nQuota remaining:\n5h: 75%\n  Renews: 2026-08-01 16:03:00"
     },
     {
       "provider": "opencode_go",
@@ -1629,12 +1776,15 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
-      "execution_error": {"code": "provider_failed", "phase": "provider"},
+      "execution_error": {
+        "code": "provider_failed",
+        "phase": "provider"
+      },
       "not_run_reason": null,
       "most_depleted_window": null,
-      "compact_text": "Quota error",
-      "alternate_text": "Quota error",
-      "tooltip_text": "Quota error"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable · request failed",
+      "tooltip_text": "OpenCode Go\nQuota unavailable · request failed: provider_failed"
     }
   ]
 }
@@ -1650,7 +1800,15 @@ replace either provider result.
 ```json
 {
   "execution_state": "execution_error",
-  "execution_error": {"code": "provider_failed", "phase": "provider"},
+  "execution_error": {
+    "code": "provider_failed",
+    "phase": "provider"
+  },
+  "general": {
+    "compact_text": "O=—",
+    "alternate_text": "O: Quota unavailable · request failed",
+    "tooltip_text": "OpenCode Go\nQuota unavailable · request failed: provider_failed"
+  },
   "providers": [
     {
       "provider": "codex",
@@ -1665,9 +1823,9 @@ replace either provider result.
       "execution_error": null,
       "not_run_reason": "disabled",
       "most_depleted_window": null,
-      "compact_text": "Quota not run",
-      "alternate_text": "Quota not run",
-      "tooltip_text": "Quota not run: provider disabled"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable",
+      "tooltip_text": "Codex\nQuota unavailable: provider disabled"
     },
     {
       "provider": "opencode_go",
@@ -1679,12 +1837,15 @@ replace either provider result.
       "data_at": null,
       "source_id": null,
       "windows": [],
-      "execution_error": {"code": "provider_failed", "phase": "provider"},
+      "execution_error": {
+        "code": "provider_failed",
+        "phase": "provider"
+      },
       "not_run_reason": null,
       "most_depleted_window": null,
-      "compact_text": "Quota error",
-      "alternate_text": "Quota error",
-      "tooltip_text": "Quota error"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable · request failed",
+      "tooltip_text": "OpenCode Go\nQuota unavailable · request failed: provider_failed"
     }
   ]
 }
@@ -1696,6 +1857,11 @@ replace either provider result.
 {
   "execution_state": "partial",
   "execution_error": null,
+  "general": {
+    "compact_text": "C=— · O=—",
+    "alternate_text": "C: Provider not detected · O: Quota unavailable · request failed",
+    "tooltip_text": "Codex\nProvider not detected\n\nOpenCode Go\nQuota unavailable · request failed: provider_failed"
+  },
   "providers": [
     {
       "provider": "codex",
@@ -1710,9 +1876,9 @@ replace either provider result.
       "execution_error": null,
       "not_run_reason": null,
       "most_depleted_window": null,
-      "compact_text": "Quota not detected",
-      "alternate_text": "Quota not detected",
-      "tooltip_text": "Quota not detected"
+      "compact_text": "—",
+      "alternate_text": "Provider not detected",
+      "tooltip_text": "Codex\nProvider not detected"
     },
     {
       "provider": "opencode_go",
@@ -1724,12 +1890,15 @@ replace either provider result.
       "data_at": null,
       "source_id": null,
       "windows": [],
-      "execution_error": {"code": "provider_failed", "phase": "provider"},
+      "execution_error": {
+        "code": "provider_failed",
+        "phase": "provider"
+      },
       "not_run_reason": null,
       "most_depleted_window": null,
-      "compact_text": "Quota error",
-      "alternate_text": "Quota error",
-      "tooltip_text": "Quota error"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable · request failed",
+      "tooltip_text": "OpenCode Go\nQuota unavailable · request failed: provider_failed"
     }
   ]
 }
@@ -1740,7 +1909,15 @@ replace either provider result.
 ```json
 {
   "execution_state": "execution_error",
-  "execution_error": {"code": "provider_failed", "phase": "provider"},
+  "execution_error": {
+    "code": "provider_failed",
+    "phase": "provider"
+  },
+  "general": {
+    "compact_text": "C=— · O=—",
+    "alternate_text": "C: Quota unavailable · timeout · O: Quota unavailable · request failed",
+    "tooltip_text": "Codex\nQuota unavailable · timeout: provider_timeout\n\nOpenCode Go\nQuota unavailable · request failed: ipc_failed"
+  },
   "providers": [
     {
       "provider": "codex",
@@ -1752,12 +1929,15 @@ replace either provider result.
       "data_at": null,
       "source_id": null,
       "windows": [],
-      "execution_error": {"code": "provider_timeout", "phase": "provider"},
+      "execution_error": {
+        "code": "provider_timeout",
+        "phase": "provider"
+      },
       "not_run_reason": null,
       "most_depleted_window": null,
-      "compact_text": "Quota error",
-      "alternate_text": "Quota error",
-      "tooltip_text": "Quota error"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable · timeout",
+      "tooltip_text": "Codex\nQuota unavailable · timeout: provider_timeout"
     },
     {
       "provider": "opencode_go",
@@ -1769,12 +1949,15 @@ replace either provider result.
       "data_at": null,
       "source_id": null,
       "windows": [],
-      "execution_error": {"code": "ipc_failed", "phase": "ipc"},
+      "execution_error": {
+        "code": "ipc_failed",
+        "phase": "ipc"
+      },
       "not_run_reason": null,
       "most_depleted_window": null,
-      "compact_text": "Quota error",
-      "alternate_text": "Quota error",
-      "tooltip_text": "Quota error"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable · request failed",
+      "tooltip_text": "OpenCode Go\nQuota unavailable · request failed: ipc_failed"
     }
   ]
 }
@@ -1786,6 +1969,11 @@ replace either provider result.
 {
   "execution_state": "partial",
   "execution_error": null,
+  "general": {
+    "compact_text": "C=— · O=—",
+    "alternate_text": "C: Quota unavailable · O: Quota unavailable",
+    "tooltip_text": "Codex\nState: Unavailable · Fresh\nQuota remaining:\nNo quota windows\n\nOpenCode Go\nQuota unavailable: deadline exhausted"
+  },
   "providers": [
     {
       "provider": "codex",
@@ -1800,9 +1988,9 @@ replace either provider result.
       "execution_error": null,
       "not_run_reason": null,
       "most_depleted_window": null,
-      "compact_text": "Quota percentage unavailable; state=unavailable; freshness=fresh",
-      "alternate_text": "Quota percentage unavailable; state=unavailable; freshness=fresh",
-      "tooltip_text": "State: unavailable\nFreshness: fresh\nQuota: percentage unavailable\nNo eligible percentage basis"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable",
+      "tooltip_text": "Codex\nState: Unavailable · Fresh\nQuota remaining:\nNo quota windows"
     },
     {
       "provider": "opencode_go",
@@ -1817,9 +2005,9 @@ replace either provider result.
       "execution_error": null,
       "not_run_reason": "deadline_exhausted",
       "most_depleted_window": null,
-      "compact_text": "Quota not run",
-      "alternate_text": "Quota not run",
-      "tooltip_text": "Quota not run: document deadline exhausted"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable",
+      "tooltip_text": "OpenCode Go\nQuota unavailable: deadline exhausted"
     }
   ]
 }
@@ -1830,7 +2018,15 @@ replace either provider result.
 ```json
 {
   "execution_state": "execution_error",
-  "execution_error": {"code": "deadline_exhausted", "phase": "document"},
+  "execution_error": {
+    "code": "deadline_exhausted",
+    "phase": "document"
+  },
+  "general": {
+    "compact_text": "C=— · O=—",
+    "alternate_text": "C: Quota unavailable · timeout · O: Quota unavailable",
+    "tooltip_text": "Codex\nQuota unavailable · timeout: provider_timeout\n\nOpenCode Go\nQuota unavailable: deadline exhausted"
+  },
   "providers": [
     {
       "provider": "codex",
@@ -1842,12 +2038,15 @@ replace either provider result.
       "data_at": null,
       "source_id": null,
       "windows": [],
-      "execution_error": {"code": "provider_timeout", "phase": "provider"},
+      "execution_error": {
+        "code": "provider_timeout",
+        "phase": "provider"
+      },
       "not_run_reason": null,
       "most_depleted_window": null,
-      "compact_text": "Quota error",
-      "alternate_text": "Quota error",
-      "tooltip_text": "Quota error"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable · timeout",
+      "tooltip_text": "Codex\nQuota unavailable · timeout: provider_timeout"
     },
     {
       "provider": "opencode_go",
@@ -1862,9 +2061,9 @@ replace either provider result.
       "execution_error": null,
       "not_run_reason": "deadline_exhausted",
       "most_depleted_window": null,
-      "compact_text": "Quota not run",
-      "alternate_text": "Quota not run",
-      "tooltip_text": "Quota not run: document deadline exhausted"
+      "compact_text": "—",
+      "alternate_text": "Quota unavailable",
+      "tooltip_text": "OpenCode Go\nQuota unavailable: deadline exhausted"
     }
   ]
 }

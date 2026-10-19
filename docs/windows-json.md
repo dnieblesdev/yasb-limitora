@@ -36,7 +36,7 @@ use `%LOCALAPPDATA%\yasb-limitora\config.json`, or set `YASB_LIMITORA_CONFIG` to
 
 Create the startup-loaded `.env` with `LIMITORA_OPENCODE_API_KEY=<key>`, then merge
 `limitora_r9_opencode_manual` from `examples/customwidget/customwidget.yaml` into YASB's
-`widgets:` map and register it in a YASB bar. Its literal command is the selector-free `yasb-limitora`; its label/tooltip read `providers[1]`. Keep `limitora_r9` Codex-only on `providers[0]` and follow the `.env` reload/manual acceptance steps before treating this as a real provider check.
+`widgets:` map and register it in a YASB bar. Its literal command is the selector-free `yasb-limitora`; its label/tooltip read `providers[1]`. The default `limitora_r9` reads `general` for all enabled providers. Follow the `.env` reload/manual acceptance steps before treating this as a real provider check.
 
 ## Runtime support boundary
 
@@ -168,7 +168,7 @@ yasb-limitora --config .\limitora.json
 ```
 
 Stdout contains exactly one UTF-8 JSON document and its terminating newline.
-The envelope is ordered `execution_state`, `execution_error`, `providers`, with no root
+The envelope is ordered `execution_state`, `execution_error`, `general`, `providers`, with no root
 `version` field. Providers remain in the fixed order `codex`, then `opencode_go`.
 Sanitized diagnostics, when needed, go to stderr;
 credentials, workspace IDs, private provider payloads, raw exceptions, and
@@ -219,7 +219,7 @@ Object tree cleanup.
 OpenCode Go remains an independent direct provider call with its own configured
 timeout. A Codex timeout does not erase an OpenCode Go result, and vice versa.
 
-The public cache uses schema-3 validation. A previous-schema entry is stale and is
+The public cache uses schema-4 validation. A previous-schema entry is stale and is
 cold-refreshed rather than migrated or served. Its filename remains
 `quota-v2-cache.json`; guard identities remain exactly
 `Global\\yasb-limitora-v2-guard-*`, and provider source IDs remain exactly
@@ -233,6 +233,21 @@ fields through its
 compact/alternate labels and tooltip. Native widget code, popovers, tabs,
 interactive progress, dynamic state CSS, and subprocess termination are not
 part of this runtime boundary.
+
+General presentation composes enabled provider summaries, never quota values:
+`C=38% · O=72%`, with alternate `C: 5h: 38% left · O: Monthly: 72% left`.
+Individual fields remain available (`38%` and `5h: 38% left`). Both select the
+same lowest eligible remaining percentage, not the earliest renewal. Disabled
+providers are omitted from general; enabled failures remain. With none enabled,
+compact is `—` and alternate/tooltip are `No providers enabled`.
+
+Snapshot alternate adds ` · partial · stale` only when those explicit conditions
+hold. Compact remains percentage-only or `—`. Tooltip uses `Quota remaining:`
+once, percentages or `Unavailable` per period, then a two-space-indented
+`Renews:` for each valid local renewal date. General joins identical individual
+sections with a blank line. The complete UTF-8 JSON including final LF remains
+bounded to 65,536 bytes; presentation is reduced before structured evidence.
+These tests do not claim real-provider or YASB rendering proof or clipping detection.
 
 ### Executable discovery for the checkout example
 
@@ -263,7 +278,7 @@ Using the copy-ready example in `examples/customwidget/`:
 1. Create/select the dedicated Limitora JSON with
    `"opencode_go": {"enabled": true}`. Temporarily add
    `limitora_r9_opencode_manual` to YASB's `widgets:` config and bar list. It uses
-   `providers[1]`; keep `limitora_r9` on `providers[0]` and label it Codex-only.
+   `providers[1]`; the default `limitora_r9` uses the root `general` presentation.
 2. Put the approved test key only in `.env`, run `yasbc reload` to start a fresh
    process and reload it (or manually restart/start if YASB is not running), then
    observe the temporary OpenCode label/tooltip and safe quota data.

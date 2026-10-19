@@ -101,7 +101,7 @@ def _near_boundary_document(accent_count):
             index += 1
     return document
 def _assert_document(value):
-    assert list(value) == ["execution_state", "execution_error", "providers"]
+    assert list(value) == ["execution_state", "execution_error", "general", "providers"]
     assert "version" not in value and len(value["providers"]) == 2
     assert [p["provider"] for p in value["providers"]] == ["codex", "opencode_go"]
     outcomes = []
@@ -158,6 +158,56 @@ def _assert_document(value):
         assert value["execution_state"] == "execution_error" and set(value["execution_error"]) == EKEYS
 
 
+def test_general_approved_summaries_select_lowest_percentage_and_keep_identity():
+    codex = _snapshot(ProviderKey.CODEX, [
+        _window("weekly", remaining_value="90", reset=STAMP),
+        _window("five_hour", remaining_value="38", reset=STAMP + timedelta(days=3)),
+    ])
+    opencode = _snapshot(ProviderKey.OPENCODE_GO, [
+        _window("monthly", source="opencode-go-api", remaining_value="72", reset=None),
+    ])
+    value = json.loads(project_bytes(ProjectionInput(_document(codex, opencode))))
+    assert value["general"] == {
+        "compact_text": "C=38% · O=72%",
+        "alternate_text": "C: 5h: 38% left · O: Monthly: 72% left",
+        "tooltip_text": "\n\n".join(p["tooltip_text"] for p in value["providers"]),
+    }
+    assert value["providers"][0]["compact_text"] == "38%"
+    assert value["providers"][0]["alternate_text"] == "5h: 38% left"
+    assert "Quota remaining:\n5h: 38%\n  Renews:" in value["providers"][0]["tooltip_text"]
+    assert "Lowest quota" not in value["general"]["tooltip_text"]
+
+
+def test_general_disabled_only_and_unknown_failure_are_distinct():
+    disabled = ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)
+    value = json.loads(project_bytes(ProjectionInput(_document(
+        ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), disabled,
+    ))))
+    assert value["general"] == {"compact_text": "—", "alternate_text": "No providers enabled", "tooltip_text": "No providers enabled"}
+    failure = json.loads(project_failure_bytes("configuration_invalid"))
+    assert failure["general"]["compact_text"] == "C=— · O=—"
+    assert "configuration invalid" in failure["general"]["tooltip_text"]
+    assert "No providers enabled" not in failure["general"].values()
+
+
+def test_general_one_enabled_partial_stale_and_failure_are_retained():
+    codex = _snapshot(ProviderKey.CODEX, [_window("five_hour", remaining_value="38", reset=None)])
+    object.__setattr__(_snapshot_of(codex), "public_state", PublicProviderState.PARTIAL)
+    object.__setattr__(_snapshot_of(codex), "freshness", SnapshotFreshness.STALE)
+    disabled = ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)
+    value = json.loads(project_bytes(ProjectionInput(_document(codex, disabled))))
+    assert value["general"]["compact_text"] == "C=38%"
+    assert value["general"]["alternate_text"] == "C: 5h: 38% left · partial · stale"
+    assert value["general"]["tooltip_text"] == value["providers"][0]["tooltip_text"]
+    failed = ProviderView(ProviderKey.CODEX, ProviderState.SAFE_ERROR, SafeError(SafeErrorCode.TIMEOUT), outcome=ProviderOutcome.EXECUTION_ERROR)
+    value = json.loads(project_bytes(ProjectionInput(_document(failed, disabled))))
+    assert value["general"]["compact_text"] == "C=—"
+    assert value["general"]["alternate_text"] == "C: Quota unavailable · timeout"
+    assert "provider_timeout" in value["general"]["tooltip_text"]
+    assert value["providers"][0]["public_state"] is None
+    assert value["providers"][0]["freshness"] is None
+
+
 def test_snapshot_projection_has_schema_and_semantic_invariants():
     projection = ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [_window("weekly", "plus"), _window("five_hour")]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), frozenset({ProviderKey.CODEX, ProviderKey.OPENCODE_GO}))
     encoded = project_bytes(projection)
@@ -176,11 +226,11 @@ def test_fresh_snapshot_uses_the_published_grammar_and_nullable_identities():
     assert set(provider["most_depleted_window"]) == {"kind", "scope", "period", "plan_id", "unit", "source_id", "remaining_percentage"}
     assert provider["most_depleted_window"]["plan_id"] is None
     assert provider["most_depleted_window"]["source_id"] == "codex-app-server-v2"
-    assert provider["compact_text"] == "Quota 75% remaining; state=available; freshness=fresh"
-    assert provider["alternate_text"] == "Quota account / weekly: 75% remaining; state=available; freshness=fresh"
+    assert provider["compact_text"] == "75%"
+    assert provider["alternate_text"] == "Weekly: 75% left"
     assert provider["tooltip_text"] == (
-        "Codex\nState: Available · Fresh\nLowest quota: 75% remaining\n"
-        "Weekly: 75% remaining"
+        "Codex\nState: Available · Fresh\nQuota remaining:\n"
+        "Weekly: 75%"
     )
 
 
@@ -196,10 +246,10 @@ def test_tooltip_formats_utc_resets_injected_local_timezone_and_locale_format():
     )["providers"][1]
 
     assert provider["tooltip_text"] == (
-        "OpenCode Go\nState: Available · Fresh\nLowest quota: 5% remaining\n"
-        "5-hour: 100% remaining · resets 18/08/2026 13:42:59\n"
-        "Monthly: 5% remaining · resets 06/09/2026 20:35:42\n"
-        "Weekly: 60% remaining · resets 24/08/2026 02:00:00"
+        "OpenCode Go\nState: Available · Fresh\nQuota remaining:\n"
+        "5h: 100%\n  Renews: 18/08/2026 13:42:59\n"
+        "Monthly: 5%\n  Renews: 06/09/2026 20:35:42\n"
+        "Weekly: 60%\n  Renews: 24/08/2026 02:00:00"
     )
 
 
@@ -211,8 +261,8 @@ def test_tooltip_never_invents_zero_for_unavailable_partial_windows():
     )["providers"][1]["tooltip_text"]
 
     assert tooltip == (
-        "OpenCode Go\nState: Partial · Fresh\nLowest quota: Quota unavailable\n"
-        "5-hour: Quota unavailable\nMonthly: Quota unavailable\nWeekly: Quota unavailable"
+        "OpenCode Go\nState: Partial · Fresh\nQuota remaining:\n"
+        "5h: Unavailable\nMonthly: Unavailable\nWeekly: Unavailable"
     )
     assert "0%" not in tooltip
 
@@ -223,12 +273,12 @@ def test_tooltip_never_invents_zero_for_unavailable_partial_windows():
         (
             ProviderKey.CODEX,
             "codex-app-server-v2",
-            "Codex\nState: Available · Fresh\nLowest quota: Quota unavailable\nWeekly: Quota unavailable\nResets: 20/08/2026 05:35:00",
+            "Codex\nState: Available · Fresh\nQuota remaining:\nWeekly: Unavailable\n  Renews: 20/08/2026 05:35:00",
         ),
         (
             ProviderKey.OPENCODE_GO,
             "opencode-go-api",
-            "OpenCode Go\nState: Available · Fresh\nLowest quota: Quota unavailable\n5-hour: Quota unavailable\nMonthly: Quota unavailable\nWeekly: Quota unavailable · resets 20/08/2026 05:35:00",
+            "OpenCode Go\nState: Available · Fresh\nQuota remaining:\n5h: Unavailable\nMonthly: Unavailable\nWeekly: Unavailable\n  Renews: 20/08/2026 05:35:00",
         ),
     ),
 )
@@ -261,7 +311,7 @@ def test_tooltip_reset_converts_non_utc_offset_before_injected_local_formatting(
         timestamp_formatter=_format_test_timestamp,
     )["providers"][1]
 
-    assert "Weekly: 60% remaining · resets 24/08/2026 06:00:00" in provider["tooltip_text"]
+    assert "Weekly: 60%\n  Renews: 24/08/2026 06:00:00" in provider["tooltip_text"]
 
 
 def test_local_timestamp_formatter_uses_stable_fallback_when_locale_format_is_unavailable(monkeypatch):
@@ -301,7 +351,7 @@ def test_tooltip_marks_partial_stale_codex_data_and_missing_reset_without_zero()
         ProjectionInput(_document(snapshot, ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
     )["providers"][0]["tooltip_text"]
 
-    assert tooltip == "Codex\nState: Partial · Stale\nLowest quota: 0% remaining\nWeekly: 0% remaining"
+    assert tooltip == "Codex\nState: Partial · Stale\nQuota remaining:\nWeekly: 0%"
     assert "resets" not in tooltip.lower()
 
 
@@ -322,19 +372,19 @@ def test_tooltip_lowest_quota_uses_the_most_depleted_window_not_the_first_window
     assert tooltip.splitlines()[:4] == [
         "Codex",
         "State: Available · Fresh",
-        "Lowest quota: 0% remaining",
-        "5-hour: 100% remaining",
+        "Quota remaining:",
+        "5h: 100%",
     ]
-    assert tooltip.splitlines()[4] == "Weekly: 0% remaining"
+    assert tooltip.splitlines()[4] == "Weekly: 0%"
 
 
 def test_public_projection_maps_all_disabled_providers_to_not_run():
     value = project_document(ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
     assert value["execution_state"] == "not_run"
     assert [(p["outcome"], p["not_run_reason"]) for p in value["providers"]] == [("not_run", "disabled"), ("not_run", "disabled")]
-    assert all(provider["compact_text"] == "Quota not run" for provider in value["providers"])
-    assert all(provider["alternate_text"] == "Quota not run" for provider in value["providers"])
-    assert all(provider["tooltip_text"] == "Quota not run: provider disabled" for provider in value["providers"])
+    assert all(provider["compact_text"] == "—" for provider in value["providers"])
+    assert all(provider["alternate_text"] == "Quota unavailable" for provider in value["providers"])
+    assert [provider["tooltip_text"] for provider in value["providers"]] == ["Codex\nQuota unavailable: provider disabled", "OpenCode Go\nQuota unavailable: provider disabled"]
 
 
 def test_public_projection_maps_provider_execution_error_safely():
@@ -342,7 +392,9 @@ def test_public_projection_maps_provider_execution_error_safely():
     provider = value["providers"][0]
     assert provider["execution_error"] == {"code": "provider_timeout", "phase": "provider"}
     assert provider["outcome"] == value["execution_state"] == "execution_error"
-    assert provider["compact_text"] == provider["alternate_text"] == provider["tooltip_text"] == "Quota error"
+    assert provider["compact_text"] == "—"
+    assert provider["alternate_text"] == "Quota unavailable · timeout"
+    assert provider["tooltip_text"] == "Codex\nQuota unavailable · timeout: provider_timeout"
 
 
 @pytest.mark.parametrize(
@@ -384,20 +436,20 @@ def test_presentation_fallbacks_stale_markers_and_depleted_tie_are_observable():
     )
     provider = value["providers"][0]
     assert provider["most_depleted_window"]["remaining_percentage"] == "75"
-    assert provider["compact_text"] == "Quota 75% remaining; state=available; freshness=stale"
-    assert provider["alternate_text"] == "Quota account / five_hour: 75% remaining; state=available; freshness=stale"
+    assert provider["compact_text"] == "75%"
+    assert provider["alternate_text"] == "5h: 75% left · stale"
     assert provider["tooltip_text"] == (
-        "Codex\nState: Available · Stale\nLowest quota: 75% remaining\n"
-        "5-hour: 75% remaining\nWeekly: Quota unavailable\nResets: 01/08/2026 14:00:00"
+        "Codex\nState: Available · Stale\nQuota remaining:\n"
+        "5h: 75%\n  Renews: 01/08/2026 14:00:00\nWeekly: Unavailable"
     )
     tie = project_document(ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [_window("z"), _window("a")]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
     assert tie["providers"][0]["most_depleted_window"]["period"] == "a"
     empty = project_document(ProjectionInput(_document(_snapshot(ProviderKey.CODEX, []), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))))
-    assert empty["providers"][0]["compact_text"] == "Quota percentage unavailable; state=available; freshness=fresh"
-    assert empty["providers"][0]["alternate_text"] == empty["providers"][0]["compact_text"]
-    assert empty["providers"][0]["tooltip_text"] == "Codex\nState: Available · Fresh\nLowest quota: Quota unavailable\nNo quota windows"
+    assert empty["providers"][0]["compact_text"] == "—"
+    assert empty["providers"][0]["alternate_text"] == "Quota unavailable"
+    assert empty["providers"][0]["tooltip_text"] == "Codex\nState: Available · Fresh\nQuota remaining:\nNo quota windows"
     undetected = project_document(ProjectionInput(_document(ProviderView(ProviderKey.CODEX, ProviderState.UNAVAILABLE), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)), frozenset({ProviderKey.CODEX, ProviderKey.OPENCODE_GO})))
-    assert all(provider["compact_text"] == "Quota not detected" for provider in undetected["providers"])
+    assert all(provider["compact_text"] == "—" and provider["alternate_text"] == "Provider not detected" for provider in undetected["providers"])
 
 
 @pytest.mark.parametrize("availability", (QuotaAvailability.DISABLED, QuotaAvailability.UNAVAILABLE))
@@ -412,7 +464,7 @@ def test_public_projection_excludes_numeric_non_known_windows_from_presentation(
     )
     provider = value["providers"][0]
     assert provider["most_depleted_window"]["period"] == "known"
-    assert "Non-eligible: Quota unavailable" in provider["tooltip_text"]
+    assert "Non-eligible: Unavailable" in provider["tooltip_text"]
     assert "non-eligible: 10% remaining" not in provider["tooltip_text"]
 
 
@@ -435,6 +487,31 @@ def test_derived_percentage_uses_decimal34_half_even_at_rounding_boundary():
     assert value["providers"][0]["most_depleted_window"]["remaining_percentage"] == "1.234567890123456789012345678901234"
 
 
+@pytest.mark.parametrize("numeric_length", (127, 128))
+def test_percentage_suffix_fits_short_text_without_discarding_quota(numeric_length):
+    window = _window("weekly", reset=None)
+    limit = Decimal("1e128")
+    remaining = Decimal(10 if numeric_length == 127 else 1)
+    object.__setattr__(window, "limit", QuotaQuantity(limit, QuotaMetricKind.COMMERCIAL_QUOTA, "percentage_points"))
+    object.__setattr__(window, "used", None)
+    object.__setattr__(window, "remaining", QuotaQuantity(remaining, QuotaMetricKind.COMMERCIAL_QUOTA, "percentage_points"))
+    value = json.loads(project_bytes(ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [window]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))))
+    provider = value["providers"][0]
+    assert len(provider["compact_text"]) <= 128
+    assert len(value["general"]["compact_text"]) <= 263
+    assert provider["windows"][0]["remaining"]["value"] == str(remaining)
+    assert Decimal(provider["windows"][0]["limit"]["value"]) == limit
+    if numeric_length == 127:
+        assert len(provider["compact_text"]) == 128
+        assert provider["compact_text"].endswith("%")
+        assert provider["most_depleted_window"] is not None
+    else:
+        assert provider["compact_text"] == "—"
+        assert provider["alternate_text"] == "Quota unavailable"
+        assert provider["most_depleted_window"] is None
+        assert "Weekly: Unavailable" in provider["tooltip_text"]
+
+
 def test_unrepresentable_derived_percentage_fails_closed_without_synthetic_basis():
     window = _window("extreme")
     object.__setattr__(window, "limit", QuotaQuantity(Decimal("1e255"), QuotaMetricKind.COMMERCIAL_QUOTA, "percentage_points"))
@@ -442,7 +519,7 @@ def test_unrepresentable_derived_percentage_fails_closed_without_synthetic_basis
     projection = ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [window]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
     provider = project_document(projection)["providers"][0]
     assert provider["most_depleted_window"] is None
-    assert "Extreme: Quota unavailable" in provider["tooltip_text"]
+    assert "Extreme: Unavailable" in provider["tooltip_text"]
 
 
 def test_tooltip_unit_comes_only_from_consistent_quantity_evidence():
@@ -481,7 +558,7 @@ def test_tooltip_unit_comes_only_from_consistent_quantity_evidence():
         assert "scope=" not in value
         assert "source_id" not in value
         if window is not mismatched:
-            assert "Quota unavailable" in value
+            assert "Unavailable" in value
 
 
 @pytest.mark.parametrize(
@@ -503,13 +580,17 @@ def test_presentation_contract_maps_not_run_and_safe_errors_without_raw_details(
         )
     )["providers"][0]
     assert error["execution_error"] == {"code": mapped, "phase": phase}
-    assert error["compact_text"] == error["alternate_text"] == error["tooltip_text"] == "Quota error"
+    assert error["compact_text"] == "—"
+    suffix = "timeout" if mapped == "provider_timeout" else "request failed"
+    assert error["alternate_text"] == f"Quota unavailable · {suffix}"
+    assert error["tooltip_text"] == f"Codex\nQuota unavailable · {suffix}: {mapped}"
 
     not_run = json.loads(project_failure_bytes("internal_error"))["providers"][0]
     assert not_run["outcome"] == "not_run"
     assert not_run["not_run_reason"] == "document_aborted"
-    assert not_run["compact_text"] == not_run["alternate_text"] == "Quota not run"
-    assert not_run["tooltip_text"] == "Quota not run: document aborted"
+    assert not_run["compact_text"] == "—"
+    assert not_run["alternate_text"] == "Quota unavailable"
+    assert not_run["tooltip_text"] == "Codex\nQuota unavailable: document aborted"
 
 
 def test_tooltip_quotes_identity_delimiters_and_backslashes():
@@ -517,8 +598,8 @@ def test_tooltip_quotes_identity_delimiters_and_backslashes():
     projection = ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [window]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE)))
     provider = project_document(projection)["providers"][0]
 
-    assert "Five=hour: 75% remaining" in provider["tooltip_text"]
-    assert 'Quota "team;west" / "five=hour": 75% remaining' in provider["alternate_text"]
+    assert "Five=hour: 75%" in provider["tooltip_text"]
+    assert provider["alternate_text"] == "Five=hour: 75% left"
     assert "scope=" not in provider["tooltip_text"]
     assert "period=" not in provider["tooltip_text"]
     assert "unit=" not in provider["tooltip_text"]
@@ -600,10 +681,10 @@ def test_summary_truncation_preserves_the_complete_qualifier_and_tooltip_lines()
     document = _document(_snapshot(ProviderKey.CODEX, [_window("p" * 64, "x" * 64)]), ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE))
     provider = project_document(ProjectionInput(document))["providers"][0]
     assert len(provider["compact_text"]) <= 128 and len(provider["alternate_text"]) <= 128
-    assert provider["compact_text"].endswith("; state=available; freshness=fresh")
-    assert provider["alternate_text"].endswith("; state=available; freshness=fresh")
+    assert provider["compact_text"] == "75%"
+    assert provider["alternate_text"].endswith(": 75% left")
     lines = provider["tooltip_text"].splitlines()
-    assert lines[:3] == ["Codex", "State: Available · Fresh", "Lowest quota: 75% remaining"]
+    assert lines[:3] == ["Codex", "State: Available · Fresh", "Quota remaining:"]
     assert all(not any(field in line for field in ("kind=", "scope=", "plan_id=", "unit=", "source_id=")) for line in lines)
 
 
@@ -621,7 +702,7 @@ def test_snapshot_presentation_rejects_missing_state_or_freshness(public_state, 
         projection_module._presentation(ProviderKey.CODEX, ProviderOutcome.SNAPSHOT.value, [], public_state, freshness)
 
 
-@pytest.mark.parametrize(("adjustment", "candidate_size"), (("boundary_65389", 65_389), ("boundary_65390", 65_390), ("oversize", 65_696)))
+@pytest.mark.parametrize(("adjustment", "candidate_size"), (("boundary_65389", 65_535), ("boundary_65390", 65_536), ("oversize", 65_696)))
 def test_document_byte_boundaries_are_allowed_or_replaced_whole(adjustment, candidate_size):
     if adjustment == "boundary_65389":
         document = _near_boundary_document(39)
@@ -629,6 +710,15 @@ def test_document_byte_boundaries_are_allowed_or_replaced_whole(adjustment, cand
         document = _near_boundary_document(40)
     else:
         document = _large_document(64)
+    if adjustment != "oversize":
+        # Added root presentation changes the fixed overhead. Tune only identity
+        # UTF-8 width to exercise the exact whole-document byte boundaries.
+        extra = 198
+        for provider in document.providers:
+            for window in _snapshot_of(provider).windows:
+                count = min(extra, 63)
+                object.__setattr__(window, "scope", "é" * count + window.scope[count:])
+                extra -= count
     if adjustment == "oversize":
         for provider in document.providers:
             for window in _snapshot_of(provider).windows:
@@ -663,9 +753,9 @@ def test_document_byte_boundaries_are_allowed_or_replaced_whole(adjustment, cand
             and provider["execution_error"] is None
             and provider["not_run_reason"] == "document_aborted"
             and provider["most_depleted_window"] is None
-            and provider["compact_text"] == "Quota not run"
-            and provider["alternate_text"] == "Quota not run"
-            and provider["tooltip_text"] == "Quota not run: document aborted"
+            and provider["compact_text"] == "—"
+            and provider["alternate_text"] == "Quota unavailable"
+            and provider["tooltip_text"].endswith("Quota unavailable: document aborted")
             for provider in value["providers"]
         )
         assert b'"outcome":"snapshot"' not in encoded
