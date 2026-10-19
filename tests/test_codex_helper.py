@@ -41,6 +41,23 @@ from yasb_limitora.model import (
 )
 
 
+@pytest.mark.parametrize("bad", [True, -1, 1.5, "2"])
+def test_helper_rejects_invalid_reset_counts_in_both_directions(bad):
+    from yasb_limitora.model import RateLimitResetCreditsView
+    stamp = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    pair = RateLimitResetCreditsView(2, stamp)
+    snapshot = ProviderSnapshotView(PublicProviderState.AVAILABLE, SnapshotFreshness.FRESH,
+                                    stamp, stamp, stamp, "codex-app-server-v2", (), pair)
+    view = ProviderView(ProviderKey.CODEX, ProviderState.SUCCESS, outcome=ProviderOutcome.SNAPSHOT, snapshot=snapshot)
+    raw = json.loads(_payload(view))
+    raw["snapshot"]["rate_limit_reset_credits"]["available_count"] = bad
+    decoded = _decode(json.dumps(raw).encode())
+    assert decoded.snapshot is None and decoded.error.code is SafeErrorCode.INTERNAL_ERROR
+    object.__setattr__(pair, "available_count", bad)
+    with pytest.raises(ValueError, match="invalid reset count"):
+        _payload(view)
+
+
 def test_frozen_runtime_uses_private_internal_helper_flag(monkeypatch):
     import yasb_limitora.codex_helper as helper
 

@@ -34,7 +34,7 @@ from yasb_limitora.projection import (
 )
 
 STAMP = datetime(2026, 8, 1, 12, tzinfo=timezone.utc)
-PKEYS = {"provider", "outcome", "public_state", "freshness", "status_observed_at", "fetched_at", "data_at", "source_id", "windows", "execution_error", "not_run_reason", "most_depleted_window", "compact_text", "alternate_text", "tooltip_text"}
+PKEYS = {"provider", "outcome", "public_state", "freshness", "status_observed_at", "fetched_at", "data_at", "source_id", "windows", "rate_limit_reset_credits", "execution_error", "not_run_reason", "most_depleted_window", "compact_text", "alternate_text", "tooltip_text"}
 WKEYS = {"kind", "scope", "period", "plan_id", "availability", "source_id", "limit", "used", "remaining", "reset_at"}
 QKEYS = {"value", "metric", "unit"}
 EKEYS = {"code", "phase"}
@@ -713,7 +713,7 @@ def test_document_byte_boundaries_are_allowed_or_replaced_whole(adjustment, cand
     if adjustment != "oversize":
         # Added root presentation changes the fixed overhead. Tune only identity
         # UTF-8 width to exercise the exact whole-document byte boundaries.
-        extra = 198
+        extra = 134
         for provider in document.providers:
             for window in _snapshot_of(provider).windows:
                 count = min(extra, 63)

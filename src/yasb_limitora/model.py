@@ -234,6 +234,22 @@ class QuotaWindowView:
 
 
 @dataclass(frozen=True, slots=True)
+class RateLimitResetCreditsView:
+    """Derived observation only; never retains upstream credit identities."""
+
+    available_count: int
+    next_expires_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.available_count) is not int or self.available_count < 0:
+            raise ValueError("invalid reset count")
+        if self.next_expires_at is not None:
+            _aware(self.next_expires_at, "invalid reset expiry")
+            if self.available_count == 0:
+                raise ValueError("zero reset count cannot have expiry")
+
+
+@dataclass(frozen=True, slots=True)
 class ProviderSnapshotView:
     public_state: PublicProviderState
     freshness: SnapshotFreshness
@@ -242,10 +258,15 @@ class ProviderSnapshotView:
     data_at: datetime
     source_id: str | None
     windows: tuple[QuotaWindowView, ...]
+    rate_limit_reset_credits: RateLimitResetCreditsView | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "public_state", _enum(PublicProviderState, self.public_state, "invalid public provider state"))
         object.__setattr__(self, "freshness", _enum(SnapshotFreshness, self.freshness, "invalid snapshot freshness"))
+        if self.rate_limit_reset_credits is not None:
+            if not isinstance(self.rate_limit_reset_credits, RateLimitResetCreditsView):
+                raise ValueError("invalid reset credits")
+            self.rate_limit_reset_credits.__post_init__()
         _aware(self.status_observed_at, "invalid status timestamp")
         _aware(self.fetched_at, "invalid fetched timestamp")
         _aware(self.data_at, "invalid data timestamp")

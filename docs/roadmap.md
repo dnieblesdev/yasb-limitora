@@ -317,7 +317,10 @@ claim is made here: no tag, installer artifact, or publication exists yet.
 
 The roadmap does not include native or upstream YASB work, generic fixed
 provider-window assumptions, absent-as-zero behavior, Claude, Gemini, costs,
-tokens, history, predictions, `usage`, or `rate_limit_reset_credits`. The
+tokens, history, predictions, `usage`, or raw reset-credit details. The derived
+reset count and provable nearest future expiry are supported without retaining
+credit lists. Real reset consumption and YASB rendering were not verified for
+this extension. The
 approved OpenCode 0.2 contract is the explicit fixed-slot exception: its
 `available` and `partial` snapshots use `five_hour`, `monthly`, and `weekly`
 commercial slots, while `rate_limited` is technical-only. Limitora #55's

@@ -68,6 +68,40 @@ def test_invalid_arguments_are_safe_and_exit_two(bad):
     assert "secret" not in stdout.getvalue().decode() + stderr.getvalue()
 
 
+@pytest.mark.parametrize("count", [0, 2])
+def test_cli_reset_summary_preserves_streams_and_other_provider(monkeypatch, count):
+    from datetime import timedelta
+    from tests.test_json_projection import STAMP, _snapshot, _window
+    from yasb_limitora.model import RateLimitResetCreditsView
+    codex = _snapshot(ProviderKey.CODEX, [_window("five_hour", reset=None)])
+    expiry = STAMP + timedelta(days=1) if count else None
+    object.__setattr__(codex.snapshot, "rate_limit_reset_credits", RateLimitResetCreditsView(count, expiry))
+    other = ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED)
+    document = DocumentView.ordered(codex, other)
+    monkeypatch.setattr(cli, "read_config", lambda path, context: json.dumps({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {"enabled": True}}))
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", lambda: _FakeOrchestrator(document))
+    monkeypatch.setattr(cli, "RefreshCoordinator", lambda *args: None)
+    stdout, stderr = io.BytesIO(), io.StringIO()
+    assert main((), environment={"LOCALAPPDATA": r"C:\\runtime-test", "LIMITORA_OPENCODE_API_KEY": "key"}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 0
+    assert stderr.getvalue() == ""
+    expected = project_bytes(ProjectionInput(document, frozenset(ProviderKey)))
+    assert stdout.getvalue() == expected
+    assert expected.endswith(b"\n") and not expected.endswith(b"\n\n") and len(expected) <= 65536
+    value = json.loads(expected)
+    assert value["providers"][0]["rate_limit_reset_credits"] == {
+        "available_count": count,
+        "next_expires_at": None if expiry is None else "2026-08-02T12:00:00.000000Z",
+    }
+    assert f"Quota resets available: {count}" in value["providers"][0]["tooltip_text"]
+    assert ("Next reset expiry:" in value["providers"][0]["tooltip_text"]) is bool(count)
+    assert value["general"]["tooltip_text"] == "\n\n".join(item["tooltip_text"] for item in value["providers"])
+    baseline = json.loads(project_bytes(ProjectionInput(DocumentView.ordered(
+        _snapshot(ProviderKey.CODEX, [_window("five_hour", reset=None)]), other), frozenset(ProviderKey))))
+    assert value["providers"][1] == baseline["providers"][1]
+    assert value["providers"][0]["compact_text"] == baseline["providers"][0]["compact_text"]
+    assert value["providers"][0]["alternate_text"] == baseline["providers"][0]["alternate_text"]
+
+
 def test_cli_general_exact_stdout_exit_and_stderr(monkeypatch):
     from tests.test_json_projection import _document, _snapshot, _window
 

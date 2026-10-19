@@ -28,6 +28,7 @@ from .model import (
     MAX_DISPLAY_LABEL_LENGTH,
     MAX_QUOTA_WINDOWS,
     OPENCODE_SOURCE_ID,
+    RateLimitResetCreditsView,
     ProviderKey,
     ProviderOutcome,
     ProviderSnapshotView,
@@ -56,7 +57,7 @@ _READY_NONCE = "_YASB_CODEX_READY_NONCE"
 _INTERNAL_HELPER_FLAG = "--__yasb-limitora-codex-helper"
 _WIRE_FIELDS = frozenset(("provider", "state", "outcome", "display_label", "error", "snapshot"))
 _SNAPSHOT_FIELDS = frozenset(
-    ("public_state", "freshness", "status_observed_at", "fetched_at", "data_at", "source_id", "windows")
+    ("public_state", "freshness", "status_observed_at", "fetched_at", "data_at", "source_id", "windows", "rate_limit_reset_credits")
 )
 _WINDOW_FIELDS = frozenset(
     ("kind", "scope", "period", "plan_id", "availability", "source_id", "reset_at", "limit", "used", "remaining")
@@ -375,6 +376,23 @@ def _window_payload(window: QuotaWindowView) -> dict[str, object]:
     }
 
 
+def _reset_payload(value: RateLimitResetCreditsView | None) -> dict[str, object] | None:
+    if value is None:
+        return None
+    if not isinstance(value, RateLimitResetCreditsView):
+        raise ValueError("invalid reset credits")
+    value.__post_init__()
+    return {"available_count": value.available_count,
+            "next_expires_at": None if value.next_expires_at is None else _timestamp(value.next_expires_at)}
+
+
+def _decode_resets(value: object) -> RateLimitResetCreditsView | None:
+    if value is None:
+        return None
+    item = _object(value, frozenset(("available_count", "next_expires_at")))
+    return RateLimitResetCreditsView(item["available_count"], None if item["next_expires_at"] is None else _decode_timestamp(item["next_expires_at"]))
+
+
 def _snapshot_payload(snapshot: ProviderSnapshotView) -> dict[str, object]:
     return {
         "public_state": snapshot.public_state.value,
@@ -384,6 +402,7 @@ def _snapshot_payload(snapshot: ProviderSnapshotView) -> dict[str, object]:
         "data_at": _timestamp(snapshot.data_at),
         "source_id": snapshot.source_id,
         "windows": [_window_payload(window) for window in snapshot.windows],
+        "rate_limit_reset_credits": _reset_payload(snapshot.rate_limit_reset_credits),
     }
 
 
@@ -857,6 +876,7 @@ def _decode_snapshot(value: object, provider: ProviderKey) -> ProviderSnapshotVi
         data_at=_decode_timestamp(item["data_at"]),
         source_id=_source_for_provider(item["source_id"], provider),
         windows=decoded_windows,
+        rate_limit_reset_credits=_decode_resets(item["rate_limit_reset_credits"]),
     )
 
 

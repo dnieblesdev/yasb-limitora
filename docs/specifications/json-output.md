@@ -76,7 +76,6 @@ The following public fields are explicitly excluded from 0.2 and MUST NOT be
 added to the current envelope:
 
 - `usage`;
-- `rate_limit_reset_credits`; and
 - any cost, token-history, prediction, or synthetic aggregate field.
 
 The invariant is **preserve all safe quota evidence requested and its context**,
@@ -128,6 +127,7 @@ Every provider object has exactly these fields:
 | `data_at` | string or `null` | Canonical UTC timestamp for `snapshot`; `null` otherwise |
 | `source_id` | string or `null` | Sanitized provider source identifier; `null` is legal |
 | `windows` | array | Always present; zero or more window objects, never `null` |
+| `rate_limit_reset_credits` | object or `null` | Required derived reset observation for snapshots; `null` otherwise or when summary is absent |
 | `execution_error` | object or `null` | Required; non-null only for provider `execution_error` |
 | `not_run_reason` | string or `null` | Required; non-null only for provider `not_run` |
 | `most_depleted_window` | object or `null` | Required presentation heuristic; `null` when ineligible |
@@ -157,6 +157,35 @@ snapshot is provider-level HTTP 429 taxonomy, preserving only technical windows
 (including an empty array) without embedded per-window provenance. #55 is released upstream in
 Limitora v0.3.0, while yasb-limitora #133 remains a separate follow-up; this current contract does
 not consume per-window rate-limit provenance.
+
+### Reset credit observation
+
+`rate_limit_reset_credits` is `null` when the public summary is absent, not a
+zero count. Otherwise it contains exactly `available_count` (an exact integer
+at least zero, never a boolean) and `next_expires_at` (canonical UTC timestamp
+or `null`). No raw credit list, title, or description is retained.
+
+The adapter validates the public Limitora summary, tuple details, credit types,
+status enums, and aware expiry datetimes even when constructors were bypassed.
+Malformed evidence uses the existing sanitized `invalid_provider_data` boundary.
+It samples its UTC clock once per snapshot, independently of `fetched_at`.
+Only explicitly AVAILABLE credits with known expiry strictly after that clock
+are candidates. Redeemed, redeeming, unknown, expired, and at-now credits do not
+qualify. The minimum future expiry is reported only when the candidate count
+matches the summary and every AVAILABLE detail has a known date. Missing or
+incomplete details retain the valid count with a null expiry. Zero always has
+null expiry. A truncated list cannot establish a global earliest expiry.
+
+After all quota windows, the tooltip appends `Quota resets available: N` and,
+only for a determinate expiry, `Next reset expiry: <local timestamp>`. General
+reuses the identical provider sections. Compact and alternate text do not
+change. Late reset lines may be omitted under the existing bounded tooltip
+reduction policy; structured reset evidence is never dropped to fit text.
+
+This is an as-of-reading observation. Helper transport and cache preserve the
+derived pair without recomputing against wall-clock time. Cache TTL and
+freshness semantics are unchanged (#383 is separate). Synthetic evidence does
+not establish real Codex credit-removal behavior or YASB rendering proof.
 
 ### 3.2 Window object
 
@@ -877,7 +906,7 @@ current CustomWidget `stop()` behavior is not a process-termination primitive.
 
 The shared quota cache is an optional, non-authoritative output artifact, not a
 second execution boundary. It uses the preserved `quota-v2-cache.json` filename
-and per-config/fingerprint state with strictly validated schema-4 bytes. Any
+and per-config/fingerprint state with strictly validated schema-5 bytes. Any
 older cache schema is stale: it MUST be rejected and cold-refreshed, never
 migrated or served. Publication occurs only after the provider guard has been
 released and closed and a clean current result has been projected. It uses an
@@ -996,8 +1025,7 @@ The current contract excludes:
 - absent-as-zero, percentages as a replacement for quantities, and incompatible
   cross-provider minima;
 - Claude and Gemini;
-- costs, tokens, history, predictions, `usage`, and
-  `rate_limit_reset_credits`; and
+- costs, tokens, history, predictions, `usage`, and raw reset-credit details; and
     - historical review-boundary claims; current runtime behavior is specified by
       the active contract and its reviewed implementation.
 
@@ -1007,7 +1035,7 @@ Each contract rule is mapped to a reviewable acceptance criterion.
 
 | Rule | Acceptance criterion |
 |------|----------------------|
-| 1 | Scope section states quota focus, excludes `usage` and `rate_limit_reset_credits`, and states the safe-evidence invariant. |
+| 1 | Scope section states quota focus, excludes `usage` and raw reset-credit details, and states the safe-evidence invariant. |
 | 2 | Envelope, provider, window, outcome, freshness, and error tables plus the legal-combination matrix keep concepts separate, including document cleanup failure. |
 | 3 | Exact envelope examples distinguish `snapshot`, `undetected`, `not_run`, `execution_error`, disabled, configuration, invocation, guard, provider-timeout, all-failure, deadline attempted/not-attempted, internal, and cleanup outcomes. |
 | 4 | State mapping lists all seven current public states and defines fail-closed handling for an unknown future state. |
@@ -1057,7 +1085,7 @@ this specification.
   "general": {
     "compact_text": "C=75% · O=60%",
     "alternate_text": "C: 5h: 75% left · O: Weekly: 60% left",
-    "tooltip_text": "Codex\nState: Available · Fresh\nQuota remaining:\n5h: 75%\n  Renews: 2026-08-01 16:00:00\n\nOpenCode Go\nState: Available · Fresh\nQuota remaining:\n5h: Unavailable\nMonthly: Unavailable\nWeekly: 60%\n  Renews: 2026-08-08 12:00:01"
+    "tooltip_text": "Codex\nState: Available · Fresh\nQuota remaining:\n5h: 75%\n  Renews: 2026-08-01 16:00:00\nQuota resets available: 2\nNext reset expiry: 2026-08-03 00:00:00\n\nOpenCode Go\nState: Available · Fresh\nQuota remaining:\n5h: Unavailable\nMonthly: Unavailable\nWeekly: 60%\n  Renews: 2026-08-08 12:00:01"
   },
   "providers": [
     {
@@ -1095,6 +1123,10 @@ this specification.
           "reset_at": "2026-08-01T16:00:00.000000Z"
         }
       ],
+      "rate_limit_reset_credits": {
+        "available_count": 2,
+        "next_expires_at": "2026-08-03T00:00:00.000000Z"
+      },
       "execution_error": null,
       "not_run_reason": null,
       "most_depleted_window": {
@@ -1108,7 +1140,7 @@ this specification.
       },
       "compact_text": "75%",
       "alternate_text": "5h: 75% left",
-      "tooltip_text": "Codex\nState: Available · Fresh\nQuota remaining:\n5h: 75%\n  Renews: 2026-08-01 16:00:00"
+      "tooltip_text": "Codex\nState: Available · Fresh\nQuota remaining:\n5h: 75%\n  Renews: 2026-08-01 16:00:00\nQuota resets available: 2\nNext reset expiry: 2026-08-03 00:00:00"
     },
     {
       "provider": "opencode_go",
@@ -1169,6 +1201,7 @@ this specification.
           "reset_at": "2026-08-08T12:00:01.000000Z"
         }
       ],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": null,
       "most_depleted_window": {
@@ -1247,6 +1280,7 @@ this specification.
           "reset_at": null
         }
       ],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": null,
       "most_depleted_window": {
@@ -1272,6 +1306,7 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": null,
       "most_depleted_window": null,
@@ -1305,6 +1340,7 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": null,
       "most_depleted_window": null,
@@ -1322,6 +1358,7 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": null,
       "most_depleted_window": null,
@@ -1358,6 +1395,7 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": "guard_wait_timeout",
       "most_depleted_window": null,
@@ -1375,6 +1413,7 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": "guard_wait_timeout",
       "most_depleted_window": null,
@@ -1408,6 +1447,7 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": {
         "code": "provider_timeout",
         "phase": "provider"
@@ -1428,6 +1468,7 @@ this specification.
       "data_at": "2026-08-01T12:02:00.000000Z",
       "source_id": "opencode-go-api",
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": null,
       "most_depleted_window": null,
@@ -1461,6 +1502,7 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": "disabled",
       "most_depleted_window": null,
@@ -1478,6 +1520,7 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": "disabled",
       "most_depleted_window": null,
@@ -1514,6 +1557,7 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": "invalid_configuration",
       "most_depleted_window": null,
@@ -1531,6 +1575,7 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": "invalid_configuration",
       "most_depleted_window": null,
@@ -1567,6 +1612,7 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": "invocation_invalid",
       "most_depleted_window": null,
@@ -1584,6 +1630,7 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": "invocation_invalid",
       "most_depleted_window": null,
@@ -1620,6 +1667,7 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": "deadline_exhausted",
       "most_depleted_window": null,
@@ -1637,6 +1685,7 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": "deadline_exhausted",
       "most_depleted_window": null,
@@ -1673,6 +1722,7 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": "document_aborted",
       "most_depleted_window": null,
@@ -1690,6 +1740,7 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": "document_aborted",
       "most_depleted_window": null,
@@ -1751,6 +1802,7 @@ this specification.
           "reset_at": "2026-08-01T16:03:00.000000Z"
         }
       ],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": null,
       "most_depleted_window": {
@@ -1776,6 +1828,7 @@ this specification.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": {
         "code": "provider_failed",
         "phase": "provider"
@@ -1820,6 +1873,7 @@ replace either provider result.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": "disabled",
       "most_depleted_window": null,
@@ -1837,6 +1891,7 @@ replace either provider result.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": {
         "code": "provider_failed",
         "phase": "provider"
@@ -1873,6 +1928,7 @@ replace either provider result.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": null,
       "most_depleted_window": null,
@@ -1890,6 +1946,7 @@ replace either provider result.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": {
         "code": "provider_failed",
         "phase": "provider"
@@ -1929,6 +1986,7 @@ replace either provider result.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": {
         "code": "provider_timeout",
         "phase": "provider"
@@ -1949,6 +2007,7 @@ replace either provider result.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": {
         "code": "ipc_failed",
         "phase": "ipc"
@@ -1985,6 +2044,7 @@ replace either provider result.
       "data_at": "2026-08-01T12:04:00.000000Z",
       "source_id": "codex-app-server-v2",
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": null,
       "most_depleted_window": null,
@@ -2002,6 +2062,7 @@ replace either provider result.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": "deadline_exhausted",
       "most_depleted_window": null,
@@ -2038,6 +2099,7 @@ replace either provider result.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": {
         "code": "provider_timeout",
         "phase": "provider"
@@ -2058,6 +2120,7 @@ replace either provider result.
       "data_at": null,
       "source_id": null,
       "windows": [],
+      "rate_limit_reset_credits": null,
       "execution_error": null,
       "not_run_reason": "deadline_exhausted",
       "most_depleted_window": null,

@@ -557,10 +557,20 @@
         "remaining_percentage": {"$ref": "#/$defs/percentageDecimal"}
       }
     },
+    "resetCredits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["available_count", "next_expires_at"],
+      "properties": {
+        "available_count": {"type": "integer", "minimum": 0},
+        "next_expires_at": {"$ref": "#/$defs/timestampOrNull"}
+      },
+      "allOf": [{"if": {"properties": {"available_count": {"const": 0}}}, "then": {"properties": {"next_expires_at": {"type": "null"}}}}]
+    },
     "providerBase": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["provider", "outcome", "public_state", "freshness", "status_observed_at", "fetched_at", "data_at", "source_id", "windows", "execution_error", "not_run_reason", "most_depleted_window", "compact_text", "alternate_text", "tooltip_text"],
+      "required": ["provider", "outcome", "public_state", "freshness", "status_observed_at", "fetched_at", "data_at", "source_id", "windows", "rate_limit_reset_credits", "execution_error", "not_run_reason", "most_depleted_window", "compact_text", "alternate_text", "tooltip_text"],
       "properties": {
         "provider": {"enum": ["codex", "opencode_go"]},
         "outcome": {"enum": ["snapshot", "undetected", "not_run", "execution_error"]},
@@ -571,6 +581,7 @@
         "data_at": {"$ref": "#/$defs/timestampOrNull"},
         "source_id": {"$ref": "#/$defs/sourceId"},
         "windows": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/window"}},
+        "rate_limit_reset_credits": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/resetCredits"}]},
         "execution_error": {"$ref": "#/$defs/executionErrorOrNull"},
         "not_run_reason": {"$ref": "#/$defs/notRunReasonOrNull"},
         "most_depleted_window": {"anyOf": [{"$ref": "#/$defs/depletedWindow"}, {"type": "null"}]},
@@ -600,7 +611,8 @@
               "status_observed_at": {"type": "null"},
               "fetched_at": {"type": "null"},
               "data_at": {"type": "null"},
-              "source_id": {"type": "null"}
+              "source_id": {"type": "null"},
+              "rate_limit_reset_credits": {"type": "null"}
             }
           }
         },
