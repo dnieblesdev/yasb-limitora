@@ -179,32 +179,50 @@ def _window(window: object, provider: ProviderKey = ProviderKey.CODEX) -> QuotaW
     )
 
 
-def _reset_credits(summary: object, now: datetime) -> RateLimitResetCreditsView | None:
-    if summary is None:
-        return None
-    if not isinstance(summary, RateLimitResetCreditsSummary):
-        raise ValueError("invalid reset summary")
-    count = summary.available_count
-    if type(count) is not int or count < 0:
-        raise ValueError("invalid reset count")
-    details = summary.credits
+def _reset_expiry(details: object, count: int, now: datetime) -> datetime | None:
+    """Return the determinate minimum future expiry, or `None` when details cannot establish it.
+
+    Malformed details never assert an expiry: a non-tuple container, a detail that
+    is not a `RateLimitResetCredit` instance, a non-enum status, or an untrusted
+    expiry keeps the valid count only. The credit `reset_type` is not validated.
+    """
     if details is not None and not isinstance(details, tuple):
-        raise ValueError("invalid reset details")
-    candidates = []
+        return None
+    candidates: list[datetime] = []
     unknown_date = False
     for credit in details or ():
         if not isinstance(credit, RateLimitResetCredit) or not isinstance(credit.status, RateLimitResetCreditStatus):
-            raise ValueError("invalid reset credit")
+            return None
         expiry = credit.expires_at
-        if expiry is not None:
-            _aware(expiry, "invalid reset expiry")
-        if credit.status is RateLimitResetCreditStatus.AVAILABLE:
-            if expiry is None:
+        try:
+            if expiry is not None:
+                _aware(expiry, "invalid reset expiry")
+            available = credit.status is RateLimitResetCreditStatus.AVAILABLE
+            if available and expiry is None:
                 unknown_date = True
-            elif expiry > now:
+            elif available and expiry > now:
                 candidates.append(expiry)
-    expiry = min(candidates) if count and len(candidates) == count and not unknown_date else None
-    return RateLimitResetCreditsView(count, expiry)
+        except (TypeError, ValueError):
+            return None
+    if count and len(candidates) == count and not unknown_date:
+        return min(candidates)
+    return None
+
+
+def _reset_credits(summary: object, now: datetime) -> RateLimitResetCreditsView | None:
+    """Map optional public reset evidence without discarding the primary quota snapshot.
+
+    Reset credits are secondary evidence at this public adapter boundary: an absent,
+    mistyped, or invalid summary or count omits the pair, and a valid count with
+    malformed details keeps the count without an asserted expiry. Nothing is
+    synthesized, and no raw credit title, description, or identity is retained.
+    """
+    if not isinstance(summary, RateLimitResetCreditsSummary):
+        return None
+    count = summary.available_count
+    if type(count) is not int or count < 0:
+        return None
+    return RateLimitResetCreditsView(count, _reset_expiry(summary.credits, count, now))
 
 
 def _snapshot(provider: ProviderKey, result: StatusSnapshotResult, now: datetime) -> tuple[PublicProviderState, ProviderSnapshotView]:

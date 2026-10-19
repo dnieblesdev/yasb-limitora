@@ -127,7 +127,7 @@ Every provider object has exactly these fields:
 | `data_at` | string or `null` | Canonical UTC timestamp for `snapshot`; `null` otherwise |
 | `source_id` | string or `null` | Sanitized provider source identifier; `null` is legal |
 | `windows` | array | Always present; zero or more window objects, never `null` |
-| `rate_limit_reset_credits` | object or `null` | Required derived reset observation for snapshots; `null` otherwise or when summary is absent |
+| `rate_limit_reset_credits` | object or `null` | Required derived reset observation for snapshots; `null` otherwise, when the summary is absent, or when the summary or its count is not trusted |
 | `execution_error` | object or `null` | Required; non-null only for provider `execution_error` |
 | `not_run_reason` | string or `null` | Required; non-null only for provider `not_run` |
 | `most_depleted_window` | object or `null` | Required presentation heuristic; `null` when ineligible |
@@ -165,9 +165,40 @@ zero count. Otherwise it contains exactly `available_count` (an exact integer
 at least zero, never a boolean) and `next_expires_at` (canonical UTC timestamp
 or `null`). No raw credit list, title, or description is retained.
 
-The adapter validates the public Limitora summary, tuple details, credit types,
-status enums, and aware expiry datetimes even when constructors were bypassed.
-Malformed evidence uses the existing sanitized `invalid_provider_data` boundary.
+The adapter validates the public Limitora summary, tuple details, credit object
+classes, status enums, and aware expiry datetimes even when constructors were
+bypassed. "Credit object class" means each detail must be an instance of the
+public `RateLimitResetCredit` class; the `reset_type` value on that credit is
+not validated and is never projected. Reset credits are secondary evidence at
+this public adapter boundary, so malformed reset evidence does not discard the
+primary quota snapshot. A summary that is absent, mistyped, or not a public
+summary, and a count that is not an exact non-negative integer, omit the pair
+entirely: `rate_limit_reset_credits` is `null` for that snapshot. A valid count
+with malformed details keeps that exact count with `next_expires_at` `null`.
+The malformed detail shapes covered by tests are: a non-tuple detail container,
+a detail that is not a `RateLimitResetCredit` instance, a `status` that is not a
+public `RateLimitResetCreditStatus` member, and an `expires_at` that is not an
+aware `datetime` or cannot be ordered against the sampled clock. The adapter
+never synthesizes a count, never reports `0` for untrusted evidence, and never
+derives a minimum from incomplete or untrusted dates. Containment is limited to
+`TypeError` and `ValueError` raised while evaluating reset details; it is not a
+general exception boundary.
+
+This degradation is limited to optional reset metadata read from the trusted
+public API adapter. The unchanged primary policies remain: a snapshot that is
+not the expected public class, a provider identity mismatch between snapshot and
+status, a missing or non-public snapshot source, and a quota window that is not
+the expected public class, kind, or quantity still fail closed with the
+sanitized `invalid_provider_data` boundary. A `state` that is not a public
+Limitora `ProviderState` member maps to `unknown_provider_state`; every current
+state value is also a public contract value, so no state value downgrades
+silently. A root or window source that is outside the provider allowlist becomes
+`null`, and that window is projected as unavailable with null quantities and
+reset without failing the snapshot. An unusable adapter clock remains an error
+rather than silently dropping reset evidence. Strict malformed-wire rejection in
+helper IPC and in the parsed cache is unchanged; neither boundary may accept
+invalid wire data because of this adapter rule.
+
 It samples its UTC clock once per snapshot, independently of `fetched_at`.
 Only explicitly AVAILABLE credits with known expiry strictly after that clock
 are candidates. Redeemed, redeeming, unknown, expired, and at-now credits do not
