@@ -184,7 +184,7 @@ def test_schema_two_cache_is_a_cold_miss_and_refreshes_once(tmp_path):
 
     assert result.produced and calls == [True]
     assert cache.load(context()) == document
-    assert json.loads(Path(cache.path).read_text())["schema"] == 3
+    assert json.loads(Path(cache.path).read_text())["schema"] == 4
 
 
 def test_cache_rejects_current_payload_with_inserted_root_version(tmp_path):
@@ -198,12 +198,46 @@ def test_cache_rejects_current_payload_with_inserted_root_version(tmp_path):
     assert cache.load(context()) is None
 
 
+@pytest.mark.parametrize("remaining", ("1", "10"))
+def test_cache_roundtrip_percentage_suffix_boundary(tmp_path, remaining):
+    from tests.test_json_projection import _document, _snapshot, _window
+
+    windows = []
+    for source in ("codex-app-server-v2", "opencode-go-api"):
+        window = _window("weekly", source=source, reset=None)
+        object.__setattr__(window, "limit", QuotaQuantity(Decimal("1e128"), QuotaMetricKind.COMMERCIAL_QUOTA, "percentage_points"))
+        object.__setattr__(window, "used", None)
+        object.__setattr__(window, "remaining", QuotaQuantity(Decimal(remaining), QuotaMetricKind.COMMERCIAL_QUOTA, "percentage_points"))
+        windows.append(window)
+    document = project_bytes(ProjectionInput(_document(_snapshot(ProviderKey.CODEX, [windows[0]]), _snapshot(ProviderKey.OPENCODE_GO, [windows[1]]))))
+    value = json.loads(document)
+    assert len(value["general"]["compact_text"]) <= 263
+    assert len(value["general"]["alternate_text"]) <= 265
+    assert all(len(p["compact_text"]) <= 128 for p in value["providers"])
+    assert [p["windows"][-1]["remaining"]["value"] for p in value["providers"]] == [remaining, remaining]
+    cache, _ = make_cache(tmp_path)
+    assert cache.publish(document, context())
+    assert cache.load(context()) == document
+
+
+def test_cache_rejects_unverified_general_without_changing_public_bytes(tmp_path):
+    cache, _ = make_cache(tmp_path)
+    original = snapshot_public_bytes()
+    assert cache.publish(original, context())
+    envelope = json.loads(Path(cache.path).read_text(encoding="utf-8"))
+    envelope["document"]["general"]["compact_text"] = "C=0%"
+    Path(cache.path).write_text(json.dumps(envelope, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
+    assert cache.load(context()) is None
+    assert cache.publish(original, context())
+    assert cache.load(context()) == original
+
+
 def test_cache_hit_preserves_public_document_root_order(tmp_path):
     cache, _ = make_cache(tmp_path)
     assert cache.publish(public_bytes(), context())
     loaded = cache.load(context())
     assert loaded is not None
-    assert list(json.loads(loaded).keys()) == ["execution_state", "execution_error", "providers"]
+    assert list(json.loads(loaded).keys()) == ["execution_state", "execution_error", "general", "providers"]
 
 
 @pytest.mark.parametrize("mutate", ("root", "provider", "window", "quantity", "depleted", "error"))
@@ -297,10 +331,10 @@ def test_distinct_config_paths_use_distinct_cache_files_and_create_directory(tmp
     "mutate",
     (
         lambda raw: raw[:-1] + b" ",
-        lambda raw: raw.replace(b'"schema":3', b'"schema":3,"schema":3', 1),
+        lambda raw: raw.replace(b'"schema":4', b'"schema":4,"schema":4', 1),
         lambda raw: b"{" + b"x" * 131_073,
         lambda raw: raw.replace(b'"execution_error":null', b'"execution_error":{"code":"provider_failed","phase":"provider"}', 1),
-        lambda raw: raw.replace(b'"compact_text":"Quota not detected"', b'"compact_text":"C:\\\\secret\\\\token"', 1),
+        lambda raw: raw.replace(b'"alternate_text":"Provider not detected"', b'"alternate_text":"C:\\\\secret\\\\token"', 1),
     ),
 )
 def test_corrupt_oversize_duplicate_noncanonical_and_unsafe_cache_is_ignored(tmp_path, mutate):

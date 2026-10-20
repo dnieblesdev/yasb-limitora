@@ -10,7 +10,7 @@ ROOT = Path(__file__).parents[1]
 SPEC = ROOT / "docs/specifications/json-output.md"
 SCHEMA = ROOT / "docs/specifications/json-output.schema.json"
 
-DOCUMENT_FIELD_ORDER = ("execution_state", "execution_error", "providers")
+DOCUMENT_FIELD_ORDER = ("execution_state", "execution_error", "general", "providers")
 PROVIDER_FIELD_ORDER = (
     "provider",
     "outcome",
@@ -71,46 +71,29 @@ def _window_sort_key(window):
 
 
 def _expected_snapshot_presentation(provider):
-    basis = provider["most_depleted_window"]
-    if basis is None:
-        value = "percentage unavailable"
-        alternate_base = "Quota percentage unavailable"
-        basis_identity = None
-    else:
-        value = f"{basis['remaining_percentage']}% remaining"
-        alternate_base = f"Quota {basis['scope']} / {basis['period']}: {value}"
-        basis_identity = _window_identity(basis)
+    def period(value):
+        return {"five_hour": "5h", "monthly": "Monthly", "weekly": "Weekly"}.get(value, value.replace("_", " ").capitalize())
 
-    qualifier = f"; state={provider['public_state']}; freshness={provider['freshness']}"
-    compact = f"Quota {value}{qualifier}"
-    alternate = f"{alternate_base}{qualifier}"
-    lines = [
-        f"State: {provider['public_state']}",
-        f"Freshness: {provider['freshness']}",
-        f"Quota: {value}",
-    ]
-    if basis is None:
-        lines.append("No eligible percentage basis")
+    basis = provider["most_depleted_window"]
+    compact = "—" if basis is None else f"{basis['remaining_percentage']}%"
+    alternate = "Quota unavailable" if basis is None else f"{period(basis['period'])}: {compact} left"
+    qualifier = (" · partial" if provider["public_state"] == "partial" else "") + (" · stale" if provider["freshness"] == "stale" else "")
+    alternate = alternate[:128 - len(qualifier)] + qualifier
+    name = "Codex" if provider["provider"] == "codex" else "OpenCode Go"
+    state = provider["public_state"].replace("_", " ").capitalize()
+    lines = [name, f"State: {state} · {provider['freshness'].capitalize()}", "Quota remaining:"]
     for window in sorted(provider["windows"], key=_window_sort_key):
-        units = {
-            quantity["unit"]
-            for quantity in (window["limit"], window["used"], window["remaining"])
-            if quantity is not None
-        }
-        unit = next(iter(units)) if len(units) == 1 else "null"
-        if basis is not None and _window_identity(window) == basis_identity:
-            result = f"{basis['remaining_percentage']}% remaining"
-        elif window["availability"] == "known":
-            result = "percentage unavailable"
-        else:
-            result = f"availability={window['availability']}"
-        lines.append(
-            f"Window: kind={window['kind']}; scope={window['scope']}; period={window['period']}; "
-            f"plan_id={json.dumps(window['plan_id'], ensure_ascii=False)}; unit={unit}; "
-            f"source_id={json.dumps(window['source_id'], ensure_ascii=False)}; result={result}"
-        )
+        result = "Unavailable"
+        if window["availability"] == "known" and window["limit"] and window["remaining"]:
+            percentage = _remaining_percentage(Decimal(window["limit"]["value"]), Decimal(window["remaining"]["value"]))
+            if percentage is not None:
+                result = format(percentage, "f").rstrip("0").rstrip(".") if "." in format(percentage, "f") else str(percentage)
+                result += "%"
+        lines.append(f"{period(window['period'])}: {result}")
         if window["reset_at"] is not None:
-            lines.append(f"Reset: {window['reset_at']}")
+            lines.append(f"  Renews: {window['reset_at'][:19].replace('T', ' ')}")
+    if not provider["windows"]:
+        lines.append("No quota windows")
     return compact, alternate, "\n".join(lines)
 
 
@@ -166,10 +149,10 @@ def test_current_contract_metadata_and_root_shape_are_normative():
 
     assert text.startswith("# Current JSON Normative Specification\n")
     assert "The current JSON document is the sole supported output." in text
-    assert "exactly three root fields" in text
+    assert "exactly four root fields" in text
     assert "There is no public root `version` field." in text
-    assert "The current projection emits only this three-field root" in text
-    assert "schema-3" in text
+    assert "The current projection emits only this four-field root" in text
+    assert "schema-4" in text
     assert "cold-refreshed" in text
     assert "The companion structural support\nfile is" in text
     assert "[`json-output.schema.json`](json-output.schema.json)" in text
@@ -245,7 +228,14 @@ def _assert_provider(provider):
 
 
 def _assert_document(document):
-    assert set(document) == {"execution_state", "execution_error", "providers"}
+    assert set(document) == {"execution_state", "execution_error", "general", "providers"}
+    selected = [p for p in document["providers"] if p["not_run_reason"] != "disabled"]
+    identities = {"codex": "C", "opencode_go": "O"}
+    assert document["general"] == ({
+        "compact_text": " · ".join(f"{identities[p['provider']]}={p['compact_text']}" for p in selected),
+        "alternate_text": " · ".join(f"{identities[p['provider']]}: {p['alternate_text']}" for p in selected),
+        "tooltip_text": "\n\n".join(p["tooltip_text"] for p in selected),
+    } if selected else {"compact_text": "—", "alternate_text": "No providers enabled", "tooltip_text": "No providers enabled"})
     assert [provider["provider"] for provider in document["providers"]] == ["codex", "opencode_go"]
     for provider in document["providers"]:
         _assert_provider(provider)
@@ -330,34 +320,25 @@ def test_examples_use_the_exact_snapshot_presentation_grammar():
     examples = _current_examples()
 
     codex = examples[0]["providers"][0]
-    assert codex["compact_text"] == "Quota 75% remaining; state=available; freshness=fresh"
-    assert codex["alternate_text"] == "Quota account / five_hour: 75% remaining; state=available; freshness=fresh"
-    assert codex["tooltip_text"] == (
-        'State: available\nFreshness: fresh\nQuota: 75% remaining\n'
-        'Window: kind=commercial_quota; scope=account; period=five_hour; plan_id="plus"; '
-        'unit=percentage_points; source_id="codex-app-server-v2"; result=75% remaining\n'
-        "Reset: 2026-08-01T16:00:00.000000Z"
-    )
+    assert codex["compact_text"] == "75%"
+    assert codex["alternate_text"] == "5h: 75% left"
+    assert codex["tooltip_text"] == "Codex\nState: Available · Fresh\nQuota remaining:\n5h: 75%\n  Renews: 2026-08-01 16:00:00"
 
     stale = examples[1]["providers"][0]
-    assert stale["compact_text"] == "Quota 10% remaining; state=partial; freshness=stale"
-    assert stale["alternate_text"] == "Quota account / five_hour: 10% remaining; state=partial; freshness=stale"
-    assert "State: partial\nFreshness: stale\nQuota: 10% remaining\n" in stale["tooltip_text"]
-    assert "result=availability=unavailable" in stale["tooltip_text"]
-    assert (
-        'period=weekly; plan_id="plus"; unit=null; '
-        'source_id="codex-app-server-v2"; result=availability=unavailable'
-    ) in stale["tooltip_text"]
+    assert stale["compact_text"] == "10%"
+    assert stale["alternate_text"] == "5h: 10% left · partial · stale"
+    assert "State: Partial · Stale\nQuota remaining:\n5h: 10%\n" in stale["tooltip_text"]
+    assert stale["tooltip_text"].endswith("Weekly: Unavailable")
+    assert stale["windows"][1]["plan_id"] == "plus"
+    assert stale["windows"][1]["source_id"] == "codex-app-server-v2"
 
     for example_index, state in ((4, "rate_limited"), (14, "unavailable")):
         provider = examples[example_index]["providers"][1 if example_index == 4 else 0]
-        expected = f"Quota percentage unavailable; state={state}; freshness=fresh"
-        assert provider["compact_text"] == expected
-        assert provider["alternate_text"] == expected
-        assert provider["tooltip_text"] == (
-            f"State: {state}\nFreshness: fresh\n"
-            "Quota: percentage unavailable\nNo eligible percentage basis"
-        )
+        assert provider["compact_text"] == "—"
+        assert provider["alternate_text"] == "Quota unavailable"
+        name = "OpenCode Go" if example_index == 4 else "Codex"
+        label = state.replace("_", " ").capitalize()
+        assert provider["tooltip_text"] == f"{name}\nState: {label} · Fresh\nQuota remaining:\nNo quota windows"
 
 
 def test_parsed_snapshot_examples_lock_every_presentation_string():
@@ -381,20 +362,23 @@ def test_parsed_examples_lock_all_non_snapshot_fallbacks_and_mappings():
     for example in _current_examples():
         for provider in example["providers"]:
             outcome = provider["outcome"]
+            name = "Codex" if provider["provider"] == "codex" else "OpenCode Go"
+            detail = ""
             if outcome == "undetected":
-                expected = "Quota not detected"
+                expected = "Provider not detected"
             elif outcome == "not_run":
-                expected = "Quota not run"
-                reason_text = not_run_text.get(provider["not_run_reason"])
-                if reason_text is None:
-                    continue
-                assert provider["tooltip_text"] == f"{expected}: {reason_text}"
+                expected = "Quota unavailable"
+                reason_text = {**not_run_text, "guard_wait_timeout": "guard wait timeout", "deadline_exhausted": "deadline exhausted"}[provider["not_run_reason"]]
+                detail = f": {reason_text}"
             else:
                 if outcome != "execution_error":
                     continue
-                expected = "Quota error"
-            assert provider["compact_text"] == expected
+                code = provider["execution_error"]["code"]
+                expected = "Quota unavailable · " + ("timeout" if code == "provider_timeout" else "request failed")
+                detail = f": {code}"
+            assert provider["compact_text"] == "—"
             assert provider["alternate_text"] == expected
+            assert provider["tooltip_text"] == f"{name}\n{expected}{detail}"
 
 
 def test_parsed_examples_lock_canonical_window_order_and_nullable_identities():
@@ -404,11 +388,21 @@ def test_parsed_examples_lock_canonical_window_order_and_nullable_identities():
                 continue
             windows = provider["windows"]
             assert windows == sorted(windows, key=_window_sort_key)
-            tooltip_windows = [line for line in provider["tooltip_text"].splitlines() if line.startswith("Window: ")]
+            tooltip_windows = [line for line in provider["tooltip_text"].splitlines()[3:] if not line.startswith("  Renews:") and line != "No quota windows"]
             assert len(tooltip_windows) == len(windows)
-            for window, line in zip(windows, tooltip_windows, strict=True):
-                assert f"plan_id={json.dumps(window['plan_id'], ensure_ascii=False)}" in line
-                assert f"source_id={json.dumps(window['source_id'], ensure_ascii=False)}" in line
+            expected = {
+                "codex": [("commercial_quota", "account", "five_hour", "plus", "codex-app-server-v2")],
+                "opencode_go": [
+                    ("commercial_quota", "account", "five_hour", None, None),
+                    ("commercial_quota", "account", "monthly", None, None),
+                    ("commercial_quota", "account", "weekly", None, "opencode-go-api"),
+                ],
+            }[provider["provider"]]
+            if not windows:
+                expected = []
+            elif provider["provider"] == "codex" and provider["public_state"] == "partial":
+                expected += [("commercial_quota", "account", "weekly", "plus", "codex-app-server-v2")]
+            assert [_window_identity(window) for window in windows] == expected
 
 
 def test_tied_parsed_windows_choose_the_canonical_sort_winner():
@@ -435,8 +429,8 @@ def test_fallback_mappings_and_exclusions_are_normative():
     text = SPEC.read_text(encoding="utf-8")
 
     for fragment in (
-        "`not_run` uses `Quota not run` in compact/alternate",
-        "`execution_error` uses\n`Quota error` in the trio and tooltip",
+        "Non-snapshot compact is always `—`",
+        "`Quota unavailable · request failed`",
         "`disabled -> provider disabled`",
         "`invalid_configuration -> configuration\ninvalid`",
         "`invocation_invalid -> invocation invalid`",
@@ -446,20 +440,18 @@ def test_fallback_mappings_and_exclusions_are_normative():
         "`unknown_provider_state -> unknown_provider_state`",
         "the aggregate remains `provider_failed`",
         "Missing evidence remains missing: no\nsynthetic value, zero, reset, identity, or raw error",
-        "Partial snapshots preserve `state=partial`; stale snapshots preserve",
-        "These presentation rules change no\nexisting current fields, schema, model, object-key order",
+        "Compact never adds state words or symbols",
+        "provider fields, model, state enums, source validation, TTL and freshness policy",
         "They add no new synthetic windows, percentages, resets, plans, periods,\nseverity, CSS/classes",
     ):
         assert fragment in text
 
     examples = _current_examples()
     assert examples
-    assert examples[2]["providers"][0]["tooltip_text"] == "Quota not detected"
-    assert examples[5]["providers"][0]["tooltip_text"] == "Quota not run: provider disabled"
-    assert examples[6]["providers"][0]["tooltip_text"] == "Quota not run: configuration invalid"
-    assert examples[7]["providers"][0]["tooltip_text"] == "Quota not run: invocation invalid"
-    assert examples[9]["providers"][0]["tooltip_text"] == "Quota not run: document aborted"
-    assert examples[4]["providers"][0]["tooltip_text"] == "Quota error"
+    assert examples[2]["providers"][0]["tooltip_text"] == "Codex\nProvider not detected"
+    for index, detail in ((5, "provider disabled"), (6, "configuration invalid"), (7, "invocation invalid"), (9, "document aborted")):
+        assert examples[index]["providers"][0]["tooltip_text"] == f"Codex\nQuota unavailable: {detail}"
+    assert examples[4]["providers"][0]["tooltip_text"] == "Codex\nQuota unavailable · timeout: provider_timeout"
 
 
 def test_schema_and_spec_declare_provider_bound_api_sources():
@@ -531,10 +523,10 @@ def test_tooltip_identity_escaping_rule_is_normative():
     text = SPEC.read_text(encoding="utf-8")
 
     for fragment in (
-        "Known periods use `5-hour`, `Monthly`, and `Weekly`",
+        "Known periods use `5h`, `Monthly`, and `Weekly`",
         "The canonical `reset_at` value remains UTC in JSON. For tooltip presentation",
         "Internal\nidentities such as kind, scope, plan ID, unit, and source ID",
-        "windows remain `Quota unavailable` rather than becoming zero",
+        "windows remain `Unavailable` rather than becoming zero",
     ):
         assert fragment in text
 

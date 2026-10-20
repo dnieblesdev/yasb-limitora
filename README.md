@@ -36,9 +36,9 @@ field was removed, and private consumers are not ruled in or out. Configuration
 resolves explicit `--config`/`-c`, then `YASB_LIMITORA_CONFIG`, then
 `%LOCALAPPDATA%\yasb-limitora\config.json`.
 
-The root order is `execution_state`, `execution_error`, `providers`. Public
+The root order is `execution_state`, `execution_error`, `general`, `providers`. Public
 provider outcomes, streams, exit codes, shared deadline, guard, process, and
-cleanup behavior are unchanged. Schema-3 cache validation cold-refreshes stale
+cleanup behavior are unchanged. Schema-4 cache validation cold-refreshes stale
 entries rather than migrating them. `quota-v2-cache.json`,
 `Global\\yasb-limitora-v2-guard-*`, `codex-app-server-v2`, and `opencode-go-api`
 remain exact operational identity literals.

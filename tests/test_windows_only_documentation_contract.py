@@ -79,7 +79,7 @@ def test_scoped_docs_declare_one_bounded_windows_only_contract():
 
     for phrase in (
         "sole current JSON contract", "deliberate pre-stable", "selector-free",
-        "schema-3", "cold refresh", "execution_state", "provider outcome",
+        "schema-4", "cold refresh", "execution_state", "provider outcome",
         "exactly one UTF-8 JSON document", "exit code `0`", "exit code `1`",
         "exit code `2`", "shared deadline", "cleanup",
         "Global\\\\yasb-limitora-v2-guard-", "quota-v2-cache.json",
@@ -154,7 +154,10 @@ def test_opencode_operator_contract_documents_the_copy_ready_flow():
         '"opencode_go": {', '"enabled": true', "selector-free",
         "register it in a YASB bar",
         "providers[1]"))
-    assert "default `limitora_r9` entry is Codex-only" in example_readme
+    assert "default `limitora_r9` entry reads `general`" in example_readme_normalized
+    assert 'label: "{data[general][compact_text]}"' in yaml
+    assert 'label_alt: "{data[general][alternate_text]}"' in yaml
+    assert 'tooltip_label: "{data[general][tooltip_text]}"' in yaml
     assert "sole current JSON contract" in example_readme_normalized
     assert "--output-version" not in example_readme and "--output-version" not in yaml
     assert yaml.count('run_cmd: "yasb-limitora"') == 2 and "providers][1]" in yaml

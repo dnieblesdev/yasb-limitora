@@ -35,9 +35,9 @@ from .model import (
 )
 from .path import DeadlineError, FileError, canonicalize_path, path_identity
 from .projection import _presentation as _project_presentation
-from .projection import _window_sort_key
+from .projection import _general, _window_sort_key
 
-CACHE_SCHEMA = 3
+CACHE_SCHEMA = 4
 CACHE_TTL_SECONDS = 180
 MAX_CACHE_BYTES = 131_072
 MAX_CACHE_DOCUMENT_BYTES = 65_536
@@ -222,7 +222,7 @@ def _canonical_json(value: object) -> bytes:
 
 
 def _public_document_json(document: Mapping[str, object]) -> bytes:
-    root = {key: document[key] for key in ("execution_state", "execution_error", "providers")}
+    root = {key: document[key] for key in ("execution_state", "execution_error", "general", "providers")}
     return (json.dumps(root, ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
 
 
@@ -387,6 +387,7 @@ def _presentation_candidate(
                 freshness,
                 not_run_reason,
                 tooltip_limit,
+                execution_error=cast(dict[str, str] | None, item["execution_error"]),
             )
         )
     canonical_providers = []
@@ -397,6 +398,7 @@ def _presentation_candidate(
     canonical_document = {
         "execution_state": root["execution_state"],
         "execution_error": root["execution_error"],
+        "general": _general(canonical_providers),
         "providers": canonical_providers,
     }
     return expected_items, len(_public_document_json(canonical_document))
@@ -422,13 +424,19 @@ def _presentation_matches(
     if best is None:
         raise CacheValidationError("cache document exceeds presentation budget")
     expected_items, _tooltip_limit = best
+    canonical_providers = [dict(item, **expected) for (item, _windows), expected in zip(providers, expected_items)]
+    if root["general"] != _general(canonical_providers):
+        raise CacheValidationError("inconsistent cache general presentation")
     for (item, _windows), expected in zip(providers, expected_items):
         if any(item[field] != expected[field] for field in _PRESENTATION_FIELDS):
             raise CacheValidationError("inconsistent cache presentation")
 
 
 def _validate_document(document: object) -> dict[str, object]:
-    root = _safe_mapping(document, ("execution_state", "execution_error", "providers"))
+    root = _safe_mapping(document, ("execution_state", "execution_error", "general", "providers"))
+    general = _safe_mapping(root["general"], ("compact_text", "alternate_text", "tooltip_text"))
+    for field, maximum in (("compact_text", 263), ("alternate_text", 265), ("tooltip_text", 8194)):
+        _safe_text(general[field], maximum, multiline=field == "tooltip_text")
     if root["execution_state"] not in {"complete", "partial", "not_run", "execution_error"}:
         raise CacheValidationError("invalid cache document")
     providers = root["providers"]
