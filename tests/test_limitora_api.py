@@ -200,15 +200,53 @@ def _invalid_credit(field, bad):
     return detail
 
 
-@pytest.mark.parametrize(("count", "details"), [
-    (1, (_invalid_credit("status", "available"),)),
-    (1, (_invalid_credit("expires_at", datetime(2026, 8, 2)),)),
-    (1, (_invalid_credit("expires_at", "secret"),)),
-    (2, (_invalid_credit("status", "available"), credit())),
-    (0, (_invalid_credit("status", "available"),)),
-], ids=["status_string", "naive_expiry", "expiry_text", "mixed_details", "zero_count"])
-def test_invalid_credit_details_retain_valid_count_without_expiry(count, details):
-    view = read(RateLimitResetCreditsSummary(count, details))
+# Malformed detail factories. A count is only preserved when a detail is genuinely
+# invalid, not when the adapter aborts the whole detail scan on the first bad entry.
+MALFORMED_DETAILS = {
+    "object": lambda: object(),
+    "status": lambda: _invalid_credit("status", "available"),
+    "naive": lambda: _invalid_credit("expires_at", datetime(2026, 8, 2)),
+    "text": lambda: _invalid_credit("expires_at", "secret"),
+}
+
+
+def _details(*kinds):
+    """Build the named malformed details, or a valid credit, in order."""
+    return tuple(credit() if kind == "valid" else MALFORMED_DETAILS[kind]() for kind in kinds)
+
+
+def _reset_summary(count, credits, bypass=False):
+    """Build the public summary; only a non-credit detail bypasses the constructor."""
+    return _bypassed_summary(available_count=count, credits=credits) if bypass else RateLimitResetCreditsSummary(count, credits)
+
+
+@pytest.mark.parametrize(("count", "details", "bypass"), [
+    (1, (_invalid_credit("status", "available"),), False),
+    (1, (_invalid_credit("expires_at", datetime(2026, 8, 2)),), False),
+    (1, (_invalid_credit("expires_at", "secret"),), False),
+    (2, (_invalid_credit("status", "available"), credit()), False),
+    (0, (_invalid_credit("status", "available"),), False),
+    (1, _details("status"), False),
+    (1, _details("object", "valid"), True),
+    (1, _details("status", "valid"), False),
+    (1, _details("valid", "object"), True),
+    (1, _details("valid", "status"), False),
+    (1, _details("valid", "naive"), False),
+    (1, _details("valid", "text"), False),
+    (2, _details("object", "valid", "valid"), True),
+    (2, _details("valid", "valid", "status"), False),
+    (2, _details("valid", "naive", "valid"), False),
+    (2, _details("valid", "valid", "text"), False),
+    (2, _details("status", "valid", "valid"), False),
+], ids=[
+    "status_string", "naive_expiry", "expiry_text", "mixed_details", "zero_count",
+    "bad_status_only", "count1_object_before_valid", "count1_status_before_valid",
+    "count1_object_after_valid", "count1_status_after_valid", "count1_naive_after_valid",
+    "count1_text_after_valid", "count2_object_before_two_valid", "count2_status_after_two_valid",
+    "count2_naive_between_two_valid", "count2_text_after_two_valid", "count2_status_before_two_valid",
+])
+def test_invalid_credit_details_retain_valid_count_without_expiry(count, details, bypass):
+    view = read(_reset_summary(count, details, bypass))
     item = assert_primary_snapshot_preserved(view, EXPECTED_TOOLTIP + f"\nQuota resets available: {count}")
     pair = view.snapshot.rate_limit_reset_credits
     assert pair.available_count == count
@@ -272,3 +310,45 @@ def test_adapter_clock_failure_is_not_silently_ignored():
     assert view.outcome.value == "execution_error"
     assert view.error.code is SafeErrorCode.INVALID_PROVIDER_DATA
     assert "private" not in repr(view)
+
+
+def unorderable_clock(error=TypeError):
+    """Return a sampled aware clock whose ordering against an expiry raises.
+
+    `datetime` subclasses survive `astimezone`, so the adapter holds this exact
+    clock instance when it compares a candidate expiry against it.
+    """
+
+    class Clock(datetime):
+        def __lt__(self, other):
+            raise error("clock ordering unavailable")
+
+        __gt__ = __lt__
+
+    return Clock(2026, 8, 1, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize("error", [TypeError, ValueError], ids=["type_error", "value_error"])
+def test_unusable_comparison_clock_stays_a_sanitized_error(error):
+    """A valid expiry compared against an unusable clock is not silently accepted.
+
+    The clock is sampled once and UTC-normalized before reset evaluation, so a
+    subclass whose ordering raises cannot be reported as a valid count without
+    expiry; it must reach the sanitized `invalid_provider_data` boundary.
+    """
+    clock = unorderable_clock(error)
+    view = read(RateLimitResetCreditsSummary(1, (credit(),)), clock)
+
+    assert type(clock.astimezone(timezone.utc)) is type(clock)
+    assert view.snapshot is None
+    assert view.outcome.value == "execution_error"
+    assert view.error.code is SafeErrorCode.INVALID_PROVIDER_DATA
+    assert "clock ordering unavailable" not in repr(view)
+    assert "private" not in repr(view)
+
+    item = document(view)["providers"][0]
+    assert item["outcome"] == "execution_error"
+    assert item["rate_limit_reset_credits"] is None
+    assert (item["compact_text"], item["alternate_text"]) == ("\u2014", "Quota unavailable \u00b7 request failed")
+    assert item["tooltip_text"] == "Codex\nQuota unavailable \u00b7 request failed: invalid_provider_data"
+    assert "clock ordering unavailable" not in str(document(view))

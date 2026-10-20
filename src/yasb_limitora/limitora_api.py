@@ -185,6 +185,10 @@ def _reset_expiry(details: object, count: int, now: datetime) -> datetime | None
     Malformed details never assert an expiry: a non-tuple container, a detail that
     is not a `RateLimitResetCredit` instance, a non-enum status, or an untrusted
     expiry keeps the valid count only. The credit `reset_type` is not validated.
+
+    Only optional detail validation is contained. Ordering a valid expiry against the
+    sampled clock is not: an unusable clock must reach the sanitized
+    `invalid_provider_data` boundary instead of being reported as an absent expiry.
     """
     if details is not None and not isinstance(details, tuple):
         return None
@@ -194,16 +198,16 @@ def _reset_expiry(details: object, count: int, now: datetime) -> datetime | None
         if not isinstance(credit, RateLimitResetCredit) or not isinstance(credit.status, RateLimitResetCreditStatus):
             return None
         expiry = credit.expires_at
-        try:
-            if expiry is not None:
+        if expiry is not None:
+            try:
                 _aware(expiry, "invalid reset expiry")
-            available = credit.status is RateLimitResetCreditStatus.AVAILABLE
-            if available and expiry is None:
-                unknown_date = True
-            elif available and expiry > now:
-                candidates.append(expiry)
-        except (TypeError, ValueError):
-            return None
+            except (TypeError, ValueError):
+                return None
+        available = credit.status is RateLimitResetCreditStatus.AVAILABLE
+        if available and expiry is None:
+            unknown_date = True
+        elif available and expiry > now:
+            candidates.append(expiry)
     if count and len(candidates) == count and not unknown_date:
         return min(candidates)
     return None

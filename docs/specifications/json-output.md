@@ -178,11 +178,19 @@ with malformed details keeps that exact count with `next_expires_at` `null`.
 The malformed detail shapes covered by tests are: a non-tuple detail container,
 a detail that is not a `RateLimitResetCredit` instance, a `status` that is not a
 public `RateLimitResetCreditStatus` member, and an `expires_at` that is not an
-aware `datetime` or cannot be ordered against the sampled clock. The adapter
-never synthesizes a count, never reports `0` for untrusted evidence, and never
-derives a minimum from incomplete or untrusted dates. Containment is limited to
-`TypeError` and `ValueError` raised while evaluating reset details; it is not a
-general exception boundary.
+aware `datetime`. The adapter never synthesizes a count, never reports `0` for
+untrusted evidence, and never derives a minimum from incomplete or untrusted
+dates.
+
+The containment boundary is exact. Only the optional detail validation above is
+degraded: a container, class, status-enum, or aware-`datetime` failure raises
+`TypeError` or `ValueError` inside that validation and keeps the count with a
+`null` expiry. Ordering a validated expiry against the sampled clock is *not*
+contained. A comparison failure raised by an unusual public expiry or clock
+value propagates to the sanitized `invalid_provider_data` error for the whole
+read, because it would otherwise be reported as an ordinary absent expiry and
+hide an unusable read. This is not a general exception boundary, and no other
+exception type is absorbed.
 
 This degradation is limited to optional reset metadata read from the trusted
 public API adapter. The unchanged primary policies remain: a snapshot that is
@@ -195,15 +203,20 @@ state value is also a public contract value, so no state value downgrades
 silently. A root or window source that is outside the provider allowlist becomes
 `null`, and that window is projected as unavailable with null quantities and
 reset without failing the snapshot. An unusable adapter clock remains an error
-rather than silently dropping reset evidence. Strict malformed-wire rejection in
-helper IPC and in the parsed cache is unchanged; neither boundary may accept
-invalid wire data because of this adapter rule.
+rather than silently dropping reset evidence. The clock is sampled once per
+snapshot, must be timezone-aware, and is converted to UTC before reset
+evaluation; a clock or expiry whose ordering raises therefore reaches
+`invalid_provider_data` instead of a `null` expiry. Strict malformed-wire
+rejection in helper IPC and in the parsed cache is unchanged; neither boundary
+may accept invalid wire data because of this adapter rule.
 
 It samples its UTC clock once per snapshot, independently of `fetched_at`.
 Only explicitly AVAILABLE credits with known expiry strictly after that clock
 are candidates. Redeemed, redeeming, unknown, expired, and at-now credits do not
 qualify. The minimum future expiry is reported only when the candidate count
-matches the summary and every AVAILABLE detail has a known date. Missing or
+matches the summary and every AVAILABLE detail has a known date; malformed
+details interleaved with enough valid future credits still yield a `null`
+expiry rather than a partial minimum. Missing or
 incomplete details retain the valid count with a null expiry. Zero always has
 null expiry. A truncated list cannot establish a global earliest expiry.
 
