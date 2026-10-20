@@ -219,7 +219,7 @@ Object tree cleanup.
 OpenCode Go remains an independent direct provider call with its own configured
 timeout. A Codex timeout does not erase an OpenCode Go result, and vice versa.
 
-The public cache uses schema-4 validation. A previous-schema entry is stale and is
+The public cache uses schema-5 validation. A previous-schema entry is stale and is
 cold-refreshed rather than migrated or served. Its filename remains
 `quota-v2-cache.json`; guard identities remain exactly
 `Global\\yasb-limitora-v2-guard-*`, and provider source IDs remain exactly

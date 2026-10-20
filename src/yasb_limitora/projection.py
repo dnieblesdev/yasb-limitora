@@ -11,6 +11,7 @@ from .limitora_api import OpenCodeFailureEvidence
 from .model import (
     PROVIDER_ORDER,
     DocumentView,
+    RateLimitResetCreditsView,
     ProviderKey,
     ProviderOutcome,
     ProviderSnapshotView,
@@ -320,6 +321,7 @@ def _presentation(
     tooltip_limit: int = _MAX_TOOLTIP_SCALARS,
     timestamp_formatter: Callable[[datetime], str] = _format_local_datetime,
     execution_error: dict[str, str] | None = None,
+    rate_limit_reset_credits: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if outcome != ProviderOutcome.SNAPSHOT.value:
         text = "Provider not detected" if outcome == "undetected" else "Quota unavailable"
@@ -373,6 +375,11 @@ def _presentation(
             lines.append(f"  Renews: {reset}")
     if not ordered_windows:
         lines.append("No quota windows")
+    if rate_limit_reset_credits is not None:
+        lines.append(f"Quota resets available: {rate_limit_reset_credits['available_count']}")
+        expiry = _tooltip_timestamp(rate_limit_reset_credits["next_expires_at"], timestamp_formatter)
+        if expiry is not None:
+            lines.append(f"Next reset expiry: {expiry}")
     tooltip = "\n".join(lines[:3])
     for line in lines[3:]:
         candidate = line if not tooltip else f"{tooltip}\n{line}"
@@ -380,6 +387,16 @@ def _presentation(
             break
         tooltip = candidate
     return {"most_depleted_window": depleted, "compact_text": compact, "alternate_text": alternate, "tooltip_text": tooltip}
+def _reset_credits(value: object) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, RateLimitResetCreditsView):
+        raise ValueError("invalid current reset credits")
+    value.__post_init__()
+    return {"available_count": value.available_count,
+            "next_expires_at": None if value.next_expires_at is None else _timestamp(value.next_expires_at)}
+
+
 def _provider(
     view: ProviderView,
     enabled: frozenset[ProviderKey],
@@ -411,6 +428,7 @@ def _provider(
         "data_at": None,
         "source_id": None,
         "windows": [],
+        "rate_limit_reset_credits": None,
         "execution_error": None,
         "not_run_reason": None,
     }
@@ -425,6 +443,7 @@ def _provider(
             fetched_at=_timestamp(snapshot.fetched_at),
             data_at=_timestamp(snapshot.data_at),
             source_id=_source(snapshot.source_id, provider),
+            rate_limit_reset_credits=_reset_credits(snapshot.rate_limit_reset_credits),
         )
         windows = (
             _opencode_windows(snapshot)
@@ -456,6 +475,7 @@ def _provider(
             tooltip_limit,
             timestamp_formatter,
             item["execution_error"],
+            item["rate_limit_reset_credits"],
         )
     )
     return item, outcome.value
@@ -582,6 +602,7 @@ def project_failure_bytes(code: str | SafeErrorCode) -> bytes:
             "data_at": None,
             "source_id": None,
             "windows": [],
+            "rate_limit_reset_credits": None,
             "execution_error": None,
             "not_run_reason": reason,
         }

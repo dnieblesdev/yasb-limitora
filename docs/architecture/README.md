@@ -54,8 +54,10 @@ does not carry per-window commercial provenance. Limitora #55's per-window
 rate-limit signal is released upstream in v0.3.0, but it is upstream context
 only here and is not consumed until yasb-limitora #133.
 
-`usage` and `rate_limit_reset_credits` are excluded from 0.2. This is an
-intentional quota scope, not a claim that it is the complete Limitora snapshot.
+`usage` and raw reset-credit details remain excluded. The public reset summary
+is reduced once at the adapter to count plus provable nearest future expiry;
+only this immutable observation crosses process, JSON, and cache boundaries.
+This is an intentional quota scope, not the complete Limitora snapshot.
 The current output is the only supported consumer contract.
 
 ## Execution boundary
@@ -79,7 +81,7 @@ producer cannot overwrite a newer result. Coordination failures never start an
 uncoordinated producer or rewrite a valid provider result.
 
 The runtime also uses a shared quota cache below the default local Limitora
-directory. It stores only a schema-4 envelope containing `cached_at`, a
+directory. It stores only a schema-5 envelope containing `cached_at`, a
 digest-only effective account/config/path fingerprint, and the already
 projected public JSON document. Cache reads and writes are atomic, size- and
 deadline-bounded, canonical, and fail closed. A previous-schema entry is stale

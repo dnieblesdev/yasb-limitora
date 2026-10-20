@@ -86,7 +86,7 @@ def mixed_not_run_public_bytes(reason):
         )
     )
 
-def snapshot_public_bytes(scope="account"):
+def snapshot_public_bytes(scope="account", resets=None):
     now = datetime(2026, 8, 15, tzinfo=timezone.utc)
     window = QuotaWindowView(
         QuotaWindowKind.COMMERCIAL_QUOTA,
@@ -107,6 +107,7 @@ def snapshot_public_bytes(scope="account"):
         now,
         "codex-app-server-v2",
         (window,),
+        resets,
     )
     return project_bytes(
         ProjectionInput(
@@ -125,6 +126,41 @@ def make_cache(tmp_path, *, now=None, runner=r"C:\\codex.exe", key="private-key"
     value = LocalConfig.from_mapping({"codex": {"enabled": True, "runner": runner}, "opencode_go": {}})
     environment = {"LOCALAPPDATA": str(tmp_path), "LIMITORA_OPENCODE_API_KEY": key}
     return RefreshCoordinator(value, environment, target, now=now), target
+
+
+@pytest.mark.parametrize("count", [0, 2])
+def test_reset_observation_survives_cache_after_expiry(tmp_path, count):
+    from yasb_limitora.model import RateLimitResetCreditsView
+    now = datetime(2026, 8, 15, tzinfo=timezone.utc)
+    expiry = now + timedelta(seconds=1) if count else None
+    pair = RateLimitResetCreditsView(count, expiry)
+    payload = snapshot_public_bytes(resets=pair)
+    clock = [now]
+    cache, _ = make_cache(tmp_path, now=lambda: clock[0])
+    assert cache.publish(payload, context())
+    clock[0] += timedelta(seconds=2)
+    assert cache.load(context()) == payload
+    item = json.loads(payload)["providers"][0]
+    assert item["rate_limit_reset_credits"]["available_count"] == count
+    assert item["rate_limit_reset_credits"]["next_expires_at"] == (
+        None if expiry is None else expiry.strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
+
+
+@pytest.mark.parametrize("bad", [
+    {"available_count": True, "next_expires_at": None},
+    {"available_count": -1, "next_expires_at": None},
+    {"available_count": 0, "next_expires_at": "2026-08-16T00:00:00.000000Z"},
+    {"available_count": 2, "next_expires_at": "2026-08-16T00:00:00+00:00"},
+    {"available_count": 2, "next_expires_at": None, "credits": []},
+])
+def test_invalid_reset_cache_publish_is_rejected_without_replacing_entry(tmp_path, bad):
+    cache, _ = make_cache(tmp_path)
+    original = snapshot_public_bytes()
+    assert cache.publish(original, context())
+    changed = json.loads(original)
+    changed["providers"][0]["rate_limit_reset_credits"] = bad
+    assert not cache.publish((json.dumps(changed, separators=(",", ":")) + "\n").encode(), context())
+    assert cache.load(context()) == original
 
 
 def test_refresh_coordinator_construction_is_lookup_free(monkeypatch, tmp_path):
@@ -184,7 +220,7 @@ def test_schema_two_cache_is_a_cold_miss_and_refreshes_once(tmp_path):
 
     assert result.produced and calls == [True]
     assert cache.load(context()) == document
-    assert json.loads(Path(cache.path).read_text())["schema"] == 4
+    assert json.loads(Path(cache.path).read_text())["schema"] == 5
 
 
 def test_cache_rejects_current_payload_with_inserted_root_version(tmp_path):
@@ -331,7 +367,7 @@ def test_distinct_config_paths_use_distinct_cache_files_and_create_directory(tmp
     "mutate",
     (
         lambda raw: raw[:-1] + b" ",
-        lambda raw: raw.replace(b'"schema":4', b'"schema":4,"schema":4', 1),
+        lambda raw: raw.replace(b'"schema":5', b'"schema":5,"schema":5', 1),
         lambda raw: b"{" + b"x" * 131_073,
         lambda raw: raw.replace(b'"execution_error":null', b'"execution_error":{"code":"provider_failed","phase":"provider"}', 1),
         lambda raw: raw.replace(b'"alternate_text":"Provider not detected"', b'"alternate_text":"C:\\\\secret\\\\token"', 1),

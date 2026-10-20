@@ -21,6 +21,7 @@ PROVIDER_FIELD_ORDER = (
     "data_at",
     "source_id",
     "windows",
+    "rate_limit_reset_credits",
     "execution_error",
     "not_run_reason",
     "most_depleted_window",
@@ -94,6 +95,11 @@ def _expected_snapshot_presentation(provider):
             lines.append(f"  Renews: {window['reset_at'][:19].replace('T', ' ')}")
     if not provider["windows"]:
         lines.append("No quota windows")
+    resets = provider["rate_limit_reset_credits"]
+    if resets is not None:
+        lines.append(f"Quota resets available: {resets['available_count']}")
+        if resets["next_expires_at"] is not None:
+            lines.append(f"Next reset expiry: {resets['next_expires_at'][:19].replace('T', ' ')}")
     return compact, alternate, "\n".join(lines)
 
 
@@ -152,7 +158,7 @@ def test_current_contract_metadata_and_root_shape_are_normative():
     assert "exactly four root fields" in text
     assert "There is no public root `version` field." in text
     assert "The current projection emits only this four-field root" in text
-    assert "schema-4" in text
+    assert "schema-5" in text
     assert "cold-refreshed" in text
     assert "The companion structural support\nfile is" in text
     assert "[`json-output.schema.json`](json-output.schema.json)" in text
@@ -322,7 +328,7 @@ def test_examples_use_the_exact_snapshot_presentation_grammar():
     codex = examples[0]["providers"][0]
     assert codex["compact_text"] == "75%"
     assert codex["alternate_text"] == "5h: 75% left"
-    assert codex["tooltip_text"] == "Codex\nState: Available · Fresh\nQuota remaining:\n5h: 75%\n  Renews: 2026-08-01 16:00:00"
+    assert codex["tooltip_text"] == "Codex\nState: Available · Fresh\nQuota remaining:\n5h: 75%\n  Renews: 2026-08-01 16:00:00\nQuota resets available: 2\nNext reset expiry: 2026-08-03 00:00:00"
 
     stale = examples[1]["providers"][0]
     assert stale["compact_text"] == "10%"
@@ -388,7 +394,7 @@ def test_parsed_examples_lock_canonical_window_order_and_nullable_identities():
                 continue
             windows = provider["windows"]
             assert windows == sorted(windows, key=_window_sort_key)
-            tooltip_windows = [line for line in provider["tooltip_text"].splitlines()[3:] if not line.startswith("  Renews:") and line != "No quota windows"]
+            tooltip_windows = [line for line in provider["tooltip_text"].splitlines()[3:] if not line.startswith(("  Renews:", "Quota resets available:", "Next reset expiry:")) and line != "No quota windows"]
             assert len(tooltip_windows) == len(windows)
             expected = {
                 "codex": [("commercial_quota", "account", "five_hour", "plus", "codex-app-server-v2")],

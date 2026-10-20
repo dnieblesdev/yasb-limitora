@@ -6,6 +6,24 @@ it invokes `yasb-limitora` without selector negotiation and adds no widget
 runtime, provider logic, quota calculations, or CSS state machine. It is not a
 verified guide to the installer's no-PATH integration route.
 
+Reset summaries, when present, add `Quota resets available: N` and a determinate
+`Next reset expiry: <local timestamp>` after the quota windows. The general
+tooltip reuses those identical sections. `fixtures/complete.json` demonstrates
+the derived count/expiry pair; other fixtures demonstrate absent summaries as
+null. No raw credit details are exposed. Cached dates describe the observation,
+not a live countdown. Real resets and YASB rendering were not verified for this
+extension; the fixtures are synthetic evidence only.
+
+Malformed reset evidence never hides the quota data. If the summary or its count
+cannot be trusted, that provider reports `rate_limit_reset_credits` as `null`
+and keeps its state, freshness, and windows; if only the credit details are
+malformed, the exact count is kept with a `null` expiry and no reset line beyond
+`Quota resets available: N`. Invalid provider identity, a missing provider
+source, and invalid quota windows still produce the sanitized
+`invalid_provider_data` error instead, while a source outside the provider
+allowlist is reported as `null` and can leave that window's quantities
+untrusted.
+
 ## Quick path
 
 1. For checkout/development use, install the unpublished package from the

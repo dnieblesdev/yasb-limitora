@@ -2,12 +2,15 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
 from unicodedata import normalize
 
 from limitora import (
+    RateLimitResetCredit,
+    RateLimitResetCreditsSummary,
+    RateLimitResetCreditStatus,
     AuthorizationPolicy,
     CodexJsonlConfig,
     CompositionError,
@@ -37,6 +40,8 @@ from limitora.models import (
 )
 
 from .model import (
+    RateLimitResetCreditsView,
+    _aware,
     ProviderKey,
     ProviderOutcome,
     ProviderSnapshotView,
@@ -174,7 +179,57 @@ def _window(window: object, provider: ProviderKey = ProviderKey.CODEX) -> QuotaW
     )
 
 
-def _snapshot(provider: ProviderKey, result: StatusSnapshotResult) -> tuple[PublicProviderState, ProviderSnapshotView]:
+def _reset_expiry(details: object, count: int, now: datetime) -> datetime | None:
+    """Return the determinate minimum future expiry, or `None` when details cannot establish it.
+
+    Malformed details never assert an expiry: a non-tuple container, a detail that
+    is not a `RateLimitResetCredit` instance, a non-enum status, or an untrusted
+    expiry keeps the valid count only. The credit `reset_type` is not validated.
+
+    Only optional detail validation is contained. Ordering a valid expiry against the
+    sampled clock is not: an unusable clock must reach the sanitized
+    `invalid_provider_data` boundary instead of being reported as an absent expiry.
+    """
+    if details is not None and not isinstance(details, tuple):
+        return None
+    candidates: list[datetime] = []
+    unknown_date = False
+    for credit in details or ():
+        if not isinstance(credit, RateLimitResetCredit) or not isinstance(credit.status, RateLimitResetCreditStatus):
+            return None
+        expiry = credit.expires_at
+        if expiry is not None:
+            try:
+                _aware(expiry, "invalid reset expiry")
+            except (TypeError, ValueError):
+                return None
+        available = credit.status is RateLimitResetCreditStatus.AVAILABLE
+        if available and expiry is None:
+            unknown_date = True
+        elif available and expiry > now:
+            candidates.append(expiry)
+    if count and len(candidates) == count and not unknown_date:
+        return min(candidates)
+    return None
+
+
+def _reset_credits(summary: object, now: datetime) -> RateLimitResetCreditsView | None:
+    """Map optional public reset evidence without discarding the primary quota snapshot.
+
+    Reset credits are secondary evidence at this public adapter boundary: an absent,
+    mistyped, or invalid summary or count omits the pair, and a valid count with
+    malformed details keeps the count without an asserted expiry. Nothing is
+    synthesized, and no raw credit title, description, or identity is retained.
+    """
+    if not isinstance(summary, RateLimitResetCreditsSummary):
+        return None
+    count = summary.available_count
+    if type(count) is not int or count < 0:
+        return None
+    return RateLimitResetCreditsView(count, _reset_expiry(summary.credits, count, now))
+
+
+def _snapshot(provider: ProviderKey, result: StatusSnapshotResult, now: datetime) -> tuple[PublicProviderState, ProviderSnapshotView]:
     snapshot = result.snapshot
     if not isinstance(snapshot, ProviderSnapshot) or not isinstance(snapshot.provider_id, ProviderId):
         raise ValueError("invalid provider snapshot") from None
@@ -202,13 +257,15 @@ def _snapshot(provider: ProviderKey, result: StatusSnapshotResult) -> tuple[Publ
         data_at=snapshot.data_at,
         source_id=_safe_source(snapshot.source, provider),
         windows=windows,
+        rate_limit_reset_credits=_reset_credits(snapshot.rate_limit_reset_credits, now),
     )
     return public_state, view
 
 
-def _snapshot_view(provider: ProviderKey, result: StatusSnapshotResult) -> ProviderView:
+def _snapshot_view(provider: ProviderKey, result: StatusSnapshotResult, now=None) -> ProviderView:
     try:
-        _, snapshot = _snapshot(provider, result)
+        observed_now = _aware((now or (lambda: datetime.now(timezone.utc)))(), "invalid adapter clock")
+        _, snapshot = _snapshot(provider, result, observed_now.astimezone(timezone.utc))
     except _UnknownProviderState:
         return _error(provider, SafeErrorCode.UNKNOWN_PROVIDER_STATE)
     except (TypeError, ValueError):
@@ -246,7 +303,7 @@ def _failure_evidence(error: ProviderError) -> OpenCodeFailureEvidence:
     return _FAILURE_EVIDENCE.get(error.kind, OpenCodeFailureEvidence.UNAVAILABLE)
 
 
-def _read(provider: ProviderKey, client: StatusClient, evidence: list[OpenCodeFailureEvidence] | None = None) -> ProviderView:
+def _read(provider: ProviderKey, client: StatusClient, evidence: list[OpenCodeFailureEvidence] | None = None, now=None) -> ProviderView:
     try:
         result = client.read_status(_REQUEST)
     except TimeoutError:
@@ -267,14 +324,15 @@ def _read(provider: ProviderKey, client: StatusClient, evidence: list[OpenCodeFa
         return ProviderView(provider, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED)
     if not isinstance(result, StatusSnapshotResult):
         return _error(provider, SafeErrorCode.INTERNAL_ERROR)
-    return _snapshot_view(provider, result)
+    return _snapshot_view(provider, result, now)
 
 
 class CodexLimitoraAdapter:
     """Construct and read one Codex client through the released root API."""
 
-    def __init__(self, activate=activate_provider) -> None:
+    def __init__(self, activate=activate_provider, *, now=None) -> None:
         self._activate = activate
+        self._now = now
 
     def read(self, runner: Sequence[str]) -> ProviderView:
         try:
@@ -283,7 +341,7 @@ class CodexLimitoraAdapter:
             return _error(ProviderKey.CODEX, SafeErrorCode.CONFIGURATION_INVALID)
         except Exception:  # noqa: BLE001 - construction failures are redacted
             return _error(ProviderKey.CODEX, SafeErrorCode.INTERNAL_ERROR)
-        return _read(ProviderKey.CODEX, client)
+        return _read(ProviderKey.CODEX, client, now=self._now)
 
 
 def read_codex(runner: Sequence[str]) -> ProviderView:

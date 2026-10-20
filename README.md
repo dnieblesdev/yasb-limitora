@@ -12,6 +12,12 @@ calls from YASB.
 > R11. No automated YASB rendering or external YASB E2E is
 > claimed; the CLI is Windows-only.
 
+Reset-credit summaries expose only an available count and a provable nearest
+future expiry. They appear last in provider tooltips and the shared general
+tooltip; compact/alternate quota summaries are unchanged. Missing summaries are
+null, not zero. Cached expiry is an as-of-reading observation, not a countdown.
+Real reset consumption and YASB rendering were not tested for this extension.
+
 ## Runtime support boundary
 
 Every public route (`yasb-limitora` and `python -m yasb_limitora`) converges on
@@ -38,7 +44,7 @@ resolves explicit `--config`/`-c`, then `YASB_LIMITORA_CONFIG`, then
 
 The root order is `execution_state`, `execution_error`, `general`, `providers`. Public
 provider outcomes, streams, exit codes, shared deadline, guard, process, and
-cleanup behavior are unchanged. Schema-4 cache validation cold-refreshes stale
+cleanup behavior are unchanged. Schema-5 cache validation cold-refreshes stale
 entries rather than migrating them. `quota-v2-cache.json`,
 `Global\\yasb-limitora-v2-guard-*`, `codex-app-server-v2`, and `opencode-go-api`
 remain exact operational identity literals.

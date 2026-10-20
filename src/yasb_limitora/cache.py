@@ -23,6 +23,7 @@ from .config import LocalConfig
 from .deadline import DeadlineContext
 from .guard import Guard, GuardError
 from .model import (
+    RateLimitResetCreditsView,
     ProviderKey,
     ProviderSnapshotView,
     PublicProviderState,
@@ -37,7 +38,7 @@ from .path import DeadlineError, FileError, canonicalize_path, path_identity
 from .projection import _presentation as _project_presentation
 from .projection import _general, _window_sort_key
 
-CACHE_SCHEMA = 4
+CACHE_SCHEMA = 5
 CACHE_TTL_SECONDS = 180
 MAX_CACHE_BYTES = 131_072
 MAX_CACHE_DOCUMENT_BYTES = 65_536
@@ -62,6 +63,7 @@ _PROVIDER_FIELDS = (
     "data_at",
     "source_id",
     "windows",
+    "rate_limit_reset_credits",
     "execution_error",
     "not_run_reason",
     "most_depleted_window",
@@ -388,6 +390,7 @@ def _presentation_candidate(
                 not_run_reason,
                 tooltip_limit,
                 execution_error=cast(dict[str, str] | None, item["execution_error"]),
+                rate_limit_reset_credits=cast(dict[str, object] | None, item["rate_limit_reset_credits"]),
             )
         )
     canonical_providers = []
@@ -463,6 +466,19 @@ def _validate_document(document: object) -> dict[str, object]:
         if source_id not in (None, expected_source):
             raise CacheValidationError("inconsistent cache provider source")
 
+        resets = item["rate_limit_reset_credits"]
+        reset_view = None
+        if resets is not None:
+            if outcome != "snapshot":
+                raise CacheValidationError("unexpected reset credits")
+            reset_item = _safe_mapping(resets, ("available_count", "next_expires_at"))
+            try:
+                reset_view = RateLimitResetCreditsView(
+                    reset_item["available_count"],
+                    None if reset_item["next_expires_at"] is None else _parsed_timestamp(_timestamp(reset_item["next_expires_at"])),
+                )
+            except (TypeError, ValueError):
+                raise CacheValidationError("invalid cache reset credits") from None
         windows: list[dict[str, object]]
         if outcome == "snapshot":
             public_state_value = _optional_text(item["public_state"])
@@ -512,6 +528,7 @@ def _validate_document(document: object) -> dict[str, object]:
                     timestamps[2],
                     source_id,
                     tuple(model_windows),
+                    reset_view,
                 )
             except (TypeError, ValueError):
                 raise CacheValidationError("invalid cache snapshot semantics") from None

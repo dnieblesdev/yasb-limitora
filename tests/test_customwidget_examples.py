@@ -108,7 +108,7 @@ def _assert_safe_leaf(value, tooltip=False):
 def _assert_provider(provider, expected, percentage, display_state=None, tooltip_suffix=None):
     assert list(provider) == [
         "provider", "outcome", "public_state", "freshness", "status_observed_at",
-        "fetched_at", "data_at", "source_id", "windows", "execution_error",
+        "fetched_at", "data_at", "source_id", "windows", "rate_limit_reset_credits", "execution_error",
         "not_run_reason", "most_depleted_window", "compact_text", "alternate_text",
         "tooltip_text",
     ]

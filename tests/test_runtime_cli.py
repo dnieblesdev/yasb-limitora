@@ -68,6 +68,124 @@ def test_invalid_arguments_are_safe_and_exit_two(bad):
     assert "secret" not in stdout.getvalue().decode() + stderr.getvalue()
 
 
+@pytest.mark.parametrize("count", [0, 2])
+def test_cli_reset_summary_preserves_streams_and_other_provider(monkeypatch, count):
+    from datetime import timedelta
+    from tests.test_json_projection import STAMP, _snapshot, _window
+    from yasb_limitora.model import RateLimitResetCreditsView
+    codex = _snapshot(ProviderKey.CODEX, [_window("five_hour", reset=None)])
+    expiry = STAMP + timedelta(days=1) if count else None
+    object.__setattr__(codex.snapshot, "rate_limit_reset_credits", RateLimitResetCreditsView(count, expiry))
+    other = ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.UNDETECTED)
+    document = DocumentView.ordered(codex, other)
+    monkeypatch.setattr(cli, "read_config", lambda path, context: json.dumps({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {"enabled": True}}))
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", lambda: _FakeOrchestrator(document))
+    monkeypatch.setattr(cli, "RefreshCoordinator", lambda *args: None)
+    stdout, stderr = io.BytesIO(), io.StringIO()
+    assert main((), environment={"LOCALAPPDATA": r"C:\\runtime-test", "LIMITORA_OPENCODE_API_KEY": "key"}, stdout=stdout, stderr=stderr, platform_is_windows=lambda: True) == 0
+    assert stderr.getvalue() == ""
+    expected = project_bytes(ProjectionInput(document, frozenset(ProviderKey)))
+    assert stdout.getvalue() == expected
+    assert expected.endswith(b"\n") and not expected.endswith(b"\n\n") and len(expected) <= 65536
+    value = json.loads(expected)
+    assert value["providers"][0]["rate_limit_reset_credits"] == {
+        "available_count": count,
+        "next_expires_at": None if expiry is None else "2026-08-02T12:00:00.000000Z",
+    }
+    assert f"Quota resets available: {count}" in value["providers"][0]["tooltip_text"]
+    assert ("Next reset expiry:" in value["providers"][0]["tooltip_text"]) is bool(count)
+    assert value["general"]["tooltip_text"] == "\n\n".join(item["tooltip_text"] for item in value["providers"])
+    baseline = json.loads(project_bytes(ProjectionInput(DocumentView.ordered(
+        _snapshot(ProviderKey.CODEX, [_window("five_hour", reset=None)]), other), frozenset(ProviderKey))))
+    assert value["providers"][1] == baseline["providers"][1]
+    assert value["providers"][0]["compact_text"] == baseline["providers"][0]["compact_text"]
+    assert value["providers"][0]["alternate_text"] == baseline["providers"][0]["alternate_text"]
+
+
+@pytest.mark.parametrize("mutation", ("summary_type", "count_bool", "credit_status"), ids=str)
+def test_cli_keeps_valid_quota_snapshot_when_reset_evidence_is_malformed(monkeypatch, tmp_path, mutation):
+    from datetime import datetime, timezone
+    from decimal import Decimal
+    from types import SimpleNamespace
+    from limitora import (
+        Freshness, ProviderId, ProviderSnapshot, ProviderState as LimitoraState, ProviderStatus,
+        RateLimitResetCredit, RateLimitResetCreditsSummary, RateLimitResetCreditStatus,
+        RateLimitResetType, SourceMetadata, StatusSnapshotResult,
+    )
+    from limitora.models import MetricKind, Quantity, QuotaWindow, ValueAvailability, WindowKind
+    from yasb_limitora.limitora_api import CodexLimitoraAdapter
+
+    stamp = datetime(2026, 8, 1, 12, tzinfo=timezone.utc)
+
+    def quantity(value):
+        return Quantity(Decimal(value), MetricKind.COMMERCIAL_QUOTA, "percentage_points")
+
+    windows = (
+        QuotaWindow(WindowKind.COMMERCIAL_QUOTA, "account", "five_hour", "plus", ValueAvailability.KNOWN,
+                    SourceMetadata("codex-app-server-v2"), quantity("100"), quantity("25"), quantity("75"), stamp),
+        QuotaWindow(WindowKind.COMMERCIAL_QUOTA, "account", "weekly", "plus", ValueAvailability.KNOWN,
+                    SourceMetadata("codex-app-server-v2"), quantity("100"), quantity("60"), quantity("40"), stamp),
+    )
+    credit = RateLimitResetCredit(RateLimitResetType.CODEX_RATE_LIMITS, RateLimitResetCreditStatus.AVAILABLE,
+                                  stamp, stamp, "private title", "private description")
+    if mutation == "summary_type":
+        summary, expected = object(), None
+    elif mutation == "count_bool":
+        summary, expected = RateLimitResetCreditsSummary(1, None), None
+        object.__setattr__(summary, "available_count", True)
+    else:
+        summary = RateLimitResetCreditsSummary(1, (credit,))
+        object.__setattr__(credit, "status", "available")
+        expected = {"available_count": 1, "next_expires_at": None}
+    provider = ProviderId("codex")
+    snapshot = ProviderSnapshot(provider, ProviderStatus(provider, LimitoraState.AVAILABLE, stamp),
+                                stamp, stamp, SourceMetadata("codex-app-server-v2"), windows)
+    object.__setattr__(snapshot, "rate_limit_reset_credits", summary)
+    adapter = CodexLimitoraAdapter(
+        lambda _: SimpleNamespace(read_status=lambda _: StatusSnapshotResult(snapshot, Freshness.FRESH)),
+        now=lambda: stamp,
+    )
+
+    class Codex:
+        def run_with_deadline(self, runner, context):
+            return adapter.read(())
+
+    other = ProviderView(ProviderKey.OPENCODE_GO, ProviderState.UNAVAILABLE, outcome=ProviderOutcome.NOT_RUN,
+                         not_run_reason="disabled")
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"codex": {"enabled": True, "runner": r"C:\\codex.exe"}, "opencode_go": {}}), encoding="utf-8")
+    orchestrator = ExecutionOrchestrator(
+        guard_factory=cast(type[Guard], _MatrixGuard),
+        codex_executor=Codex(),
+    )
+    monkeypatch.setattr(cli, "ExecutionOrchestrator", lambda: orchestrator)
+    stdout, stderr = io.BytesIO(), io.StringIO()
+    adapted = adapter.read(())
+    assert adapted.snapshot is not None
+    expected_bytes = project_bytes(ProjectionInput(
+        DocumentView.ordered(adapted, other), frozenset({ProviderKey.CODEX})))
+
+    assert main(("--config", str(path)), environment={"LOCALAPPDATA": str(tmp_path)}, stdout=stdout,
+                stderr=stderr, platform_is_windows=lambda: True) == 0
+
+    data = stdout.getvalue()
+    value = json.loads(data)
+    item = value["providers"][0]
+    assert stderr.getvalue() == "" and data.endswith(b"\n") and not data.endswith(b"\n\n")
+    assert value["execution_state"] == "partial"
+    assert item["outcome"] == "snapshot"
+    assert item["rate_limit_reset_credits"] == expected
+    assert item["compact_text"] == "40%"
+    assert item["alternate_text"] == "Weekly: 40% left"
+    assert item["windows"][0]["remaining"] == {"value": "75", "metric": "commercial_quota", "unit": "percentage_points"}
+    assert ("Quota resets available: 1" in item["tooltip_text"]) is (expected is not None)
+    assert "Next reset expiry:" not in item["tooltip_text"]
+    assert "private" not in data.decode()
+    assert value["providers"][1] == json.loads(expected_bytes)["providers"][1]
+    assert (value["providers"][1]["outcome"], value["providers"][1]["not_run_reason"]) == ("not_run", "disabled")
+    assert data == expected_bytes
+
+
 def test_cli_general_exact_stdout_exit_and_stderr(monkeypatch):
     from tests.test_json_projection import _document, _snapshot, _window
 
