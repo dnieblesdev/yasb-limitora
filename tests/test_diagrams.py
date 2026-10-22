@@ -20,6 +20,7 @@ COMPLETE_ORDER = (
 # Registration is deliberate: a missing registered file is always an error.
 DELIVERED_PAGES = (
     'purpose.html', 'structure.html', 'data-journey.html', 'installer-transaction.html',
+    'setup-assist.html',
 )
 GROUPS = {
     'product': COMPLETE_ORDER[:3],
@@ -398,6 +399,38 @@ def test_installer_transaction_recovery_caveats_and_source_links(name):
     relocated = Path(os.path.relpath(target, ROOT)).as_posix()
     for fragment in ('L1-L45', 'L222-L448', 'L904-L952'):
         assert f'href="{relocated}#{fragment}"' in source
+
+
+@pytest.mark.parametrize('name', tuple(name for name in DELIVERED_PAGES if name == 'setup-assist.html'))
+def test_setup_assist_active_transport_consent_and_source_links(name):
+    source = read(name)
+    public_text = ' '.join(Page(source).texts)
+    for claim in (
+        'Build operations JSON in Inno', 'Set private request environment variable',
+        'Launch installed CLI with private sentinel', 'Exit 0 / 1 → Inno',
+        'This route does not read result.json.',
+        'no operations means no launch.',
+        'Configuration rollback is separate and remains guarded by lease ownership.',
+        'does not automatically reverse the committed native installation.',
+        'The separately supported nonce-directory request.json / result.json transport is not the active Inno path.',
+    ):
+        assert claim in public_text
+    for identifier in ('_YASB_SETUP_ASSIST_REQUEST', '--__yasb-limitora-setup-assist'):
+        assert f'<code>{identifier}</code>' in source.split('<script>')[0]
+    svg = ET.fromstring(re.search(r'<svg\b.*?</svg>', source, re.S)[0])
+    assert {node.attrib['data-node'] for node in svg.findall('.//*[@data-node]')} == {
+        'postcommit', 'uninstall', 'request', 'validate', 'execute', 'exit',
+    }
+    assert len(svg.findall('.//*[@marker-end]')) == 5
+    original_directory = REPOSITORY / 'docs' / 'diagrams' / 'product'
+    for original, fragments in (
+        ('../../../packaging/inno/SetupAssistant.isi', ('L1-L12', 'L198-L298')),
+        ('../../../src/yasb_limitora/setup_assist.py', ('L163-L224', 'L494-L565', 'L675-L703')),
+    ):
+        target = (original_directory / original).resolve()
+        relocated = Path(os.path.relpath(target, ROOT)).as_posix()
+        for fragment in fragments:
+            assert f'href="{relocated}#{fragment}"' in source
 
 
 PROOF_CLAIMS = {

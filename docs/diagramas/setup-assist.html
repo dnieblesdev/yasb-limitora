@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Setup assistance</title><style>
+body{margin:0;background:#f5f5f5;color:#2d3142;font-family:'Geist',system-ui,sans-serif}main{max-width:1280px;min-width:0;margin:auto;padding:32px 20px}h1{font:400 28px 'Instrument Serif',serif}p,li{line-height:1.6}a{color:#2e5aa8}.diagram-container{width:100%;overflow-x:auto}svg{display:block;width:100%;min-width:1280px}.name{font:600 12px 'Geist',system-ui,sans-serif;fill:#2d3142}.detail{font:400 12px 'Geist',system-ui,sans-serif;fill:#4f5d75}.tag{font:500 8px 'Geist Mono',ui-monospace,monospace;fill:#5a6580;letter-spacing:.14em}.legend{font:400 11px 'Geist',system-ui,sans-serif;fill:#4f5d75}footer{border-top:1px solid #bfc0c0;margin-top:24px;font-size:14px}.area-nav,.page-nav{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:24px 0}.area-nav a,.page-nav a{padding:12px 16px;border:1px solid #4f5d75;border-radius:6px;text-decoration:none}.area-nav [aria-current]{border-bottom:4px solid #bf4520;color:#2d3142}.progress{color:#4f5d75;margin-right:auto}#language-controls{width:fit-content;margin-left:auto;border:1px solid #4f5d75;border-radius:6px;padding:4px}#language-controls button{font:inherit;padding:8px 16px;border:0;background:transparent;color:#2d3142;cursor:pointer}#language-controls [aria-pressed=true]{background:#2d3142;color:#f5f5f5;border-radius:4px}a:focus-visible,button:focus-visible{outline:3px solid #2e5aa8;outline-offset:4px}@media print{.diagram-container{overflow-x:visible}svg{min-width:0}}
+
+[hidden]{display:none!important}.breadcrumb{display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:14px;margin:16px 0;color:#4f5d75}.crumb-divider::before{content:'/';color:#4f5d75}.section-nav{display:flex;flex-wrap:wrap;gap:8px;padding:8px;background:#ececec;border-radius:8px;margin:20px 0}.section-nav a{display:flex;align-items:center;gap:10px;padding:12px 18px;border:1px solid transparent;border-radius:4px;color:#2d3142;text-decoration:none;font-weight:600}.section-nav a::before{content:'';width:8px;height:8px;border-radius:50%;background:#4f5d75;display:inline-block;flex-shrink:0}.section-nav [aria-current=location]{background:#f5f5f5;border-color:#bf4520}.section-nav [aria-current=location]::before{background:#bf4520;border-color:#bf4520}.area-nav{gap:8px;margin:16px 0}.area-nav a{padding:10px 14px;font-size:14px;border-color:#4f5d75}.area-nav [aria-current=page]{background:#2d3142;color:#f5f5f5;border:1px solid #2d3142}.page-nav{align-items:center;gap:12px;border-top:1px solid #bfc0c0;padding-top:16px}.page-nav a{border-color:#2e5aa8}.page-nav [rel=next]{background:#2e5aa8;color:#f5f5f5}.progress{margin-right:auto;font-size:14px;font-weight:600;color:#4f5d75}.source-hint{padding:12px 16px;border-left:3px solid #4f5d75;font-size:14px;color:#4f5d75}#language-controls{padding:4px;background:#ececec;border-color:#4f5d75}#language-controls button{min-height:40px;font-size:14px;font-weight:600}#language-controls [aria-pressed=true]{background:#2d3142;color:#f5f5f5}.atlas-card:hover,.area-nav a:hover,.section-nav a:hover{border-color:#2e5aa8}a:focus-visible,button:focus-visible{outline:3px solid #2e5aa8;outline-offset:4px}@media(max-width:640px){main{padding:20px 16px}.section-nav a{padding:10px 12px}.page-nav{flex-wrap:wrap}.progress{flex-basis:100%}.area-nav a{padding:10px 12px}}
+figure{container-type:inline-size}.scroll-hint{display:none;font-size:14px;color:#4f5d75}@container(width < 1280px){.scroll-hint{display:block}}@media print{.scroll-hint{display:none}}
+</style></head><body><main>
+<div id="language-controls" hidden role="group" aria-label="Language" data-i18n-label="Language"><button type="button" data-language="es" lang="es" aria-pressed="false">Español</button> <button type="button" data-language="en" lang="en" aria-pressed="false">English</button></div>
+<nav class="breadcrumb" aria-label="Breadcrumb" data-i18n-label="Breadcrumb"><a href="index.html">Diagram atlas</a><span class="crumb-divider" aria-hidden="true"></span><a href="index.html#installer">Installer &amp; proof</a></nav><nav class="section-nav" aria-label="Sections" data-i18n-label="Sections"><a href="index.html#product">Product</a><a href="index.html#installer" aria-current="location">Installer &amp; proof</a><a href="index.html#combined">Combined</a></nav><nav class="area-nav" aria-label="Area navigation" data-i18n-label="Area navigation"><a href="installer-transaction.html">Installer transaction</a><a href="setup-assist.html" aria-current="page">Setup assistance</a></nav>
+<nav class="page-nav" aria-label="Reading order" data-i18n-label="Reading order"><span class="progress">View 5 / 5</span><a rel="prev" href="installer-transaction.html">← Previous</a><a rel="next" href="index.html">Next →</a></nav>
+<h1>Consent chooses operations; a private process applies them</h1><p>The active Inno caller sends operations through an environment variable, waits for the assistant exit, then clears the variable in finally.</p>
+<figure style="margin:0"><p class="scroll-hint">Scroll horizontally to see the full diagram</p><div class="diagram-container"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" role="img" aria-labelledby="setup-assist-title setup-assist-desc"><title id="setup-assist-title">Setup assistance</title><desc id="setup-assist-desc">Post-commit and uninstall choices produce a private environment request that Python validates and executes, with completion reported by exit code rather than result.json.</desc><defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#4f5d75"/></marker></defs><rect width="1280" height="720" fill="#f5f5f5"/>
+<text x="64" y="56" class="tag">TWO CALL SITES · ONE ACTIVE TRANSPORT</text>
+<path d="M 224 192 V 280" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/><path d="M 1068 192 V 224 Q 1068 232 1060 232 H 328 Q 320 232 320 240 V 280" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/>
+<path d="M 384 332 H 480" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/><path d="M 800 332 H 920" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/><path d="M 1068 400 V 500" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/>
+<g data-node="postcommit"><rect x="64" y="80" width="488" height="112" rx="6" fill="#ececec" stroke="#4f5d75"/><text x="88" y="112" class="name">After native commit: selected tasks</text><text x="88" y="144" class="detail">path-add · env-block-apply · conditional config-apply</text><text x="88" y="168" class="detail">No selected operation → discover</text></g>
+<g data-node="uninstall"><rect x="728" y="80" width="488" height="112" rx="6" fill="#ececec" stroke="#4f5d75"/><text x="752" y="112" class="name">During uninstall: explicit choices</text><text x="752" y="144" class="detail">path-remove · state-cleanup with consent YES</text><text x="752" y="168" class="detail">No selected operation → no assistant launch</text></g>
+<g data-node="request"><rect x="64" y="280" width="320" height="120" rx="6" fill="#f5f5f5" stroke="#bf4520"/><text x="88" y="312" class="name">Build operations JSON in Inno</text><text x="88" y="344" class="detail">Set private request environment variable</text><text x="88" y="368" class="detail">Launch installed CLI with private sentinel</text></g>
+<g data-node="validate"><rect x="480" y="280" width="320" height="120" rx="6" fill="#fff" stroke="#2d3142"/><text x="504" y="312" class="name">Python validates before executing</text><text x="504" y="344" class="detail">Bounded request · at most 8 operations</text><text x="504" y="368" class="detail">Schema, uniqueness, allowed operations</text></g>
+<g data-node="execute"><rect x="920" y="280" width="296" height="120" rx="6" fill="#fff" stroke="#2d3142"/><text x="944" y="312" class="name">Apply owned, consented work</text><text x="944" y="344" class="detail">Fixed local routes and ownership gates</text><text x="944" y="368" class="detail">Not provider authentication or quota JSON</text></g>
+<g data-node="exit"><rect x="920" y="500" width="296" height="112" rx="6" fill="#f5f5f5" stroke="#bf4520"/><text x="944" y="532" class="name">Exit 0 / 1 → Inno</text><text x="944" y="564" class="detail">Wait; log a non-zero result</text><text x="944" y="588" class="detail">Always clear the request variable</text></g>
+<text x="64" y="480" class="name">Configuration writes retain their own safeguards</text><text x="64" y="512" class="detail">config-apply requires the task and at least one changed provider selection.</text><text x="64" y="540" class="detail">Owned lease → backup if present → atomic write → validate reread.</text><text x="64" y="568" class="detail">Write failure attempts configuration rollback, not native installer rollback.</text>
+<line x1="40" y1="660" x2="1240" y2="660" stroke="#bfc0c0"/><text x="64" y="688" class="legend">Solid → request or completion handoff · Accent → private transport endpoints · Top boxes → alternative call sites</text>
+</svg></div><figcaption><p>The active request variable is <code>_YASB_SETUP_ASSIST_REQUEST</code>; the process switch is <code>--__yasb-limitora-setup-assist</code>. Inno builds the operations array, sets the variable, waits for the installed executable, and clears the variable in finally. Python validates the request and returns 0 only when all operation records are ok; validation or operation failure returns 1. This route does not read result.json.</p><p>path-add may carry correctionConsent only with explicit correction consent. env-block-apply carries consent. config-apply is emitted only when configassist is selected and at least one provider selection changes; otherwise the post-commit caller falls back to discover if no other operation is selected. Uninstall emits path-remove and state-cleanup only when selected, with consent YES for cleanup; no operations means no launch.</p><p>The post-commit caller logs assistant failure but does not automatically reverse the committed native installation. Configuration rollback is separate and remains guarded by lease ownership. The separately supported nonce-directory request.json / result.json transport is not the active Inno path. Assistance is neither the public current JSON quota contract nor provider authentication, and does not automatically edit user YASB YAML or CSS.</p></figcaption></figure>
+<footer><p>Sources: <a href="../../packaging/inno/SetupAssistant.isi#L1-L12">SetupAssistant.isi:1–12</a>; <a href="../../packaging/inno/SetupAssistant.isi#L198-L298">SetupAssistant.isi:198–298</a>; <a href="../../src/yasb_limitora/setup_assist.py#L163-L224">setup_assist.py:163–224</a>; <a href="../../src/yasb_limitora/setup_assist.py#L494-L565">setup_assist.py:494–565</a>; <a href="../../src/yasb_limitora/setup_assist.py#L675-L703">setup_assist.py:675–703</a>.</p><p>Source links need the surrounding checkout. The diagram-only HTTP server does not serve those sources; file browsers may ignore line fragments. Offline system-font fallback is intentional; no external assets or font downloads.</p><p>Translation-only JavaScript is an explicit exception to the upstream static checker, which rejects non-animation scripts. Local structural checks cover translation completeness, links, SVG accessibility and bounded geometry; browser layout still needs visual verification.</p></footer><p class="source-hint">Source links require the local checkout. The diagram-only HTTP server does not serve source files.</p></main><script>
+(() => {
+  'use strict';
+  const translations = {
+    "Scroll horizontally to see the full diagram": "Deslizá horizontalmente para ver el diagrama completo",
+    "Breadcrumb": "Ruta de navegación",
+    "Sections": "Secciones",
+    "Product": "Producto",
+    "Combined": "Combinado",
+    "Reusable transport": "Transporte reutilizable",
+    "Evidence boundaries": "Límites de la evidencia",
+    "Next →": "Siguiente →",
+    "Source links require the local checkout. The diagram-only HTTP server does not serve source files.": "Los enlaces a fuentes requieren la copia local del repositorio. El servidor HTTP de diagramas no sirve los archivos fuente.",
+    "Language": "Idioma",
+    "Area navigation": "Navegación por áreas",
+    "Reading order": "Orden de lectura",
+    "Diagram atlas": "Atlas de diagramas",
+    "Installer & proof": "Instalador y pruebas",
+    "Installer transaction": "Transacción del instalador",
+    "Setup assistance": "Asistencia de instalación",
+    "View 5 / 5": "Vista 5 / 5",
+    "← Previous": "← Anterior",
+    "Back to the area": "Volver al área",
+    "Consent chooses operations; a private process applies them": "El consentimiento elige operaciones; un proceso privado las aplica",
+    "The active Inno caller sends operations through an environment variable, waits for the assistant exit, then clears the variable in finally.": "El invocador Inno activo envía operaciones mediante una variable de entorno, espera la salida del asistente y limpia la variable en finally.",
+    "Post-commit and uninstall choices produce a private environment request that Python validates and executes, with completion reported by exit code rather than result.json.": "Las opciones posteriores a confirmar y de desinstalación producen una solicitud privada por entorno que Python valida y ejecuta, notificando el resultado por código de salida y no por result.json.",
+    "TWO CALL SITES · ONE ACTIVE TRANSPORT": "DOS PUNTOS DE LLAMADA · UN TRANSPORTE ACTIVO",
+    "After native commit: selected tasks": "Tras confirmar la instalación: tareas elegidas",
+    "path-add · env-block-apply · conditional config-apply": "path-add · env-block-apply · config-apply condicional",
+    "No selected operation → discover": "Sin operación elegida → discover",
+    "During uninstall: explicit choices": "Al desinstalar: opciones explícitas",
+    "path-remove · state-cleanup with consent YES": "path-remove · state-cleanup con consentimiento YES",
+    "No selected operation → no assistant launch": "Sin operación elegida → no se lanza el asistente",
+    "Build operations JSON in Inno": "Crear JSON de operaciones en Inno",
+    "Set private request environment variable": "Fijar variable privada de solicitud",
+    "Launch installed CLI with private sentinel": "Lanzar CLI instalada con marcador privado",
+    "Python validates before executing": "Python valida antes de ejecutar",
+    "Bounded request · at most 8 operations": "Solicitud acotada · máximo 8 operaciones",
+    "Schema, uniqueness, allowed operations": "Esquema, unicidad, operaciones permitidas",
+    "Apply owned, consented work": "Aplicar trabajo propio y consentido",
+    "Fixed local routes and ownership gates": "Rutas fijas y controles de propiedad",
+    "Not provider authentication or quota JSON": "Sin autenticación ni JSON de cuotas",
+    "Exit 0 / 1 → Inno": "Salida 0 / 1 → Inno",
+    "Wait; log a non-zero result": "Esperar; registrar salida no nula",
+    "Always clear the request variable": "Limpiar siempre la variable privada",
+    "Configuration writes retain their own safeguards": "La escritura de configuración conserva sus propias garantías",
+    "config-apply requires the task and at least one changed provider selection.": "config-apply exige la tarea y cambiar la selección de al menos un proveedor.",
+    "Owned lease → backup if present → atomic write → validate reread.": "Bloqueo propio → copia si existe → escritura atómica → validar relectura.",
+    "Write failure attempts configuration rollback, not native installer rollback.": "El fallo de escritura intenta revertir la configuración, no la instalación nativa.",
+    "Solid → request or completion handoff · Accent → private transport endpoints · Top boxes → alternative call sites": "Línea continua → entrega de solicitud o resultado · Acento → extremos del transporte privado · Cajas superiores → puntos de llamada alternativos",
+    "The active request variable is": "La variable de solicitud activa es",
+    "; the process switch is": "; el argumento del proceso es",
+    ". Inno builds the operations array, sets the variable, waits for the installed executable, and clears the variable in finally. Python validates the request and returns 0 only when all operation records are ok; validation or operation failure returns 1. This route does not read result.json.": ". Inno crea la lista de operaciones, fija la variable, espera al ejecutable instalado y limpia la variable en finally. Python valida la solicitud y devuelve 0 solo cuando todos los registros de operación son ok; un fallo de validación u operación devuelve 1. Esta ruta no lee result.json.",
+    "path-add may carry correctionConsent only with explicit correction consent. env-block-apply carries consent. config-apply is emitted only when configassist is selected and at least one provider selection changes; otherwise the post-commit caller falls back to discover if no other operation is selected. Uninstall emits path-remove and state-cleanup only when selected, with consent YES for cleanup; no operations means no launch.": "path-add puede incluir correctionConsent solo con consentimiento explícito de corrección. env-block-apply incluye consentimiento. config-apply se emite solo si se elige configassist y cambia la selección de al menos un proveedor; en otro caso, el invocador posterior a confirmar usa discover si no se elige otra operación. Al desinstalar, path-remove y state-cleanup se emiten solo si se eligen, con consentimiento YES para limpiar; sin operaciones no hay lanzamiento.",
+    "The post-commit caller logs assistant failure but does not automatically reverse the committed native installation. Configuration rollback is separate and remains guarded by lease ownership. The separately supported nonce-directory request.json / result.json transport is not the active Inno path. Assistance is neither the public current JSON quota contract nor provider authentication, and does not automatically edit user YASB YAML or CSS.": "El invocador posterior a confirmar registra el fallo del asistente, pero no revierte automáticamente la instalación nativa confirmada. La reversión de configuración es independiente y conserva el control de propiedad del bloqueo. El transporte por directorio nonce con request.json / result.json, admitido por separado, no es la ruta activa de Inno. La asistencia no es el contrato público de cuotas en JSON actual ni autenticación de proveedores, y no edita automáticamente el YAML ni el CSS de YASB del usuario.",
+    "Sources:": "Fuentes:",
+    "Source links need the surrounding checkout. The diagram-only HTTP server does not serve those sources; file browsers may ignore line fragments. Offline system-font fallback is intentional; no external assets or font downloads.": "Los enlaces a fuentes necesitan la copia completa del repositorio. El servidor HTTP de diagramas no sirve esas fuentes; los navegadores de archivos pueden ignorar los fragmentos de línea. La sustitución por fuentes del sistema sin conexión es intencional; no hay recursos externos ni descargas de fuentes.",
+    "Translation-only JavaScript is an explicit exception to the upstream static checker, which rejects non-animation scripts. Local structural checks cover translation completeness, links, SVG accessibility and bounded geometry; browser layout still needs visual verification.": "El JavaScript exclusivo de traducción es una excepción explícita al comprobador estático original, que rechaza scripts ajenos a animación. Las comprobaciones estructurales locales cubren traducciones completas, enlaces, accesibilidad SVG y geometría acotada; la distribución en navegador aún necesita verificación visual."
+  };
+  const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT);
+  const entries = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (node.parentElement.closest('script, style, code, button')) continue;
+    const english = node.textContent.trim();
+    if (Object.prototype.hasOwnProperty.call(translations, english)) entries.push({node, original: node.textContent, english});
+  }
+  const controls = document.getElementById('language-controls');
+  const buttons = controls.querySelectorAll('button');
+  const applyLanguage = language => {
+    for (const {node, original, english} of entries) node.textContent = original.replace(english, language === 'es' ? translations[english] : english);
+    document.documentElement.lang = language;
+    for (const element of document.querySelectorAll('[data-i18n-label]')) {
+      const english = element.dataset.i18nLabel;
+      element.setAttribute('aria-label', language === 'es' ? translations[english] : english);
+    }
+    for (const button of buttons) button.setAttribute('aria-pressed', String(button.dataset.language === language));
+  };
+  let language = 'es';
+  try {
+    const saved = localStorage.getItem('yasb-limitora-language');
+    if (saved === 'es' || saved === 'en') language = saved;
+  } catch (_) { /* Storage may be unavailable, including on file://. */ }
+  applyLanguage(language);
+  for (const button of buttons) button.addEventListener('click', () => {
+    const selected = button.dataset.language;
+    if (selected !== 'es' && selected !== 'en') return;
+    applyLanguage(selected);
+    try { localStorage.setItem('yasb-limitora-language', selected); } catch (_) { /* Session-only choice. */ }
+  });
+  controls.hidden = false;
+})();
+</script></body></html>
