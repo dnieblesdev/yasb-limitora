@@ -679,6 +679,25 @@ def test_harness_failures_budgets_responsibility_and_evidence(name):
         assert_named_test_anchor(linked.read_text(encoding='utf-8'), function_name, target.fragment)
 
 
+@pytest.mark.parametrize('name', (
+    'installer-states.html', 'resource-ownership.html',
+    'claim-traceability.html', 'harness-failures.html',
+))
+def test_responsibility_tables_have_named_keyboard_regions(name):
+    source = read(name)
+    page = Page(source)
+    regions = [attrs for _, attrs in page.elements
+               if attrs.get('class') == 'table-container']
+    assert regions, name
+    for attrs in regions:
+        assert attrs.get('role') == 'region', name
+        assert attrs.get('tabindex') == '0', name
+        label = attrs.get('aria-label')
+        assert label, name
+        assert attrs.get('data-i18n-label') == label, name
+        assert translations(source)[label].strip(), name
+
+
 PROOF_CLAIMS = {
     'proof-harness.html': (
         'Generic transport success is not installer lifecycle proof.',

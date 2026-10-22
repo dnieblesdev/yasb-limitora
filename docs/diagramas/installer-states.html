@@ -58,7 +58,7 @@ figure{container-type:inline-size}.scroll-hint{display:none;font-size:14px;color
 </figcaption></figure>
 <h2>Artifacts and responsibility after interruption</h2>
 <p><code>APP</code> <span>denotes the canonical installation directory, not a new configurable route.</span></p>
-<div class="table-container"><table><caption>Persistent artifacts versus live transaction flags</caption><thead><tr><th scope="col">Artifact</th><th scope="col">Transition and guard</th><th scope="col">Responsibility if interrupted</th></tr></thead><tbody>
+<div class="table-container" role="region" aria-label="Persistent artifacts and recovery responsibility" data-i18n-label="Persistent artifacts and recovery responsibility" tabindex="0"><table><caption>Persistent artifacts versus live transaction flags</caption><thead><tr><th scope="col">Artifact</th><th scope="col">Transition and guard</th><th scope="col">Responsibility if interrupted</th></tr></thead><tbody>
 <tr><th scope="row"><code>APP</code></th><td>Native setup writes the canonical payload; rollback quarantines residual new bytes before restoring old bytes.</td><td>Setup owns only the checked transaction route. The operator assesses residual state after process loss; this page authorizes no deletion.</td></tr>
 <tr><th scope="row"><code>APP.old</code></th><td>Created by successful canonical rename after checked registry export. Commit deletes it with checked DelTree.</td><td>Partial DelTree failure may already destroy prior bytes; retained flags do not guarantee a complete old payload.</td></tr>
 <tr><th scope="row"><code>APP.failed</code></th><td>Stale on entry means abort. Current recovery may quarantine new bytes and delete only its owned quarantine.</td><td>Failed rename or cleanup can retain residual bytes. No ownership inference from a filename alone.</td></tr>
@@ -88,6 +88,7 @@ figure{container-type:inline-size}.scroll-hint{display:none;font-size:14px;color
   'use strict';
   const translations = {
     "Installer states and interruption": "Estados del instalador e interrupción",
+    "Persistent artifacts and recovery responsibility": "Artefactos persistentes y responsabilidad de recuperación",
     "Language": "Idioma", "Breadcrumb": "Ruta de navegación", "Sections": "Secciones",
     "Area navigation": "Navegación por áreas", "Reading order": "Orden de lectura",
     "Diagram atlas": "Atlas de diagramas", "Product": "Producto", "Installer & proof": "Instalador y pruebas", "Combined": "Combinado", "Responsibility": "Responsabilidad",
