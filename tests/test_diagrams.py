@@ -1,4 +1,5 @@
 """Progressive, offline atlas contracts; these are not native UI proofs."""
+import ast
 import json
 import os
 import re
@@ -22,7 +23,7 @@ COMPLETE_ORDER = (
 DELIVERED_PAGES = (
     'purpose.html', 'structure.html', 'data-journey.html', 'installer-transaction.html',
     'setup-assist.html', 'proof-harness.html', 'proof-cases.html', 'lifecycle-verify.html',
-    'installer-states.html', 'resource-ownership.html',
+    'installer-states.html', 'resource-ownership.html', 'claim-traceability.html',
 )
 GROUPS = {
     'product': COMPLETE_ORDER[:3],
@@ -566,6 +567,70 @@ def test_resource_ownership_matrix_authority_and_retention(name):
     svg = ET.fromstring(re.search(r'<svg\b.*?</svg>', source, re.S)[0])
     assert len(svg.findall('.//*[@data-node]')) == 4
     assert len(svg.findall('.//*[@marker-end]')) == 3
+
+
+def assert_named_test_anchor(contents, function_name, fragment):
+    tree = ast.parse(contents)
+    functions = [node for node in tree.body
+                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                 and node.name == function_name]
+    assert len(functions) == 1, function_name
+    match = re.fullmatch(r'L(\d+)-L(\d+)', fragment)
+    assert match, fragment
+    first, last = map(int, match.groups())
+    function = functions[0]
+    assert first == function.lineno and first <= last <= function.end_lineno
+
+
+def test_named_test_anchor_rejects_neighboring_function():
+    contents = 'def test_first():\n    pass\n\ndef test_second():\n    pass\n'
+    assert_named_test_anchor(contents, 'test_first', 'L1-L2')
+    with pytest.raises(AssertionError):
+        assert_named_test_anchor(contents, 'test_first', 'L4-L5')
+    with pytest.raises(AssertionError):
+        assert_named_test_anchor(contents, 'test_missing', 'L1-L2')
+
+
+@pytest.mark.parametrize('name', tuple(
+    name for name in DELIVERED_PAGES if name == 'claim-traceability.html'
+))
+def test_traceability_rows_and_literal_test_nodeids(name):
+    source = read(name)
+    rows = re.findall(r'<tr data-invariant="([^"]+)">(.*?)</tr>', source, re.S)
+    assert [key for key, _ in rows] == [
+        'snapshot', 'ownership', 'quarantine', 'restore-order', 'commit',
+        'crash-resume', 'empty-app', 'historical-fallback', 'path-drift',
+        'path-consent', 'config-rollback', 'state-consent', 'guest-timeout',
+        'host-watchdog', 'extraction-diagnostics', 'proof-scope',
+        'cache-authority', 'deadline', 'platform-streams',
+    ]
+    for key, row in rows:
+        assert 'class="implementation"' in row, key
+        assert 'data-test-node=' in row or 'data-gap="pending"' in row, key
+        assert 'REFERENCE ONLY' in row or 'PENDING' in row, key
+    references = [(attrs, content) for attrs, content in re.findall(
+        r'<a\b([^>]*data-test-node="[^"]+"[^>]*)>(.*?)</a>', source, re.S)]
+    assert len(references) >= 13
+    for attrs, content in references:
+        attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', attrs))
+        nodeid = attrs['data-test-node']
+        path, function_name = nodeid.split('::')
+        assert path.startswith('tests/') and function_name.startswith('test_')
+        assert f'<code>{nodeid}</code>' in content
+        target = urlsplit(attrs['href'])
+        linked = (ROOT / target.path).resolve()
+        assert linked == (REPOSITORY / path).resolve()
+        assert_named_test_anchor(linked.read_text(encoding='utf-8'), function_name, target.fragment)
+    public_text = ' '.join(Page(source).texts)
+    for claim in (
+        'This atlas checks reference existence and structure, not the behavior of the referenced tests.',
+        'This page links available tests; it embeds no execution result. Consult candidate-bound verification records; availability is not proof.',
+        'Source-observed concern, not a runtime-reproduced defect: extraction diagnostics may be overwritten by the outer failure record; provenance-write failure may replace the primary message.',
+        'No native-current execution receipt is supplied; all current native claims remain PENDING.',
+        'No dedicated behavior test is linked for crash resume or the empty-APP early return.',
+        'Historical harness-initiated restoration is not current Pascal rollback proof.',
+    ):
+        assert claim in public_text
 
 
 PROOF_CLAIMS = {
