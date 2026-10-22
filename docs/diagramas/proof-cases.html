@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Evidence boundaries</title><style>
+body{margin:0;background:#f5f5f5;color:#2d3142;font-family:'Geist',system-ui,sans-serif}main{max-width:1280px;min-width:0;margin:auto;padding:32px 20px}h1{font:400 28px 'Instrument Serif',serif}p,li{line-height:1.6}a{color:#2e5aa8}code{overflow-wrap:anywhere}.diagram-container{width:100%;overflow-x:auto}svg{display:block;width:100%;min-width:1280px}.name{font:600 12px 'Geist',system-ui,sans-serif;fill:#2d3142}.detail{font:400 12px 'Geist',system-ui,sans-serif;fill:#4f5d75}.tag{font:500 8px 'Geist Mono',ui-monospace,monospace;fill:#5a6580;letter-spacing:.14em}.legend{font:400 11px 'Geist',system-ui,sans-serif;fill:#4f5d75}footer{border-top:1px solid #bfc0c0;margin-top:24px;font-size:14px}.area-nav,.page-nav{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:24px 0}.area-nav a,.page-nav a{padding:12px 16px;border:1px solid #4f5d75;border-radius:6px;text-decoration:none}.area-nav [aria-current]{border-bottom:4px solid #bf4520;color:#2d3142}.progress{color:#4f5d75;margin-right:auto}#language-controls{width:fit-content;margin-left:auto;border:1px solid #4f5d75;border-radius:6px;padding:4px}#language-controls button{font:inherit;padding:8px 16px;border:0;background:transparent;color:#2d3142;cursor:pointer}#language-controls [aria-pressed=true]{background:#2d3142;color:#f5f5f5;border-radius:4px}a:focus-visible,button:focus-visible{outline:3px solid #2e5aa8;outline-offset:4px}@media print{.diagram-container{overflow-x:visible}svg{min-width:0}}
+
+[hidden]{display:none!important}.breadcrumb{display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:14px;margin:16px 0;color:#4f5d75}.crumb-divider::before{content:'/';color:#4f5d75}.section-nav{display:flex;flex-wrap:wrap;gap:8px;padding:8px;background:#ececec;border-radius:8px;margin:20px 0}.section-nav a{display:flex;align-items:center;gap:10px;padding:12px 18px;border:1px solid transparent;border-radius:4px;color:#2d3142;text-decoration:none;font-weight:600}.section-nav a::before{content:'';width:8px;height:8px;border-radius:50%;background:#4f5d75;display:inline-block;flex-shrink:0}.section-nav [aria-current=location]{background:#f5f5f5;border-color:#bf4520}.section-nav [aria-current=location]::before{background:#bf4520;border-color:#bf4520}.area-nav{gap:8px;margin:16px 0}.area-nav a{padding:10px 14px;font-size:14px;border-color:#4f5d75}.area-nav [aria-current=page]{background:#2d3142;color:#f5f5f5;border:1px solid #2d3142}.page-nav{align-items:center;gap:12px;border-top:1px solid #bfc0c0;padding-top:16px}.page-nav a{border-color:#2e5aa8}.page-nav [rel=next]{background:#2e5aa8;color:#f5f5f5}.progress{margin-right:auto;font-size:14px;font-weight:600;color:#4f5d75}.source-hint{padding:12px 16px;border-left:3px solid #4f5d75;font-size:14px;color:#4f5d75}#language-controls{padding:4px;background:#ececec;border-color:#4f5d75}#language-controls button{min-height:40px;font-size:14px;font-weight:600}#language-controls [aria-pressed=true]{background:#2d3142;color:#f5f5f5}.atlas-card:hover,.area-nav a:hover,.section-nav a:hover{border-color:#2e5aa8}a:focus-visible,button:focus-visible{outline:3px solid #2e5aa8;outline-offset:4px}@media(max-width:640px){main{padding:20px 16px}.section-nav a{padding:10px 12px}.page-nav{flex-wrap:wrap}.progress{flex-basis:100%}.area-nav a{padding:10px 12px}}
+figure{container-type:inline-size}.scroll-hint{display:none;font-size:14px;color:#4f5d75}@container(width < 1280px){.scroll-hint{display:block}}@media print{.scroll-hint{display:none}}
+</style></head><body><main>
+<div id="language-controls" hidden role="group" aria-label="Language" data-i18n-label="Language"><button type="button" data-language="es" lang="es" aria-pressed="false">Español</button> <button type="button" data-language="en" lang="en" aria-pressed="false">English</button></div>
+<nav class="breadcrumb" aria-label="Breadcrumb" data-i18n-label="Breadcrumb"><a href="index.html">Diagram atlas</a><span class="crumb-divider" aria-hidden="true"></span><a href="index.html#proof">Installer &amp; proof</a></nav><nav class="section-nav" aria-label="Sections" data-i18n-label="Sections"><a href="index.html#product">Product</a><a href="index.html#installer" aria-current="location">Installer &amp; proof</a><a href="index.html#combined">Combined</a></nav><nav class="area-nav" aria-label="Area navigation" data-i18n-label="Area navigation"><a href="installer-transaction.html">Installer transaction</a><a href="setup-assist.html">Setup assistance</a><a href="proof-harness.html">Reusable transport</a><a href="proof-cases.html" aria-current="page">Evidence boundaries</a></nav>
+<nav class="page-nav" aria-label="Reading order" data-i18n-label="Reading order"><span class="progress">View 7 / 7</span><a rel="prev" href="proof-harness.html">← Previous</a><a rel="next" href="index.html">Next →</a></nav>
+<h1>Three kinds of evidence, three different claims</h1><p>Read each column independently. These are evidence scopes, not sequential stages or interchangeable proofs of the current candidate.</p>
+<figure style="margin:0"><p class="scroll-hint">Scroll horizontally to see the full diagram</p><div class="diagram-container"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" role="img" aria-labelledby="proof-cases-title proof-cases-desc"><title id="proof-cases-title">Evidence boundaries</title><desc id="proof-cases-desc">Generic transport smoke, a historical C5 uninstall run, and C4 child-process tests support different bounded claims and do not certify the current candidate.</desc><rect width="1280" height="720" fill="#f5f5f5"/>
+<text x="64" y="72" class="tag">GENERIC TRANSPORT</text><text x="472" y="72" class="tag">HISTORICAL NATIVE C5</text><text x="880" y="72" class="tag">C4 RUNNER BOUNDARY</text>
+<g data-node="smoke"><rect x="64" y="112" width="336" height="168" rx="6" fill="#fff" stroke="#2d3142"/><text x="88" y="144" class="name">Two harmless smoke runners</text><text x="88" y="180" class="detail">Restore the same generic checkpoint</text><text x="88" y="208" class="detail">Fresh disks; verified artifact bytes</text><text x="88" y="236" class="detail">No setup or uninstaller execution</text></g>
+<g data-node="c5"><rect x="472" y="112" width="336" height="168" rx="6" fill="#f5f5f5" stroke="#bf4520"/><text x="496" y="144" class="name">Pinned rebuilt installer</text><text x="496" y="180" class="detail">Expected name, size and SHA-256</text><text x="496" y="208" class="detail">Fixed silent arguments; before / after</text><text x="496" y="236" class="detail">Observed uninstaller, not pre-pinned</text></g>
+<g data-node="c4"><rect x="880" y="112" width="336" height="168" rx="6" fill="#fff" stroke="#2d3142"/><text x="904" y="144" class="name">Real child-process checks</text><text x="904" y="180" class="detail">Windows PowerShell failure boundary</text><text x="904" y="208" class="detail">Allowlisted diagnostic; preserved exit</text><text x="904" y="236" class="detail">Hermetic runner behavior only</text></g>
+<g data-node="smoke-limit"><rect x="64" y="352" width="336" height="168" rx="6" fill="#ececec" stroke="#4f5d75"/><text x="88" y="384" class="name">Claim stops at transport</text><text x="88" y="420" class="detail">Not installer lifecycle proof</text><text x="88" y="448" class="detail">Writable fallback, not hostile isolation</text><text x="88" y="476" class="detail">Host observations are not attestation</text></g>
+<g data-node="c5-limit"><rect x="472" y="352" width="336" height="168" rx="6" fill="#f5f5f5" stroke="#bf4520"/><text x="496" y="384" class="name">Historical result with caveats</text><text x="496" y="420" class="detail">Fixture files survived byte-identically</text><text x="496" y="448" class="detail">No zero-dialog observation</text><text x="496" y="476" class="detail">MAX_PATH recovery retains host failure</text></g>
+<g data-node="c4-limit"><rect x="880" y="352" width="336" height="168" rx="6" fill="#ececec" stroke="#4f5d75"/><text x="904" y="384" class="name">Native lifecycle remains unresolved</text><text x="904" y="420" class="detail">Complete C4 scenario / modules absent</text><text x="904" y="448" class="detail">Not VM, registry or uninstall proof</text><text x="904" y="476" class="detail">No current-candidate certification</text></g>
+<text x="64" y="592" class="name">Historical evidence is not new proof for these diagrams or this candidate.</text>
+<line x1="40" y1="660" x2="1240" y2="660" stroke="#bfc0c0"/><text x="64" y="688" class="legend">Top → exercised scope · Bottom → claim boundary · No arrows: the columns are not a test sequence</text>
+</svg></div><figcaption><p>The generic transport smoke ran no setup or uninstaller, either on the host or in its guest cycles. It checked repeated restore, input transport and harmless output. Its writable-input fallback detects persistent mutation, not reverted transient tamper; host provenance is corroborating observation, not cryptographic attestation.</p><p>The historical C5 record binds <code>yasb-limitora-0.2.0-setup.exe</code>, <code>11,054,574</code> bytes and SHA-256 <code>1d58f3618f5b22ddccacc7be2dcf8e3a1e9a90dba57dffe431d8ca8ae6df3394</code>. The runner fixes <code>/VERYSILENT /SUPPRESSMSGBOXES /NORESTART</code>. Install and uninstall exited 0; application and uninstall registration disappeared, while both declared fixture files survived unchanged. The uninstaller hash was observed, not pre-pinned. These historical bytes do not establish proof of the current candidate.</p><p>The record reports <code>dialogAnswerAttempted=false</code>, not an observation of zero dialogs. MAX_PATH extraction failed; a read-only mount and short-path copy recovered evidence for independent checks. The original host provenance retains <code>overall=failed</code>. Recovered verifier success does not rewrite that failed orchestration or rerun the full lifecycle matrix.</p><p>C4 supplies a runner and real child-process boundary tests, but not the complete native scenario and required modules. Diagnostic privacy, exit preservation and owned-route refusal checks are not native installer, VM, registry, PATH, uninstall, cleanup or persistence proof. No installer or uninstaller runs on the host.</p></figcaption></figure>
+<footer><p>Sources: <a href="../../proof-harness/README.md#L79-L120">README.md:79–120</a>; <a href="../release/0.2.0/evidence/issue-304-reusable-vm-proof.md#L1-L47">issue-304-reusable-vm-proof.md:1–47</a>; <a href="../release/0.2.0/evidence/s11b-c5-silent-uninstall-state-root.md#L3-L58">s11b-c5-silent-uninstall-state-root.md:3–58</a>; <a href="../release/0.2.0/evidence/s11b-c5-silent-uninstall-state-root.md#L99-L111">s11b-c5-silent-uninstall-state-root.md:99–111</a>; <a href="../../proof-harness/guest/run-c5-silent-uninstall.ps1#L14-L21">run-c5-silent-uninstall.ps1:14–21</a>.</p><p>Source links require the surrounding checkout; the diagram-only HTTP server does not serve them. Offline system-font fallback is intentional. Translation-only JavaScript is an explicit exception to the upstream static checker; local structural checks do not replace browser visual verification.</p></footer><p class="source-hint">Source links require the local checkout. The diagram-only HTTP server does not serve source files.</p></main><script>
+(() => {
+  'use strict';
+  const translations = {
+    "Scroll horizontally to see the full diagram": "Deslizá horizontalmente para ver el diagrama completo",
+    "Breadcrumb": "Ruta de navegación",
+    "Sections": "Secciones",
+    "Product": "Producto",
+    "Combined": "Combinado",
+    "Installer & proof": "Instalador y pruebas",
+    "Installer transaction": "Transacción del instalador",
+    "Setup assistance": "Asistencia de instalación",
+    "Source links require the local checkout. The diagram-only HTTP server does not serve source files.": "Los enlaces a fuentes requieren la copia local del repositorio. El servidor HTTP de diagramas no sirve los archivos fuente.",
+    "Language": "Idioma",
+    "Area navigation": "Navegación por áreas",
+    "Reading order": "Orden de lectura",
+    "Diagram atlas": "Atlas de diagramas",
+    "Proof harness": "Arnés de pruebas",
+    "Reusable transport": "Transporte reutilizable",
+    "Evidence boundaries": "Límites de la evidencia",
+    "View 7 / 7": "Vista 7 / 7",
+    "← Previous": "← Anterior",
+    "Next →": "Siguiente →",
+    "Three kinds of evidence, three different claims": "Tres tipos de evidencia, tres afirmaciones distintas",
+    "Read each column independently. These are evidence scopes, not sequential stages or interchangeable proofs of the current candidate.": "Lee cada columna por separado. Son alcances de evidencia, no etapas secuenciales ni pruebas intercambiables del candidato actual.",
+    "Generic transport smoke, a historical C5 uninstall run, and C4 child-process tests support different bounded claims and do not certify the current candidate.": "La prueba básica del transporte genérico, una desinstalación C5 histórica y las pruebas de procesos hijos C4 respaldan afirmaciones distintas y acotadas, sin certificar el candidato actual.",
+    "GENERIC TRANSPORT": "TRANSPORTE GENÉRICO",
+    "HISTORICAL NATIVE C5": "C5 NATIVO HISTÓRICO",
+    "C4 RUNNER BOUNDARY": "LÍMITE DEL EJECUTOR C4",
+    "Two harmless smoke runners": "Dos ejecutores básicos inocuos",
+    "Restore the same generic checkpoint": "Restaurar el mismo punto genérico",
+    "Fresh disks; verified artifact bytes": "Discos nuevos; bytes de artefactos verificados",
+    "No setup or uninstaller execution": "Sin ejecutar instalador ni desinstalador",
+    "Pinned rebuilt installer": "Instalador reconstruido identificado",
+    "Expected name, size and SHA-256": "Nombre, tamaño y SHA-256 esperados",
+    "Fixed silent arguments; before / after": "Argumentos silenciosos fijos; antes / después",
+    "Observed uninstaller, not pre-pinned": "Desinstalador observado, no prefijado",
+    "Real child-process checks": "Comprobaciones reales de procesos hijos",
+    "Windows PowerShell failure boundary": "Límite de fallo en Windows PowerShell",
+    "Allowlisted diagnostic; preserved exit": "Diagnóstico permitido; salida conservada",
+    "Hermetic runner behavior only": "Solo conducta hermética del ejecutor",
+    "Claim stops at transport": "La afirmación termina en el transporte",
+    "Not installer lifecycle proof": "No prueba el ciclo de vida del instalador",
+    "Writable fallback, not hostile isolation": "Entrada escribible, sin aislamiento hostil",
+    "Host observations are not attestation": "Observar el anfitrión no es certificar",
+    "Historical result with caveats": "Resultado histórico con salvedades",
+    "Fixture files survived byte-identically": "Archivos de prueba conservados idénticos",
+    "No zero-dialog observation": "Sin observación de ausencia de diálogos",
+    "MAX_PATH recovery retains host failure": "MAX_PATH: conservar el fallo original",
+    "Native lifecycle remains unresolved": "Ciclo de vida nativo aún sin resolver",
+    "Complete C4 scenario / modules absent": "Faltan escenario C4 completo y módulos",
+    "Not VM, registry or uninstall proof": "No prueba VM, registro ni desinstalación",
+    "No current-candidate certification": "Sin certificar el candidato actual",
+    "Historical evidence is not new proof for these diagrams or this candidate.": "La evidencia histórica no es una nueva prueba de estos diagramas ni de este candidato.",
+    "Top → exercised scope · Bottom → claim boundary · No arrows: the columns are not a test sequence": "Arriba → alcance ejercitado · Abajo → límite de la afirmación · Sin flechas: las columnas no son una secuencia de pruebas",
+    "The generic transport smoke ran no setup or uninstaller, either on the host or in its guest cycles. It checked repeated restore, input transport and harmless output. Its writable-input fallback detects persistent mutation, not reverted transient tamper; host provenance is corroborating observation, not cryptographic attestation.": "La prueba básica del transporte genérico no ejecutó instalador ni desinstalador, ni en el anfitrión ni en sus ciclos de invitado. Comprobó restauración repetida, transporte de entrada y salida inocua. La alternativa de entrada escribible detecta mutación persistente, no alteración transitoria revertida; la procedencia del anfitrión es observación corroborante, no certificación criptográfica.",
+    "The historical C5 record binds": "El registro histórico C5 vincula",
+    ",": ",",
+    "bytes and SHA-256": "bytes y SHA-256",
+    ". The runner fixes": ". El ejecutor fija",
+    ". Install and uninstall exited 0; application and uninstall registration disappeared, while both declared fixture files survived unchanged. The uninstaller hash was observed, not pre-pinned. These historical bytes do not establish proof of the current candidate.": ". La instalación y desinstalación terminaron con 0; desaparecieron la aplicación y su registro de desinstalación, mientras los dos archivos de prueba declarados permanecieron sin cambios. El hash del desinstalador se observó, no se prefijó. Estos bytes históricos no demuestran el candidato actual.",
+    "The record reports": "El registro declara",
+    ", not an observation of zero dialogs. MAX_PATH extraction failed; a read-only mount and short-path copy recovered evidence for independent checks. The original host provenance retains": ", no una observación de ausencia de diálogos. La extracción falló por MAX_PATH; un montaje de solo lectura y una copia a ruta corta recuperaron evidencia para comprobaciones independientes. La procedencia original del anfitrión conserva",
+    ". Recovered verifier success does not rewrite that failed orchestration or rerun the full lifecycle matrix.": ". El éxito del verificador sobre la evidencia recuperada no reescribe la orquestación fallida ni repite toda la matriz del ciclo de vida.",
+    "C4 supplies a runner and real child-process boundary tests, but not the complete native scenario and required modules. Diagnostic privacy, exit preservation and owned-route refusal checks are not native installer, VM, registry, PATH, uninstall, cleanup or persistence proof. No installer or uninstaller runs on the host.": "C4 aporta un ejecutor y pruebas reales del límite de procesos hijos, pero no el escenario nativo completo ni los módulos necesarios. Comprobar privacidad diagnóstica, conservación de salida y rechazo de rutas no propias no demuestra instalación nativa, VM, registro, PATH, desinstalación, limpieza ni persistencia. No se ejecuta instalador ni desinstalador en el anfitrión.",
+    "Sources:": "Fuentes:",
+    "Source links require the surrounding checkout; the diagram-only HTTP server does not serve them. Offline system-font fallback is intentional. Translation-only JavaScript is an explicit exception to the upstream static checker; local structural checks do not replace browser visual verification.": "Los enlaces a fuentes requieren la copia completa del repositorio; el servidor HTTP de diagramas no los sirve. La sustitución por fuentes locales es intencional. El JavaScript exclusivo de traducción es una excepción explícita al comprobador estático original; las comprobaciones estructurales no sustituyen la verificación visual en navegador."
+  };
+  const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT);
+  const entries = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (node.parentElement.closest('script, style, code, button')) continue;
+    const english = node.textContent.trim();
+    if (Object.prototype.hasOwnProperty.call(translations, english)) entries.push({node, original: node.textContent, english});
+  }
+  const controls = document.getElementById('language-controls');
+  const buttons = controls.querySelectorAll('button');
+  const applyLanguage = language => {
+    for (const {node, original, english} of entries) node.textContent = original.replace(english, language === 'es' ? translations[english] : english);
+    document.documentElement.lang = language;
+    for (const element of document.querySelectorAll('[data-i18n-label]')) {
+      const english = element.dataset.i18nLabel;
+      element.setAttribute('aria-label', language === 'es' ? translations[english] : english);
+    }
+    for (const button of buttons) button.setAttribute('aria-pressed', String(button.dataset.language === language));
+  };
+  let language = 'es';
+  try {
+    const saved = localStorage.getItem('yasb-limitora-language');
+    if (saved === 'es' || saved === 'en') language = saved;
+  } catch (_) { /* Storage may be unavailable, including on file://. */ }
+  applyLanguage(language);
+  for (const button of buttons) button.addEventListener('click', () => {
+    const selected = button.dataset.language;
+    if (selected !== 'es' && selected !== 'en') return;
+    applyLanguage(selected);
+    try { localStorage.setItem('yasb-limitora-language', selected); } catch (_) { /* Session-only choice. */ }
+  });
+  controls.hidden = false;
+})();
+</script></body></html>

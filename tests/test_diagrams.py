@@ -20,7 +20,7 @@ COMPLETE_ORDER = (
 # Registration is deliberate: a missing registered file is always an error.
 DELIVERED_PAGES = (
     'purpose.html', 'structure.html', 'data-journey.html', 'installer-transaction.html',
-    'setup-assist.html', 'proof-harness.html',
+    'setup-assist.html', 'proof-harness.html', 'proof-cases.html',
 )
 GROUPS = {
     'product': COMPLETE_ORDER[:3],
@@ -451,6 +451,23 @@ def test_proof_harness_integrity_limits_and_resolved_source_links(name):
         ('../../../proof-harness/README.md', ('L5-L18', 'L43-L68')),
         ('../../../proof-harness/guest/bootstrap-watch.ps1',
          ('L43-L57', 'L252-L300', 'L425-L478')),
+    ):
+        target = (original_directory / original).resolve()
+        relocated = Path(os.path.relpath(target, ROOT)).as_posix()
+        for fragment in fragments:
+            assert f'href="{relocated}#{fragment}"' in source
+
+
+@pytest.mark.parametrize('name', tuple(name for name in DELIVERED_PAGES if name == 'proof-cases.html'))
+def test_proof_cases_resolved_historical_source_links(name):
+    source = read(name)
+    original_directory = REPOSITORY / 'docs' / 'diagrams' / 'product'
+    for original, fragments in (
+        ('../../../proof-harness/README.md', ('L79-L120',)),
+        ('../../release/0.2.0/evidence/issue-304-reusable-vm-proof.md', ('L1-L47',)),
+        ('../../release/0.2.0/evidence/s11b-c5-silent-uninstall-state-root.md',
+         ('L3-L58', 'L99-L111')),
+        ('../../../proof-harness/guest/run-c5-silent-uninstall.ps1', ('L14-L21',)),
     ):
         target = (original_directory / original).resolve()
         relocated = Path(os.path.relpath(target, ROOT)).as_posix()
