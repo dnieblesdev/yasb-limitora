@@ -76,13 +76,13 @@ figure{container-type:inline-size}.scroll-hint{display:none;font-size:14px;color
 <p>The historical fallback shares the product AppId but uses a disposable path and harness-initiated uninstall and restore.</p>
 <p>It is not native proof of the current Pascal rollback. Static source assertions check ordering and guards, not execution, crash recovery, intact prior bytes, or automatic restoration.</p>
 <footer><p>Sources and static checks:</p><ul>
-<li><a href="../../packaging/inno/yasb-limitora.iss#L109-L114">yasb-limitora.iss:109–114</a> · <a href="../../packaging/inno/yasb-limitora.iss#L222-L323">yasb-limitora.iss:222–323</a> · <a href="../../packaging/inno/yasb-limitora.iss#L325-L448">yasb-limitora.iss:325–448</a></li>
-<li><a href="../../tests/test_inno_script.py#L214-L248"><code>test_complete_prior_registry_snapshot_is_exported_before_evacuation</code> / <code>test_registry_restore_is_verbatim_import_fail_closed_and_keeps_recovery_bytes</code></a></li>
-<li><a href="../../tests/test_inno_script.py#L349-L373"><code>test_post_install_cleanup_is_checked_and_failure_preserves_recovery_state</code> / <code>test_rollback_does_not_ignore_new_uninstaller_result</code></a></li>
-<li><a href="../../tests/test_inno_script.py#L411-L445"><code>test_rollback_restores_payload_before_registry_and_never_mixes_identities</code> / <code>test_stale_failed_payload_is_detected_and_preserved_before_transaction</code></a></li>
-<li><a href="../release/0.2.0/evidence/inno-staged-swap-spike.md#L125-L149">inno-staged-swap-spike.md:125–149</a></li>
+<li><a href="https://github.com/dnieblesdev/yasb-limitora/blob/8e4bd6016ca99b4ef20e7eb3555b79525bba3a00/packaging/inno/yasb-limitora.iss#L109-L114" target="_blank" rel="noopener noreferrer">yasb-limitora.iss:109–114</a> · <a href="https://github.com/dnieblesdev/yasb-limitora/blob/8e4bd6016ca99b4ef20e7eb3555b79525bba3a00/packaging/inno/yasb-limitora.iss#L222-L323" target="_blank" rel="noopener noreferrer">yasb-limitora.iss:222–323</a> · <a href="https://github.com/dnieblesdev/yasb-limitora/blob/8e4bd6016ca99b4ef20e7eb3555b79525bba3a00/packaging/inno/yasb-limitora.iss#L325-L448" target="_blank" rel="noopener noreferrer">yasb-limitora.iss:325–448</a></li>
+<li><a href="https://github.com/dnieblesdev/yasb-limitora/blob/8e4bd6016ca99b4ef20e7eb3555b79525bba3a00/tests/test_inno_script.py#L214-L248" target="_blank" rel="noopener noreferrer"><code>test_complete_prior_registry_snapshot_is_exported_before_evacuation</code> / <code>test_registry_restore_is_verbatim_import_fail_closed_and_keeps_recovery_bytes</code></a></li>
+<li><a href="https://github.com/dnieblesdev/yasb-limitora/blob/8e4bd6016ca99b4ef20e7eb3555b79525bba3a00/tests/test_inno_script.py#L349-L373" target="_blank" rel="noopener noreferrer"><code>test_post_install_cleanup_is_checked_and_failure_preserves_recovery_state</code> / <code>test_rollback_does_not_ignore_new_uninstaller_result</code></a></li>
+<li><a href="https://github.com/dnieblesdev/yasb-limitora/blob/8e4bd6016ca99b4ef20e7eb3555b79525bba3a00/tests/test_inno_script.py#L411-L445" target="_blank" rel="noopener noreferrer"><code>test_rollback_restores_payload_before_registry_and_never_mixes_identities</code> / <code>test_stale_failed_payload_is_detected_and_preserved_before_transaction</code></a></li>
+<li><a href="https://github.com/dnieblesdev/yasb-limitora/blob/8e4bd6016ca99b4ef20e7eb3555b79525bba3a00/docs/release/0.2.0/evidence/inno-staged-swap-spike.md#L125-L149" target="_blank" rel="noopener noreferrer">inno-staged-swap-spike.md:125–149</a></li>
 </ul><p>Offline system-font fallback is intentional; no external assets or font downloads. Static structural checks are not native proof or browser visual verification.</p></footer>
-<p class="source-hint">Source links require the local checkout. The diagram-only HTTP server does not serve source files.</p>
+<p class="source-hint">Source links open the published GitHub revision with pinned line anchors; clicking them requires a network connection, but the atlas renders offline.</p>
 </main><script>
 (() => {
   'use strict';
@@ -147,7 +147,7 @@ figure{container-type:inline-size}.scroll-hint{display:none;font-size:14px;color
     "It is not native proof of the current Pascal rollback. Static source assertions check ordering and guards, not execution, crash recovery, intact prior bytes, or automatic restoration.": "No es prueba nativa de la recuperación Pascal actual. Las aserciones estáticas comprueban orden y controles, no ejecución, recuperación tras cierre abrupto, integridad de bytes anteriores ni restauración automática.",
     "Sources and static checks:": "Fuentes y comprobaciones estáticas:", "·": "·", "/": "/",
     "Offline system-font fallback is intentional; no external assets or font downloads. Static structural checks are not native proof or browser visual verification.": "La sustitución por fuentes locales es intencional; sin recursos externos ni descargas de fuentes. Las comprobaciones estructurales estáticas no son prueba nativa ni verificación visual en navegador.",
-    "Source links require the local checkout. The diagram-only HTTP server does not serve source files.": "Los enlaces a fuentes requieren la copia local del repositorio. El servidor HTTP de diagramas no sirve los archivos fuente."
+    "Source links open the published GitHub revision with pinned line anchors; clicking them requires a network connection, but the atlas renders offline.": "Los enlaces a fuentes abren la revisión publicada en GitHub con líneas fijadas; abrirlos requiere conexión, pero el atlas se muestra sin conexión."
   };
   const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT);
   const entries = [];

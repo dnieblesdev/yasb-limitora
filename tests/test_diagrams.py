@@ -1,7 +1,6 @@
 """Progressive, offline atlas contracts; these are not native UI proofs."""
 import ast
 import json
-import os
 import re
 import subprocess
 import xml.etree.ElementTree as ET
@@ -94,6 +93,68 @@ def validate_registry(root, delivered):
                 assert target.path in {'index.html', *delivered}, href
 
 
+def source_reference(href):
+    """Map only pinned, tracked GitHub source anchors; never fetch or read history."""
+    target = urlsplit(href)
+    assert target.scheme == 'https' and target.netloc == 'github.com', href
+    assert '?' not in href and not target.query and href == target.geturl(), href
+    assert not any(character.isspace() for character in href), href
+    match = re.fullmatch(
+        r'/dnieblesdev/yasb-limitora/blob/([0-9a-f]{40})/([A-Za-z0-9_./-]+)', target.path,
+    )
+    assert match, href
+    repository_path = match[2]
+    assert all(part not in {'', '.', '..'} for part in repository_path.split('/')), href
+    assert not repository_path.startswith('docs/diagramas/'), 'atlas navigation stays local'
+    tracked = set(subprocess.check_output(
+        ['git', 'ls-files', '-z'], cwd=REPOSITORY,
+    ).decode().split('\0'))
+    assert repository_path in tracked, href
+    linked = (REPOSITORY / repository_path).resolve()
+    assert linked.is_relative_to(REPOSITORY) and linked.is_file(), href
+    line_range = re.fullmatch(r'L(\d+)-L(\d+)', target.fragment)
+    assert line_range, href
+    first, last = map(int, line_range.groups())
+    assert 1 <= first <= last <= len(linked.read_text(encoding='utf-8').splitlines()), href
+    return linked, target.fragment
+
+
+def assert_source_target(source, repository_path, fragment):
+    expected = ((REPOSITORY / repository_path).resolve(), fragment)
+    assert expected in {source_reference(href) for href in Page(source).links
+                        if urlsplit(href).scheme}, expected
+
+
+def test_published_source_url_maps_to_repository_file():
+    href = ('https://github.com/dnieblesdev/yasb-limitora/blob/'
+            + 'a' * 40 + '/src/yasb_limitora/cli.py#L187-L200')
+    assert source_reference(href) == (REPOSITORY / 'src/yasb_limitora/cli.py', 'L187-L200')
+
+
+@pytest.mark.parametrize('suffix', (
+    'https://example.invalid/dnieblesdev/yasb-limitora/blob/{revision}/src/yasb_limitora/cli.py#L1-L2',
+    'https://github.com/other/yasb-limitora/blob/{revision}/src/yasb_limitora/cli.py#L1-L2',
+    'https://github.com/dnieblesdev/other/blob/{revision}/src/yasb_limitora/cli.py#L1-L2',
+    'http://github.com/dnieblesdev/yasb-limitora/blob/{revision}/src/yasb_limitora/cli.py#L1-L2',
+    'https://user@github.com/dnieblesdev/yasb-limitora/blob/{revision}/src/yasb_limitora/cli.py#L1-L2',
+    'https://github.com:443/dnieblesdev/yasb-limitora/blob/{revision}/src/yasb_limitora/cli.py#L1-L2',
+    'https://github.com/dnieblesdev/yasb-limitora/blob/main/src/yasb_limitora/cli.py#L1-L2',
+    'https://github.com/dnieblesdev/yasb-limitora/blob/{revision}/src/../cli.py#L1-L2',
+    'https://github.com/dnieblesdev/yasb-limitora/blob/{revision}/src/%2e%2e/cli.py#L1-L2',
+    'https://github.com/dnieblesdev/yasb-limitora/blob/{revision}/src%2fyasb_limitora/cli.py#L1-L2',
+    'https://github.com/dnieblesdev/yasb-limitora/blob/{revision}/missing.py#L1-L2',
+    'https://github.com/dnieblesdev/yasb-limitora/blob/{revision}/docs/diagramas/index.html#L1-L2',
+    'https://github.com/dnieblesdev/yasb-limitora/blob/{revision}/src/yasb_limitora/cli.py?q=1#L1-L2',
+    'https://github.com/dnieblesdev/yasb-limitora/blob/{revision}/src/yasb_limitora/cli.py#L2-L1',
+    'https://github.com/dnieblesdev/yasb-limitora/blob/{revision}/src/yasb_limitora/cli.py#L0-L2',
+    'https://github.com/dnieblesdev/yasb-limitora/blob/{revision}/src/yasb_limitora/cli.py#L1-L999999',
+    'https://github.com/dnieblesdev/yasb-limitora/blob/{revision}/src/yasb_limitora/cli.py',
+))
+def test_published_source_url_rejects_unapproved_targets(suffix):
+    with pytest.raises(AssertionError):
+        source_reference(suffix.format(revision='a' * 40))
+
+
 def assert_local_url_references(source):
     for value in re.findall(r'url\s*\(([^)]*)\)', source, re.I):
         value = value.strip().strip('\"\'')
@@ -106,6 +167,30 @@ def test_fragment_markers_allowed_but_external_assets_rejected():
                   'image.png', 'data:image/png;base64,AAAA'):
         with pytest.raises(AssertionError, match='no external CSS assets'):
             assert_local_url_references(f'background:url("{value}")')
+
+
+def assert_offline_assets(page):
+    for tag, attrs in page.elements:
+        assert tag != 'link', 'no loaded external assets'
+        if tag != 'a':
+            for key in ('src', 'href', 'srcset', 'poster', 'data'):
+                if key in attrs:
+                    assert not urlsplit(attrs[key]).scheme and not attrs[key].startswith('//'), (
+                        'no loaded external assets'
+                    )
+
+
+@pytest.mark.parametrize('markup', (
+    '<script src="https://github.com/dnieblesdev/yasb-limitora/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/src/yasb_limitora/cli.py#L1-L2"></script>',
+    '<img src="https://example.invalid/image.png">',
+    '<link rel="stylesheet" href="https://example.invalid/style.css">',
+    '<svg><image href="//example.invalid/image.svg"/></svg>',
+    '<iframe src="https://github.com/"></iframe>',
+    '<object data="https://example.invalid/document"></object>',
+))
+def test_source_anchor_permission_never_permits_loaded_remote_assets(markup):
+    with pytest.raises(AssertionError, match='no loaded external assets'):
+        assert_offline_assets(Page(markup))
 
 
 def test_registered_inventory_and_nonempty_index():
@@ -150,7 +235,8 @@ def test_standalone_i18n_and_accessibility(name):
         assert required in source
     for forbidden in ('innerHTML', 'role="tab"', 'onclick='):
         assert forbidden not in source
-    assert not re.search(r'<link\b|@import|(?:src|href)="https?://', source)
+    assert not re.search(r'<link\b|@import', source)
+    assert_offline_assets(page)
     assert_local_url_references(source)
     assert not re.search(r'<script[^>]+src=', source)
     assert source.endswith('\n')
@@ -163,10 +249,19 @@ def test_links_resolve_to_tracked_or_authored_files(name):
         ['git', 'ls-files', '-z'], cwd=REPOSITORY,
     ).decode().split('\0'))
     authored = {f'docs/diagramas/{page}' for page in ('index.html', *DELIVERED_PAGES)}
-    for href in Page(read(name)).links:
+    for tag, attrs in Page(read(name)).elements:
+        if tag != 'a':
+            continue
+        href = attrs['href']
         target = urlsplit(href)
-        assert not (target.scheme or target.netloc), href
-        linked = ((ROOT / unquote(target.path)) if target.path else ROOT / name).resolve()
+        if target.scheme or target.netloc:
+            linked, _ = source_reference(href)
+            assert attrs.get('target') == '_blank'
+            assert set(attrs.get('rel', '').split()) == {'noopener', 'noreferrer'}
+        else:
+            assert not target.query and unquote(target.path) == target.path, href
+            assert target.path in {'', 'index.html', *DELIVERED_PAGES}, href
+            linked = ((ROOT / target.path) if target.path else ROOT / name).resolve()
         relative = linked.relative_to(REPOSITORY).as_posix()
         assert relative in tracked | authored, href
         assert linked.is_file(), href
@@ -177,8 +272,8 @@ def test_links_resolve_to_tracked_or_authored_files(name):
             assert 1 <= first <= last <= len(contents.splitlines()), href
         elif target.fragment:
             assert f'id="{target.fragment}"' in contents, href
-        if relative.startswith('src/'):
-            assert target.path.startswith('../../src/'), href
+        if relative not in authored:
+            assert source_reference(href) == (linked, target.fragment)
 
 
 @pytest.mark.parametrize('name', ('index.html', *DELIVERED_PAGES))
@@ -235,7 +330,7 @@ def test_progressive_page_navigation_and_stable_code(name):
     assert f'rel="prev" href="{previous}"' in source
     assert f'rel="next" href="{following}"' in source
     assert f'<span class="progress">View {index + 1} / {len(DELIVERED_PAGES)}</span>' in source
-    assert 'The diagram-only HTTP server does not serve source files.' in ' '.join(Page(source).texts)
+    assert 'Source links open the published GitHub revision with pinned line anchors; clicking them requires a network connection, but the atlas renders offline.' in ' '.join(Page(source).texts)
     assert "closest('script, style, code, button')" in source
 
 
@@ -325,9 +420,7 @@ def test_purpose_ownership_and_resolved_source_links(name):
         ('docs/architecture/README.md', 'L1-L47'),
         ('src/yasb_limitora/cli.py', 'L187-L334'),
     ):
-        target = (REPOSITORY / repository_path).resolve()
-        relocated = Path(os.path.relpath(target, ROOT)).as_posix()
-        assert f'href="{relocated}#{fragment}"' in source
+        assert_source_target(source, repository_path, fragment)
 
 
 @pytest.mark.parametrize('name', tuple(name for name in DELIVERED_PAGES if name == 'structure.html'))
@@ -343,9 +436,7 @@ def test_structure_nodes_and_resolved_source_links(name):
         ('codex_helper.py', 'L644-L708'), ('limitora_api.py', 'L330-L364'),
         ('projection.py', 'L484-L563'),
     ):
-        target = (REPOSITORY / 'src' / 'yasb_limitora' / filename).resolve()
-        relocated = Path(os.path.relpath(target, ROOT)).as_posix()
-        assert f'href="{relocated}#{fragment}"' in source
+        assert_source_target(source, f'src/yasb_limitora/{filename}', fragment)
 
 
 @pytest.mark.parametrize('name', tuple(name for name in DELIVERED_PAGES if name == 'data-journey.html'))
@@ -369,9 +460,7 @@ def test_data_journey_decision_and_resolved_source_links(name):
         ('src/yasb_limitora/projection.py', 'L484-L563'),
         ('docs/architecture/README.md', 'L63-L109'),
     ):
-        target = (REPOSITORY / repository_path).resolve()
-        relocated = Path(os.path.relpath(target, ROOT)).as_posix()
-        assert f'href="{relocated}#{fragment}"' in source
+        assert_source_target(source, repository_path, fragment)
 
 
 @pytest.mark.parametrize('name', tuple(
@@ -395,10 +484,8 @@ def test_installer_transaction_recovery_caveats_and_source_links(name):
         'quarantine', 'restore', 'registry',
     }
     assert len(svg.findall('.//*[@marker-end]')) == 8
-    target = (REPOSITORY / 'packaging/inno/yasb-limitora.iss').resolve()
-    relocated = Path(os.path.relpath(target, ROOT)).as_posix()
     for fragment in ('L1-L45', 'L222-L448', 'L904-L952'):
-        assert f'href="{relocated}#{fragment}"' in source
+        assert_source_target(source, 'packaging/inno/yasb-limitora.iss', fragment)
 
 
 @pytest.mark.parametrize('name', tuple(name for name in DELIVERED_PAGES if name == 'setup-assist.html'))
@@ -426,10 +513,8 @@ def test_setup_assist_active_transport_consent_and_source_links(name):
         ('packaging/inno/SetupAssistant.isi', ('L1-L12', 'L198-L298')),
         ('src/yasb_limitora/setup_assist.py', ('L163-L224', 'L494-L565', 'L675-L703')),
     ):
-        target = (REPOSITORY / repository_path).resolve()
-        relocated = Path(os.path.relpath(target, ROOT)).as_posix()
         for fragment in fragments:
-            assert f'href="{relocated}#{fragment}"' in source
+            assert_source_target(source, repository_path, fragment)
 
 
 @pytest.mark.parametrize('name', tuple(name for name in DELIVERED_PAGES if name == 'proof-harness.html'))
@@ -450,10 +535,8 @@ def test_proof_harness_integrity_limits_and_resolved_source_links(name):
         ('proof-harness/guest/bootstrap-watch.ps1',
          ('L43-L57', 'L252-L300', 'L425-L478')),
     ):
-        target = (REPOSITORY / repository_path).resolve()
-        relocated = Path(os.path.relpath(target, ROOT)).as_posix()
         for fragment in fragments:
-            assert f'href="{relocated}#{fragment}"' in source
+            assert_source_target(source, repository_path, fragment)
 
 
 @pytest.mark.parametrize('name', tuple(name for name in DELIVERED_PAGES if name == 'proof-cases.html'))
@@ -466,10 +549,8 @@ def test_proof_cases_resolved_historical_source_links(name):
          ('L3-L58', 'L99-L111')),
         ('proof-harness/guest/run-c5-silent-uninstall.ps1', ('L14-L21',)),
     ):
-        target = (REPOSITORY / repository_path).resolve()
-        relocated = Path(os.path.relpath(target, ROOT)).as_posix()
         for fragment in fragments:
-            assert f'href="{relocated}#{fragment}"' in source
+            assert_source_target(source, repository_path, fragment)
 
 
 @pytest.mark.parametrize('name', tuple(
@@ -493,10 +574,8 @@ def test_lifecycle_candidate_branch_and_repository_source_links(name):
         ('proof-harness/README.md', ('L43-L68',)),
         ('docs/release/0.2.0/RELEASE_NOTES.md', ('L1-L8',)),
     ):
-        target = (REPOSITORY / repository_path).resolve()
-        relocated = Path(os.path.relpath(target, ROOT)).as_posix()
         for fragment in fragments:
-            assert f'href="{relocated}#{fragment}"' in source
+            assert_source_target(source, repository_path, fragment)
 
 
 @pytest.mark.parametrize('name', tuple(
@@ -528,8 +607,8 @@ def test_installer_states_artifacts_guards_and_responsibility(name):
     svg = ET.fromstring(re.search(r'<svg\b.*?</svg>', source, re.S)[0])
     assert len(svg.findall('.//*[@data-node]')) == 9
     assert len(svg.findall('.//*[@marker-end]')) == 8
-    assert 'tests/test_inno_script.py#L214-L248' in source
-    assert 'inno-staged-swap-spike.md#L125-L149' in source
+    assert_source_target(source, 'tests/test_inno_script.py', 'L214-L248')
+    assert_source_target(source, 'docs/release/0.2.0/evidence/inno-staged-swap-spike.md', 'L125-L149')
 
 
 @pytest.mark.parametrize('name', tuple(
@@ -618,10 +697,9 @@ def test_traceability_rows_and_literal_test_nodeids(name):
         path, function_name = nodeid.split('::')
         assert path.startswith('tests/') and function_name.startswith('test_')
         assert f'<code>{nodeid}</code>' in content
-        target = urlsplit(attrs['href'])
-        linked = (ROOT / target.path).resolve()
+        linked, fragment = source_reference(attrs['href'])
         assert linked == (REPOSITORY / path).resolve()
-        assert_named_test_anchor(linked.read_text(encoding='utf-8'), function_name, target.fragment)
+        assert_named_test_anchor(linked.read_text(encoding='utf-8'), function_name, fragment)
     public_text = ' '.join(Page(source).texts)
     for claim in (
         'This atlas checks reference existence and structure, not the behavior of the referenced tests.',
@@ -672,11 +750,10 @@ def test_harness_failures_budgets_responsibility_and_evidence(name):
         attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', attrs))
         nodeid = attrs['data-test-node']
         path, function_name = nodeid.split('::')
-        target = urlsplit(attrs['href'])
-        linked = (ROOT / target.path).resolve()
+        linked, fragment = source_reference(attrs['href'])
         assert linked == (REPOSITORY / path).resolve()
         assert f'<code>{nodeid}</code>' in content
-        assert_named_test_anchor(linked.read_text(encoding='utf-8'), function_name, target.fragment)
+        assert_named_test_anchor(linked.read_text(encoding='utf-8'), function_name, fragment)
 
 
 @pytest.mark.parametrize('name', (
@@ -696,6 +773,17 @@ def test_responsibility_tables_have_named_keyboard_regions(name):
         assert label, name
         assert attrs.get('data-i18n-label') == label, name
         assert translations(source)[label].strip(), name
+
+
+def test_all_sources_share_one_full_published_revision():
+    revisions = set()
+    for name in ('index.html', *DELIVERED_PAGES):
+        for href in Page(read(name)).links:
+            if urlsplit(href).scheme:
+                source_reference(href)
+                revisions.add(urlsplit(href).path.split('/')[4])
+    assert len(revisions) == 1
+    assert re.fullmatch(r'[0-9a-f]{40}', revisions.pop())
 
 
 PROOF_CLAIMS = {
