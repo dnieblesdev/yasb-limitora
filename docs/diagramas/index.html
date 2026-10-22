@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>yasb-limitora product diagrams</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f5f5f5;color:#2d3142;font-family:'Geist',system-ui,sans-serif}
+main{max-width:1280px;min-width:0;margin:auto;padding:32px 24px}
+h1{font:400 clamp(32px,4vw,48px) 'Instrument Serif',serif;max-width:840px;line-height:1.15;margin:28px 0 20px}
+h2{font:400 32px 'Instrument Serif',serif;margin:0 0 12px}
+h3{font-size:20px;margin:0 0 16px}
+a{color:#2e5aa8}
+p{line-height:1.7}
+footer{border-top:1px solid #bfc0c0;margin-top:40px;font-size:14px;color:#4f5d75}
+.breadcrumb{display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:14px;margin:16px 0;color:#4f5d75}
+.breadcrumb [aria-current=page]{font-weight:600;color:#2d3142;text-decoration-thickness:2px}
+.section-nav{display:flex;flex-wrap:wrap;gap:8px;padding:8px;background:#ececec;border-radius:8px;margin:28px 0}
+.section-nav a{display:flex;align-items:center;gap:10px;padding:12px 18px;border:1px solid transparent;border-radius:4px;color:#2d3142;text-decoration:none;font-weight:600}
+.section-nav a::before{content:'';width:8px;height:8px;border-radius:50%;background:#4f5d75;display:inline-block;flex-shrink:0}
+.section-nav a:hover{border-color:#2e5aa8}
+.atlas-area{margin:48px 0;padding:0 0 0 20px;border-left:3px solid #bfc0c0;scroll-margin-top:24px}
+.atlas-area:target{border-left-color:#bf4520}
+.card-grid{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:16px;margin:24px 0}
+.installer-grid{grid-template-columns:1fr 1fr}
+.atlas-card,.planned-card{position:relative;display:flex;flex-direction:column;min-width:0;padding:24px;background:#fff;border:1px solid #4f5d75;border-radius:6px;color:#2d3142;text-decoration:none}
+.atlas-card:first-child,.planned-card:first-child{border-top:4px solid #bf4520}
+.atlas-card:hover{border-color:#2e5aa8;background:#ececec}
+.card-kicker{font-size:13px;letter-spacing:.04em;color:#4f5d75;margin-bottom:24px}
+.planned-card p{margin:0;font-size:15px;color:#4f5d75}
+.combined-grid{grid-template-columns:1fr}
+.source-hint{padding:12px 16px;border-left:3px solid #4f5d75;font-size:14px;color:#4f5d75}
+[hidden]{display:none!important}
+#language-controls{width:fit-content;margin-left:auto;border:1px solid #4f5d75;border-radius:6px;padding:4px;background:#ececec}
+#language-controls button{font:600 14px 'Geist',system-ui,sans-serif;min-height:40px;padding:8px 16px;border:0;background:transparent;color:#2d3142;cursor:pointer}
+#language-controls [aria-pressed=true]{background:#2d3142;color:#f5f5f5;border-radius:4px}
+a:focus-visible,button:focus-visible{outline:3px solid #2e5aa8;outline-offset:4px}
+@media(max-width:900px){.card-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:640px){main{padding:20px 16px}.section-nav a{padding:10px 12px}.atlas-area{padding-left:12px}.card-grid{grid-template-columns:1fr}.planned-card{padding:20px}.card-kicker{margin-bottom:16px}}
+@media print{#language-controls{display:none}.card-grid{grid-template-columns:1fr 1fr}.planned-card{break-inside:avoid}}
+</style>
+</head>
+<body><main>
+<div id="language-controls" hidden role="group" aria-label="Language" data-i18n-label="Language"><button type="button" data-language="es" lang="es" aria-pressed="false">Español</button> <button type="button" data-language="en" lang="en" aria-pressed="false">English</button></div>
+<nav class="breadcrumb" aria-label="Breadcrumb" data-i18n-label="Breadcrumb"><a href="index.html" aria-current="page">Diagram atlas</a></nav>
+<p>PRODUCT · WINDOWS ONLY</p>
+<h1>Understand yasb-limitora in eight views</h1>
+<p>Available: 0 / Planned: 8</p>
+<p>Views arrive individually. Planned cards are not links; each delivered figure will work independently and offline.</p>
+<nav class="section-nav" aria-label="Sections" data-i18n-label="Sections"><a href="#product">Product</a><a href="#installer">Installer &amp; proof</a><a href="#combined">Combined</a><a href="#responsibility">Responsibility</a></nav>
+<p>Section links work without JavaScript; the destination section is highlighted.</p>
+<section id="product" class="atlas-area">
+<h2>Product</h2>
+<p>Start with the running product: ownership, structure, and the document YASB consumes.</p>
+<div class="card-grid">
+<article class="planned-card"><span class="card-kicker">01 · Ownership</span><h3>Purpose and boundaries</h3><p>Planned · not yet available</p></article>
+<article class="planned-card"><span class="card-kicker">02 · Inside the process</span><h3>Internal structure</h3><p>Planned · not yet available</p></article>
+<article class="planned-card"><span class="card-kicker">03 · Follow the data</span><h3>Data journey</h3><p>Planned · not yet available</p></article>
+</div>
+</section>
+<section id="installer" class="atlas-area">
+<h2>Installer &amp; proof</h2>
+<p>Installation changes state. Evidence limits what we can claim about those changes.</p>
+<div class="card-grid installer-grid">
+<article class="planned-card"><span class="card-kicker">04 · Commit or recover</span><h3>Installer transaction</h3><p>Planned · not yet available</p></article>
+<article class="planned-card"><span class="card-kicker">05 · Consent and assistance</span><h3>Setup assistance</h3><p>Planned · not yet available</p></article>
+</div>
+<div id="proof"><h3>Proof harness</h3>
+<div class="card-grid installer-grid">
+<article class="planned-card"><span class="card-kicker">06 · Across the guest boundary</span><h3>Reusable transport</h3><p>Planned · not yet available</p></article>
+<article class="planned-card"><span class="card-kicker">07 · What the evidence means</span><h3>Evidence boundaries</h3><p>Planned · not yet available</p></article>
+</div></div>
+</section>
+<section id="combined" class="atlas-area">
+<h2>Combined</h2>
+<p>Connect the views without merging their responsibilities or evidence claims.</p>
+<div class="card-grid combined-grid">
+<article class="planned-card"><span class="card-kicker">08 · The complete map</span><h3>Build, run and verify</h3><p>Planned · not yet available</p></article>
+</div>
+</section>
+<section id="responsibility" class="atlas-area">
+<h2>Responsibility</h2>
+<p>Future additions will cover persistent installer state, resource ownership, claim traceability, and harness failures. These additions are separate from the eight planned views.</p>
+</section>
+<p>Figures are explanatory abstractions, not complete call graphs or promises of automated YASB rendering. Installer diagrams explain source behavior, not new native proof.</p>
+<p class="source-hint">Source links require the local checkout. The diagram-only HTTP server does not serve source files.</p>
+<footer>
+<p>Spanish and English are available through the language selector. Without JavaScript the page remains readable in English.</p>
+<p>Only local language-selection JavaScript; no external assets, font downloads, or network requests. Intentional system fallback: Instrument Serif → platform serif, Geist → system sans, Geist Mono → platform monospace. Font metrics can vary by machine.</p>
+<p>Reference: <a href="../architecture/README.md#L1-L109">product architecture:1–109</a></p>
+<p>Static structural checks do not constitute screenshot or native UI verification.</p>
+</footer>
+</main>
+<script>
+(() => {
+  'use strict';
+  const translations = {
+    "yasb-limitora product diagrams": "Diagramas del producto yasb-limitora",
+    "Language": "Idioma",
+    "Breadcrumb": "Ruta de navegación",
+    "Sections": "Secciones",
+    "Diagram atlas": "Atlas de diagramas",
+    "PRODUCT · WINDOWS ONLY": "PRODUCTO · SOLO WINDOWS",
+    "Understand yasb-limitora in eight views": "Entiende yasb-limitora en ocho vistas",
+    "Available: 0 / Planned: 8": "Disponibles: 0 / Planificados: 8",
+    "Views arrive individually. Planned cards are not links; each delivered figure will work independently and offline.": "Las vistas se incorporan individualmente. Las tarjetas planificadas no son enlaces; cada figura entregada funcionará de forma independiente y sin conexión.",
+    "Product": "Producto",
+    "Installer & proof": "Instalador y pruebas",
+    "Combined": "Combinado",
+    "Responsibility": "Responsabilidad",
+    "Section links work without JavaScript; the destination section is highlighted.": "Los enlaces de sección funcionan sin JavaScript; se resalta la sección de destino.",
+    "Start with the running product: ownership, structure, and the document YASB consumes.": "Empieza por el producto en ejecución: responsabilidades, estructura y el documento que consume YASB.",
+    "01 · Ownership": "01 · Responsabilidades",
+    "02 · Inside the process": "02 · Dentro del proceso",
+    "03 · Follow the data": "03 · Sigue los datos",
+    "04 · Commit or recover": "04 · Confirmar o recuperar",
+    "05 · Consent and assistance": "05 · Consentimiento y asistencia",
+    "06 · Across the guest boundary": "06 · Cruzar el límite del invitado",
+    "07 · What the evidence means": "07 · Qué significa la evidencia",
+    "08 · The complete map": "08 · El mapa completo",
+    "Purpose and boundaries": "Propósito y límites",
+    "Internal structure": "Estructura interna",
+    "Data journey": "Recorrido de los datos",
+    "Installer transaction": "Transacción del instalador",
+    "Setup assistance": "Asistencia de instalación",
+    "Reusable transport": "Transporte reutilizable",
+    "Evidence boundaries": "Límites de la evidencia",
+    "Build, run and verify": "Construir, ejecutar y verificar",
+    "Planned · not yet available": "Planificado · aún no disponible",
+    "Proof harness": "Arnés de pruebas",
+    "Installation changes state. Evidence limits what we can claim about those changes.": "La instalación cambia el estado. La evidencia limita lo que podemos afirmar sobre esos cambios.",
+    "Connect the views without merging their responsibilities or evidence claims.": "Conecta las vistas sin mezclar sus responsabilidades ni sus afirmaciones de evidencia.",
+    "Future additions will cover persistent installer state, resource ownership, claim traceability, and harness failures. These additions are separate from the eight planned views.": "Las futuras ampliaciones cubrirán el estado persistente del instalador, la propiedad de recursos, la trazabilidad de afirmaciones y los fallos del arnés. Son independientes de las ocho vistas planificadas.",
+    "Figures are explanatory abstractions, not complete call graphs or promises of automated YASB rendering. Installer diagrams explain source behavior, not new native proof.": "Las figuras son abstracciones explicativas, no grafos completos de llamadas ni promesas de renderizado automatizado de YASB. Los diagramas del instalador explican las fuentes; no son nuevas pruebas nativas.",
+    "Source links require the local checkout. The diagram-only HTTP server does not serve source files.": "Los enlaces a fuentes requieren la copia local del repositorio. El servidor HTTP de diagramas no sirve los archivos fuente.",
+    "Spanish and English are available through the language selector. Without JavaScript the page remains readable in English.": "El selector permite elegir español o inglés. Sin JavaScript la página sigue siendo legible en inglés.",
+    "Only local language-selection JavaScript; no external assets, font downloads, or network requests. Intentional system fallback: Instrument Serif → platform serif, Geist → system sans, Geist Mono → platform monospace. Font metrics can vary by machine.": "Solo JavaScript local para elegir idioma; sin recursos externos, descargas de fuentes ni solicitudes de red. Sustitución intencional por fuentes del sistema: Instrument Serif → serif de la plataforma, Geist → sans del sistema, Geist Mono → monoespaciada de la plataforma. Las métricas pueden variar según el equipo.",
+    "Reference:": "Referencia:",
+    "Static structural checks do not constitute screenshot or native UI verification.": "Las comprobaciones estructurales estáticas no equivalen a verificar capturas ni la interfaz nativa."
+  };
+  const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT);
+  const entries = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (node.parentElement.closest('script, style, code, button')) continue;
+    const english = node.textContent.trim();
+    if (Object.prototype.hasOwnProperty.call(translations, english)) {
+      entries.push({node, original: node.textContent, english});
+    }
+  }
+  const controls = document.getElementById('language-controls');
+  const buttons = controls.querySelectorAll('button');
+  const applyLanguage = language => {
+    for (const {node, original, english} of entries) {
+      node.textContent = original.replace(english, language === 'es' ? translations[english] : english);
+    }
+    document.documentElement.lang = language;
+    for (const element of document.querySelectorAll('[data-i18n-label]')) {
+      const english = element.dataset.i18nLabel;
+      element.setAttribute('aria-label', language === 'es' ? translations[english] : english);
+    }
+    for (const button of buttons) button.setAttribute('aria-pressed', String(button.dataset.language === language));
+  };
+  let language = 'es';
+  try {
+    const saved = localStorage.getItem('yasb-limitora-language');
+    if (saved === 'es' || saved === 'en') language = saved;
+  } catch (_) { /* Storage may be unavailable, including on file://. */ }
+  applyLanguage(language);
+  for (const button of buttons) button.addEventListener('click', () => {
+    const selected = button.dataset.language;
+    if (selected !== 'es' && selected !== 'en') return;
+    applyLanguage(selected);
+    try { localStorage.setItem('yasb-limitora-language', selected); } catch (_) { /* Session-only choice. */ }
+  });
+  controls.hidden = false;
+})();
+</script>
+</body>
+</html>
