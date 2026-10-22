@@ -20,7 +20,7 @@ COMPLETE_ORDER = (
 # Registration is deliberate: a missing registered file is always an error.
 DELIVERED_PAGES = (
     'purpose.html', 'structure.html', 'data-journey.html', 'installer-transaction.html',
-    'setup-assist.html',
+    'setup-assist.html', 'proof-harness.html',
 )
 GROUPS = {
     'product': COMPLETE_ORDER[:3],
@@ -426,6 +426,31 @@ def test_setup_assist_active_transport_consent_and_source_links(name):
     for original, fragments in (
         ('../../../packaging/inno/SetupAssistant.isi', ('L1-L12', 'L198-L298')),
         ('../../../src/yasb_limitora/setup_assist.py', ('L163-L224', 'L494-L565', 'L675-L703')),
+    ):
+        target = (original_directory / original).resolve()
+        relocated = Path(os.path.relpath(target, ROOT)).as_posix()
+        for fragment in fragments:
+            assert f'href="{relocated}#{fragment}"' in source
+
+
+@pytest.mark.parametrize('name', tuple(name for name in DELIVERED_PAGES if name == 'proof-harness.html'))
+def test_proof_harness_integrity_limits_and_resolved_source_links(name):
+    source = read(name)
+    public_text = ' '.join(Page(source).texts)
+    for claim in (
+        'is an explicit opt-in to writable input, not a read-only mode.',
+        'Pre/post input-tree hashes detect persistent mutation, not transient tamper reverted before the post-hash.',
+        'Only verified controlled success requests shutdown.',
+        'reports timeout as exit 124.',
+        'it is not produced by the guest or synthesized for old archives.',
+    ):
+        assert claim in public_text
+    assert '<code>-AllowWritableInputIntegrityFallback</code>' in source.split('<script>')[0]
+    original_directory = REPOSITORY / 'docs' / 'diagrams' / 'product'
+    for original, fragments in (
+        ('../../../proof-harness/README.md', ('L5-L18', 'L43-L68')),
+        ('../../../proof-harness/guest/bootstrap-watch.ps1',
+         ('L43-L57', 'L252-L300', 'L425-L478')),
     ):
         target = (original_directory / original).resolve()
         relocated = Path(os.path.relpath(target, ROOT)).as_posix()

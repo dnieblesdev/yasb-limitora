@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Reusable proof harness</title><style>
+body{margin:0;background:#f5f5f5;color:#2d3142;font-family:'Geist',system-ui,sans-serif}main{max-width:1280px;min-width:0;margin:auto;padding:32px 20px}h1{font:400 28px 'Instrument Serif',serif}p,li{line-height:1.6}a{color:#2e5aa8}.diagram-container{width:100%;overflow-x:auto}svg{display:block;width:100%;min-width:1280px}.name{font:600 12px 'Geist',system-ui,sans-serif;fill:#2d3142}.detail{font:400 12px 'Geist',system-ui,sans-serif;fill:#4f5d75}.tag{font:500 8px 'Geist Mono',ui-monospace,monospace;fill:#5a6580;letter-spacing:.14em}.legend{font:400 11px 'Geist',system-ui,sans-serif;fill:#4f5d75}footer{border-top:1px solid #bfc0c0;margin-top:24px;font-size:14px}.area-nav,.page-nav{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:24px 0}.area-nav a,.page-nav a{padding:12px 16px;border:1px solid #4f5d75;border-radius:6px;text-decoration:none}.area-nav [aria-current]{border-bottom:4px solid #bf4520;color:#2d3142}.progress{color:#4f5d75;margin-right:auto}#language-controls{width:fit-content;margin-left:auto;border:1px solid #4f5d75;border-radius:6px;padding:4px}#language-controls button{font:inherit;padding:8px 16px;border:0;background:transparent;color:#2d3142;cursor:pointer}#language-controls [aria-pressed=true]{background:#2d3142;color:#f5f5f5;border-radius:4px}a:focus-visible,button:focus-visible{outline:3px solid #2e5aa8;outline-offset:4px}@media print{.diagram-container{overflow-x:visible}svg{min-width:0}}
+
+[hidden]{display:none!important}.breadcrumb{display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:14px;margin:16px 0;color:#4f5d75}.crumb-divider::before{content:'/';color:#4f5d75}.section-nav{display:flex;flex-wrap:wrap;gap:8px;padding:8px;background:#ececec;border-radius:8px;margin:20px 0}.section-nav a{display:flex;align-items:center;gap:10px;padding:12px 18px;border:1px solid transparent;border-radius:4px;color:#2d3142;text-decoration:none;font-weight:600}.section-nav a::before{content:'';width:8px;height:8px;border-radius:50%;background:#4f5d75;display:inline-block;flex-shrink:0}.section-nav [aria-current=location]{background:#f5f5f5;border-color:#bf4520}.section-nav [aria-current=location]::before{background:#bf4520;border-color:#bf4520}.area-nav{gap:8px;margin:16px 0}.area-nav a{padding:10px 14px;font-size:14px;border-color:#4f5d75}.area-nav [aria-current=page]{background:#2d3142;color:#f5f5f5;border:1px solid #2d3142}.page-nav{align-items:center;gap:12px;border-top:1px solid #bfc0c0;padding-top:16px}.page-nav a{border-color:#2e5aa8}.page-nav [rel=next]{background:#2e5aa8;color:#f5f5f5}.progress{margin-right:auto;font-size:14px;font-weight:600;color:#4f5d75}.source-hint{padding:12px 16px;border-left:3px solid #4f5d75;font-size:14px;color:#4f5d75}#language-controls{padding:4px;background:#ececec;border-color:#4f5d75}#language-controls button{min-height:40px;font-size:14px;font-weight:600}#language-controls [aria-pressed=true]{background:#2d3142;color:#f5f5f5}.atlas-card:hover,.area-nav a:hover,.section-nav a:hover{border-color:#2e5aa8}a:focus-visible,button:focus-visible{outline:3px solid #2e5aa8;outline-offset:4px}@media(max-width:640px){main{padding:20px 16px}.section-nav a{padding:10px 12px}.page-nav{flex-wrap:wrap}.progress{flex-basis:100%}.area-nav a{padding:10px 12px}}
+figure{container-type:inline-size}.scroll-hint{display:none;font-size:14px;color:#4f5d75}@container(width < 1280px){.scroll-hint{display:block}}@media print{.scroll-hint{display:none}}
+</style></head><body><main>
+<div id="language-controls" hidden role="group" aria-label="Language" data-i18n-label="Language"><button type="button" data-language="es" lang="es" aria-pressed="false">Español</button> <button type="button" data-language="en" lang="en" aria-pressed="false">English</button></div>
+<nav class="breadcrumb" aria-label="Breadcrumb" data-i18n-label="Breadcrumb"><a href="index.html">Diagram atlas</a><span class="crumb-divider" aria-hidden="true"></span><a href="index.html#proof">Installer &amp; proof</a></nav><nav class="section-nav" aria-label="Sections" data-i18n-label="Sections"><a href="index.html#product">Product</a><a href="index.html#installer" aria-current="location">Installer &amp; proof</a><a href="index.html#combined">Combined</a></nav><nav class="area-nav" aria-label="Area navigation" data-i18n-label="Area navigation"><a href="installer-transaction.html">Installer transaction</a><a href="setup-assist.html">Setup assistance</a><a href="proof-harness.html" aria-current="page">Reusable transport</a></nav>
+<nav class="page-nav" aria-label="Reading order" data-i18n-label="Reading order"><span class="progress">View 6 / 6</span><a rel="prev" href="setup-assist.html">← Previous</a><a rel="next" href="index.html">Next →</a></nav>
+<h1>Restore the bootstrap; supply the scenario afresh</h1><p>The generic checkpoint contains the resident watcher, not the scenario. Fresh input and evidence disks carry each run across the host / guest boundary.</p>
+<figure style="margin:0"><p class="scroll-hint">Scroll horizontally to see the full diagram</p><div class="diagram-container"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" role="img" aria-labelledby="proof-harness-title proof-harness-desc"><title id="proof-harness-title">Reusable proof harness</title><desc id="proof-harness-desc">The host restores a generic guest, stages distinct run volumes, and extracts bounded evidence for offline checks after guest validation and runner execution.</desc><defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#4f5d75"/></marker></defs><rect width="1280" height="720" fill="#f5f5f5"/>
+<text x="64" y="64" class="tag">HOST PREPARATION → GUEST EXECUTION</text>
+<path d="M 384 152 H 480" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/><path d="M 800 152 H 920" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/><path d="M 1068 216 V 300" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/><path d="M 920 356 H 800" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/><path d="M 480 356 H 384" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/><path d="M 224 420 V 500" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/>
+<g data-node="checkpoint"><rect x="64" y="96" width="320" height="120" rx="6" fill="#ececec" stroke="#4f5d75"/><text x="88" y="128" class="name">Host: restore generic checkpoint</text><text x="88" y="160" class="detail">Resident bootstrap only</text><text x="88" y="184" class="detail">No runner, scenario, setup or media</text></g>
+<g data-node="stage"><rect x="480" y="96" width="320" height="120" rx="6" fill="#f5f5f5" stroke="#bf4520"/><text x="504" y="128" class="name">Host: stage two fresh disks</text><text x="504" y="160" class="detail">S11BINPUTS + S11BEVIDENCE</text><text x="504" y="184" class="detail">Distinct volumes; explicit writable opt-in</text></g>
+<g data-node="validate"><rect x="920" y="96" width="296" height="120" rx="6" fill="#fff" stroke="#2d3142"/><text x="944" y="128" class="name">Guest: validate the contract</text><text x="944" y="160" class="detail">Exact labels, paths, runner hash</text><text x="944" y="184" class="detail">Record watcher hash; hash input tree</text></g>
+<g data-node="runner"><rect x="920" y="300" width="296" height="120" rx="6" fill="#fff" stroke="#2d3142"/><text x="944" y="332" class="name">Guest: run per-run runner</text><text x="944" y="364" class="detail">Only -EvidenceRoot / -ScenarioPath</text><text x="944" y="388" class="detail">300-second timeout; capped output</text></g>
+<g data-node="records"><rect x="480" y="300" width="320" height="120" rx="6" fill="#fff" stroke="#2d3142"/><text x="504" y="332" class="name">Guest: check and write evidence</text><text x="504" y="364" class="detail">Post-hash input; check artifacts and exit</text><text x="504" y="388" class="detail">done.json / exit.json / bounded logs</text></g>
+<g data-node="extract"><rect x="64" y="300" width="320" height="120" rx="6" fill="#fff" stroke="#2d3142"/><text x="88" y="332" class="name">Host: detach, then extract</text><text x="88" y="364" class="detail">Wait for records and guest Off on success</text><text x="88" y="388" class="detail">Bounded watchdog and cleanup</text></g>
+<g data-node="verify"><rect x="64" y="500" width="488" height="112" rx="6" fill="#f5f5f5" stroke="#bf4520"/><text x="88" y="532" class="name">Host: offline verification + provenance checks</text><text x="88" y="564" class="detail">Recompute archived input, runner, artifacts and exit records</text><text x="88" y="588" class="detail">Check host-provenance.json when supplied; do not invent it</text></g>
+<text x="624" y="520" class="name">Success requests shutdown; failure leaves the guest up</text><text x="624" y="552" class="detail">Persistent mutation is detectable; reverted transient tamper is not.</text><text x="624" y="584" class="detail">Never run the installer or uninstaller on the host.</text>
+<line x1="40" y1="660" x2="1240" y2="660" stroke="#bfc0c0"/><text x="64" y="688" class="legend">Solid → controlled handoff · Accent → fresh staging and independent checks · Diagram explains source, not a new run</text>
+</svg></div><figcaption><p>The observed host cannot guarantee guest read-only attachment. The default refuses execution; <code>-AllowWritableInputIntegrityFallback</code> is an explicit opt-in to writable input, not a read-only mode. Pre/post input-tree hashes detect persistent mutation, not transient tamper reverted before the post-hash. This is not hostile-guest protection or cryptographic attestation.</p><p>The watcher validates distinct exact-label volumes, safe paths, runner identity and declared artifacts. It passes only -EvidenceRoot and -ScenarioPath, drains stdout and stderr concurrently into capped files, and reports timeout as exit 124. Only verified controlled success requests shutdown. Bootstrap failure leaves the guest running; the host watchdog and bounded cleanup handle failure, retain failure records, and attempt extraction when detachment permits it.</p><p>Host provenance records checkpoint identity, restore observations and run outcomes alongside the archive; it is not produced by the guest or synthesized for old archives. Offline verification checks recorded identities and bytes, not the semantics of every possible installer scenario. Generic transport success is not installer lifecycle proof.</p></figcaption></figure>
+<footer><p>Sources: <a href="../../proof-harness/README.md#L5-L18">README.md:5–18</a>; <a href="../../proof-harness/README.md#L43-L68">README.md:43–68</a>; <a href="../../proof-harness/guest/bootstrap-watch.ps1#L43-L57">bootstrap-watch.ps1:43–57</a>; <a href="../../proof-harness/guest/bootstrap-watch.ps1#L252-L300">bootstrap-watch.ps1:252–300</a>; <a href="../../proof-harness/guest/bootstrap-watch.ps1#L425-L478">bootstrap-watch.ps1:425–478</a>.</p><p>Source links require the surrounding checkout; the diagram-only HTTP server does not serve them. Offline system-font fallback is intentional. Translation-only JavaScript is an explicit exception to the upstream static checker; local structural checks do not replace browser visual verification.</p></footer><p class="source-hint">Source links require the local checkout. The diagram-only HTTP server does not serve source files.</p></main><script>
+(() => {
+  'use strict';
+  const translations = {
+    "Scroll horizontally to see the full diagram": "Deslizá horizontalmente para ver el diagrama completo",
+    "Breadcrumb": "Ruta de navegación",
+    "Sections": "Secciones",
+    "Product": "Producto",
+    "Combined": "Combinado",
+    "Installer & proof": "Instalador y pruebas",
+    "Installer transaction": "Transacción del instalador",
+    "Setup assistance": "Asistencia de instalación",
+    "Source links require the local checkout. The diagram-only HTTP server does not serve source files.": "Los enlaces a fuentes requieren la copia local del repositorio. El servidor HTTP de diagramas no sirve los archivos fuente.",
+    "Language": "Idioma",
+    "Area navigation": "Navegación por áreas",
+    "Reading order": "Orden de lectura",
+    "Diagram atlas": "Atlas de diagramas",
+    "Proof harness": "Arnés de pruebas",
+    "Reusable transport": "Transporte reutilizable",
+    "Evidence boundaries": "Límites de la evidencia",
+    "View 6 / 6": "Vista 6 / 6",
+    "← Previous": "← Anterior",
+    "Next →": "Siguiente →",
+    "Reusable proof harness": "Arnés de pruebas reutilizable",
+    "Restore the bootstrap; supply the scenario afresh": "Restaura el arranque; aporta de nuevo el escenario",
+    "The generic checkpoint contains the resident watcher, not the scenario. Fresh input and evidence disks carry each run across the host / guest boundary.": "El punto de control genérico contiene el vigilante residente, no el escenario. Discos nuevos de entrada y evidencia transportan cada ejecución entre anfitrión e invitado.",
+    "The host restores a generic guest, stages distinct run volumes, and extracts bounded evidence for offline checks after guest validation and runner execution.": "El anfitrión restaura un invitado genérico, prepara volúmenes distintos y extrae evidencia acotada para comprobarla sin conexión tras la validación y ejecución en el invitado.",
+    "HOST PREPARATION → GUEST EXECUTION": "PREPARACIÓN ANFITRIÓN → EJECUCIÓN INVITADO",
+    "Host: restore generic checkpoint": "Anfitrión: restaurar punto genérico",
+    "Resident bootstrap only": "Solo arranque residente",
+    "No runner, scenario, setup or media": "Sin ejecutor, escenario, instalador ni medios",
+    "Host: stage two fresh disks": "Anfitrión: preparar dos discos nuevos",
+    "S11BINPUTS + S11BEVIDENCE": "S11BINPUTS + S11BEVIDENCE",
+    "Distinct volumes; explicit writable opt-in": "Volúmenes distintos; escritura consentida",
+    "Guest: validate the contract": "Invitado: validar el contrato",
+    "Exact labels, paths, runner hash": "Etiquetas, rutas y hash del ejecutor",
+    "Record watcher hash; hash input tree": "Registrar hash del vigilante y la entrada",
+    "Guest: run per-run runner": "Invitado: ejecutar el guion",
+    "Only -EvidenceRoot / -ScenarioPath": "Solo -EvidenceRoot / -ScenarioPath",
+    "300-second timeout; capped output": "Plazo de 300 segundos; salida limitada",
+    "Guest: check and write evidence": "Invitado: comprobar y guardar evidencia",
+    "Post-hash input; check artifacts and exit": "Hash final; comprobar artefactos y salida",
+    "done.json / exit.json / bounded logs": "done.json / exit.json / registros acotados",
+    "Host: detach, then extract": "Anfitrión: separar y luego extraer",
+    "Wait for records and guest Off on success": "Al tener éxito: esperar registros y apagado",
+    "Bounded watchdog and cleanup": "Vigilancia y limpieza acotadas",
+    "Host: offline verification + provenance checks": "Anfitrión: verificar sin conexión y comprobar procedencia",
+    "Recompute archived input, runner, artifacts and exit records": "Recalcular entrada, ejecutor, artefactos y registros de salida archivados",
+    "Check host-provenance.json when supplied; do not invent it": "Comprobar host-provenance.json si se aporta; no inventarlo",
+    "Success requests shutdown; failure leaves the guest up": "El éxito solicita apagar; el fallo deja encendido al invitado",
+    "Persistent mutation is detectable; reverted transient tamper is not.": "Se detecta la mutación persistente, no la alteración transitoria revertida.",
+    "Never run the installer or uninstaller on the host.": "Nunca ejecutar el instalador ni el desinstalador en el anfitrión.",
+    "Solid → controlled handoff · Accent → fresh staging and independent checks · Diagram explains source, not a new run": "Línea continua → entrega controlada · Acento → preparación nueva y comprobación independiente · Explica las fuentes, no una nueva ejecución",
+    "The observed host cannot guarantee guest read-only attachment. The default refuses execution;": "El anfitrión observado no garantiza una conexión de solo lectura para el invitado. Por defecto rechaza ejecutar;",
+    "is an explicit opt-in to writable input, not a read-only mode. Pre/post input-tree hashes detect persistent mutation, not transient tamper reverted before the post-hash. This is not hostile-guest protection or cryptographic attestation.": "autoriza explícitamente una entrada escribible, no un modo de solo lectura. Los hashes del árbol antes y después detectan mutaciones persistentes, no alteraciones transitorias revertidas antes del hash final. No protege de un invitado hostil ni es certificación criptográfica.",
+    "The watcher validates distinct exact-label volumes, safe paths, runner identity and declared artifacts. It passes only -EvidenceRoot and -ScenarioPath, drains stdout and stderr concurrently into capped files, and reports timeout as exit 124. Only verified controlled success requests shutdown. Bootstrap failure leaves the guest running; the host watchdog and bounded cleanup handle failure, retain failure records, and attempt extraction when detachment permits it.": "El vigilante valida volúmenes distintos con etiquetas exactas, rutas seguras, identidad del ejecutor y artefactos declarados. Solo pasa -EvidenceRoot y -ScenarioPath, drena stdout y stderr simultáneamente en archivos limitados y notifica el vencimiento con salida 124. Solo el éxito controlado y verificado solicita apagar. El fallo de arranque deja el invitado encendido; la vigilancia y limpieza acotadas del anfitrión gestionan el fallo, conservan registros e intentan extraer cuando es posible separar los discos.",
+    "Host provenance records checkpoint identity, restore observations and run outcomes alongside the archive; it is not produced by the guest or synthesized for old archives. Offline verification checks recorded identities and bytes, not the semantics of every possible installer scenario. Generic transport success is not installer lifecycle proof.": "La procedencia del anfitrión registra identidad del punto de control, observaciones de restauración y resultados junto al archivo; no la produce el invitado ni se sintetiza para archivos antiguos. La verificación sin conexión comprueba identidades y bytes registrados, no la semántica de cualquier escenario de instalación. El éxito del transporte genérico no demuestra el ciclo de vida del instalador.",
+    "Sources:": "Fuentes:",
+    "Source links require the surrounding checkout; the diagram-only HTTP server does not serve them. Offline system-font fallback is intentional. Translation-only JavaScript is an explicit exception to the upstream static checker; local structural checks do not replace browser visual verification.": "Los enlaces a fuentes requieren la copia completa del repositorio; el servidor HTTP de diagramas no los sirve. La sustitución por fuentes locales es intencional. El JavaScript exclusivo de traducción es una excepción explícita al comprobador estático original; las comprobaciones estructurales no sustituyen la verificación visual en navegador."
+  };
+  const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT);
+  const entries = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (node.parentElement.closest('script, style, code, button')) continue;
+    const english = node.textContent.trim();
+    if (Object.prototype.hasOwnProperty.call(translations, english)) entries.push({node, original: node.textContent, english});
+  }
+  const controls = document.getElementById('language-controls');
+  const buttons = controls.querySelectorAll('button');
+  const applyLanguage = language => {
+    for (const {node, original, english} of entries) node.textContent = original.replace(english, language === 'es' ? translations[english] : english);
+    document.documentElement.lang = language;
+    for (const element of document.querySelectorAll('[data-i18n-label]')) {
+      const english = element.dataset.i18nLabel;
+      element.setAttribute('aria-label', language === 'es' ? translations[english] : english);
+    }
+    for (const button of buttons) button.setAttribute('aria-pressed', String(button.dataset.language === language));
+  };
+  let language = 'es';
+  try {
+    const saved = localStorage.getItem('yasb-limitora-language');
+    if (saved === 'es' || saved === 'en') language = saved;
+  } catch (_) { /* Storage may be unavailable, including on file://. */ }
+  applyLanguage(language);
+  for (const button of buttons) button.addEventListener('click', () => {
+    const selected = button.dataset.language;
+    if (selected !== 'es' && selected !== 'en') return;
+    applyLanguage(selected);
+    try { localStorage.setItem('yasb-limitora-language', selected); } catch (_) { /* Session-only choice. */ }
+  });
+  controls.hidden = false;
+})();
+</script></body></html>
