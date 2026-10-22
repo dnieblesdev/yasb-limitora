@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Product data journey</title><style>
+body{margin:0;background:#f5f5f5;color:#2d3142;font-family:'Geist',system-ui,sans-serif}main{max-width:1280px;min-width:0;margin:auto;padding:32px 20px}h1{font:400 28px 'Instrument Serif',serif}p,li{line-height:1.6}a{color:#2e5aa8}.diagram-container{width:100%;overflow-x:auto}svg{display:block;width:100%;min-width:1280px}.name{font:600 12px 'Geist',system-ui,sans-serif;fill:#2d3142}.detail{font:400 12px 'Geist',system-ui,sans-serif;fill:#4f5d75}.tag{font:500 8px 'Geist Mono',ui-monospace,monospace;fill:#5a6580;letter-spacing:.14em}.legend{font:400 11px 'Geist',system-ui,sans-serif;fill:#4f5d75}footer{border-top:1px solid #bfc0c0;margin-top:24px;font-size:14px}@media print{.diagram-container{overflow-x:visible}svg{min-width:0}}
+.area-nav,.page-nav{display:flex;flex-wrap:wrap;gap:12px;margin:24px 0}.area-nav a,.page-nav a{padding:12px 16px;border:1px solid #4f5d75;border-radius:6px;text-decoration:none}.area-nav [aria-current]{border-bottom:4px solid #bf4520;color:#2d3142}#language-controls{width:fit-content;margin-left:auto;border:1px solid #4f5d75;border-radius:6px;padding:4px}#language-controls button{font:inherit;padding:8px 16px;border:0;background:transparent;color:#2d3142;cursor:pointer}#language-controls [aria-pressed=true]{background:#2d3142;color:#f5f5f5;border-radius:4px}a:focus-visible,button:focus-visible{outline:3px solid #2e5aa8;outline-offset:4px}
+
+[hidden]{display:none!important}.breadcrumb{display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:14px;margin:16px 0;color:#4f5d75}.crumb-divider::before{content:'/';color:#4f5d75}.section-nav{display:flex;flex-wrap:wrap;gap:8px;padding:8px;background:#ececec;border-radius:8px;margin:20px 0}.section-nav a{display:flex;align-items:center;gap:10px;padding:12px 18px;border:1px solid transparent;border-radius:4px;color:#2d3142;text-decoration:none;font-weight:600}.section-nav a::before{content:'';width:8px;height:8px;border-radius:50%;background:#4f5d75;display:inline-block;flex-shrink:0}.section-nav [aria-current=location]{background:#f5f5f5;border-color:#bf4520}.section-nav [aria-current=location]::before{background:#bf4520;border-color:#bf4520}.area-nav{gap:8px;margin:16px 0}.area-nav a{padding:10px 14px;font-size:14px;border-color:#4f5d75}.area-nav [aria-current=page]{background:#2d3142;color:#f5f5f5;border:1px solid #2d3142}.page-nav{align-items:center;gap:12px;border-top:1px solid #bfc0c0;padding-top:16px}.page-nav a{border-color:#2e5aa8}.page-nav [rel=next]{background:#2e5aa8;color:#f5f5f5}.progress{margin-right:auto;font-size:14px;font-weight:600;color:#4f5d75}.source-hint{padding:12px 16px;border-left:3px solid #4f5d75;font-size:14px;color:#4f5d75}#language-controls{padding:4px;background:#ececec;border-color:#4f5d75}#language-controls button{min-height:40px;font-size:14px;font-weight:600}#language-controls [aria-pressed=true]{background:#2d3142;color:#f5f5f5}.atlas-card:hover,.area-nav a:hover,.section-nav a:hover{border-color:#2e5aa8}a:focus-visible,button:focus-visible{outline:3px solid #2e5aa8;outline-offset:4px}@media(max-width:640px){main{padding:20px 16px}.section-nav a{padding:10px 12px}.page-nav{flex-wrap:wrap}.progress{flex-basis:100%}.area-nav a{padding:10px 12px}}
+figure{container-type:inline-size}.scroll-hint{display:none;font-size:14px;color:#4f5d75}@container(width < 1280px){.scroll-hint{display:block}}@media print{.scroll-hint{display:none}}
+</style></head><body><main><div id="language-controls" hidden role="group" aria-label="Language" data-i18n-label="Language"><button type="button" data-language="es" lang="es" aria-pressed="false">Español</button> <button type="button" data-language="en" lang="en" aria-pressed="false">English</button></div><nav class="breadcrumb" aria-label="Breadcrumb" data-i18n-label="Breadcrumb"><a href="index.html">Diagram atlas</a><span class="crumb-divider" aria-hidden="true"></span><a href="index.html#product">Product</a></nav><nav class="section-nav" aria-label="Sections" data-i18n-label="Sections"><a href="index.html#product" aria-current="location">Product</a><a href="index.html#installer">Installer &amp; proof</a><a href="index.html#combined">Combined</a></nav><nav class="area-nav" aria-label="Area navigation" data-i18n-label="Area navigation"><a href="purpose.html">Purpose and boundaries</a><a href="structure.html">Internal structure</a><a href="data-journey.html" aria-current="page">Data journey</a></nav><nav class="page-nav" aria-label="Reading order" data-i18n-label="Reading order"><span class="progress">View 3 / 3</span><a rel="prev" href="structure.html">← Previous</a><a rel="next" href="index.html">Next →</a></nav><h1>From invocation to a sanitized document</h1><p>Representative successful cache-eligible journey. Follow the fresh-hit shortcut or the miss path; error and bypass details remain in the caption.</p><figure style="margin:0"><p class="scroll-hint">Scroll horizontally to see the full diagram</p><div class="diagram-container"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" role="img" aria-labelledby="data-journey-title data-journey-desc"><title id="data-journey-title">Product data journey</title><desc id="data-journey-desc">Fresh cache hits return projected bytes without provider work, while misses claim authority, execute providers, sanitize observations, finish cleanup, and project output before eligible publication.</desc><defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#4f5d75"/></marker><marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#bf4520"/></marker><marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#2e5aa8"/></marker></defs><rect width="1280" height="720" fill="#f5f5f5"/>
+<path d="M 640 104 V 136" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/><path d="M 760 192 H 920" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/><path d="M 640 248 V 320" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/><path d="M 640 384 V 424" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/><path d="M 480 456 H 384" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/><path d="M 224 488 V 528" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/><path d="M 384 560 H 480" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/><path d="M 800 560 H 920" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/><path d="M 1040 224 V 528" fill="none" stroke="#4f5d75" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+<rect x="792" y="164" width="96" height="20" fill="#f5f5f5"/><text x="840" y="177" class="tag" text-anchor="middle">YES: FRESH</text><rect x="648" y="272" width="80" height="20" fill="#f5f5f5"/><text x="688" y="285" class="tag" text-anchor="middle">NO: MISS</text>
+<g data-node="configuration"><rect x="480" y="40" width="320" height="64" rx="6" fill="#fff" stroke="#2d3142"/><text x="504" y="68" class="name">Resolve configuration and deadline</text><text x="504" y="88" class="detail">Explicit → environment → local default</text></g>
+<g data-node="freshness"><polygon points="640,136 760,192 640,248 520,192" fill="#ececec" stroke="#4f5d75"/><text x="640" y="188" text-anchor="middle" class="name">Fresh public bytes?</text><text x="640" y="208" text-anchor="middle" class="tag">OPTIONAL CACHE</text></g>
+<g data-node="reuse"><rect x="920" y="160" width="240" height="64" rx="6" fill="#ececec" stroke="#4f5d75"/><text x="944" y="188" class="name">Reuse projected bytes</text><text x="944" y="208" class="detail">No provider calls</text></g>
+<g data-node="claim"><rect x="480" y="320" width="320" height="64" rx="6" fill="#fff" stroke="#2d3142"/><text x="504" y="348" class="name">Bounded claim / wait</text><text x="504" y="368" class="detail">Generation authority · fresh refresh owner</text></g>
+<g data-node="providers"><rect x="480" y="424" width="320" height="64" rx="6" fill="#fff" stroke="#2d3142"/><text x="504" y="452" class="name">Execute enabled providers</text><text x="504" y="472" class="detail">Codex then OpenCode · Limitora public API</text></g>
+<g data-node="sanitize"><rect x="64" y="424" width="320" height="64" rx="6" fill="#f5f5f5" stroke="#bf4520"/><text x="88" y="452" class="name">Sanitize at the adapter</text><text x="88" y="472" class="detail">Immutable views, never raw provider payloads</text></g>
+<g data-node="cleanup"><rect x="64" y="528" width="320" height="64" rx="6" fill="#fff" stroke="#2d3142"/><text x="88" y="556" class="name">Finish bounded cleanup</text><text x="88" y="576" class="detail">Terminate / close resources · release guard</text></g>
+<g data-node="projection"><rect x="480" y="528" width="320" height="64" rx="6" fill="#fff" stroke="#2d3142"/><text x="504" y="556" class="name">Project presentation and JSON bytes</text><text x="504" y="576" class="detail">Then publish only if eligible + authoritative</text></g>
+<g data-node="stdout"><rect x="920" y="528" width="240" height="64" rx="6" fill="#fff" stroke="#2d3142"/><text x="944" y="556" class="name">Write stdout for YASB</text><text x="944" y="576" class="detail">One UTF-8 JSON document + LF</text></g>
+<line x1="40" y1="660" x2="1240" y2="660" stroke="#bfc0c0"/><text x="64" y="688" class="legend">Solid → miss-path processing / decision · Dashed → fresh-hit shortcut · Diamond → decision · Accent → sanitization boundary</text></svg></div><figcaption><p>Optional caching is not universal: bypass paths run a fresh attempt without cache claim / publication. Live-owner waiters retry cache and marker state within their deadline; a waiter may return a newly published hit instead of becoming a producer. Unknown ownership fails closed, never spawning an uncoordinated producer.</p><p>The provider-work and sanitization boxes summarize repeated per-provider activity, not a raw aggregate handed to the parent. Sanitized views return from isolated execution; cleanup finishes before cache publication. The schema-5 envelope stores only a sanitized public document and digest-only fingerprint, with a 180-second TTL. Errors, timeouts, cleanup failures, and all-disabled runs are not published; publication also requires the exact current generation. Cache I/O failures do not rewrite a valid provider result.</p><p>Stdout is machine-readable only. Sanitized diagnostics on stderr and exit status are separate channels. Unsupported-platform rejection has no stdout; invocation and configuration errors follow their documented failure paths. No root version field and no output-version selector are introduced.</p></figcaption></figure><footer><p>Sources at base <code>8e4bd60</code>: <a href="../../src/yasb_limitora/cli.py#L187-L334">cli.py:187–334</a>; <a href="../../src/yasb_limitora/cache.py#L1169-L1300">cache.py:1169–1300</a>; <a href="../../src/yasb_limitora/worker.py#L436-L673">worker.py:436–673</a>; <a href="../../src/yasb_limitora/limitora_api.py#L330-L364">limitora_api.py:330–364</a>; <a href="../../src/yasb_limitora/projection.py#L484-L563">projection.py:484–563</a>; <a href="../architecture/README.md#L63-L109">architecture:63–109</a>. Bounded flow abstraction, not a complete call graph. Offline font fallback is intentional: Instrument Serif / Geist / Geist Mono → platform serif / sans / monospace.</p></footer><p class="source-hint">Source links require the local checkout. The diagram-only HTTP server does not serve source files.</p></main><script>
+(() => {
+  'use strict';
+  const translations = {
+    "Scroll horizontally to see the full diagram": "Deslizá horizontalmente para ver el diagrama completo",
+    "Breadcrumb": "Ruta de navegación",
+    "Sections": "Secciones",
+    "Product": "Producto",
+    "Combined": "Combinado",
+    "Installer & proof": "Instalador y pruebas",
+    "Diagram atlas": "Atlas de diagramas",
+    "View 3 / 3": "Vista 3 / 3",
+    "Next →": "Siguiente →",
+    "Source links require the local checkout. The diagram-only HTTP server does not serve source files.": "Los enlaces a fuentes requieren la copia local del repositorio. El servidor HTTP de diagramas no sirve los archivos fuente.",
+    "Language": "Idioma",
+    "Area navigation": "Navegación por áreas",
+    "Reading order": "Orden de lectura",
+    "Purpose and boundaries": "Propósito y límites",
+    "Internal structure": "Estructura interna",
+    "Data journey": "Recorrido de los datos",
+    "← Previous": "← Anterior",
+    "Product data journey": "Recorrido de los datos del producto",
+    "Product diagrams": "Diagramas del producto",
+    "From invocation to a sanitized document": "De la invocación al documento saneado",
+    "Representative successful cache-eligible journey. Follow the fresh-hit shortcut or the miss path; error and bypass details remain in the caption.": "Recorrido satisfactorio representativo con posibilidad de caché. Sigue el atajo de acierto vigente o la ruta sin acierto; el pie explica errores y omisión de caché.",
+    "Fresh cache hits return projected bytes without provider work, while misses claim authority, execute providers, sanitize observations, finish cleanup, and project output before eligible publication.": "Los aciertos vigentes devuelven bytes proyectados sin trabajo de proveedores; sin acierto, se obtiene autoridad, se ejecutan proveedores, se sanean observaciones, se termina la limpieza y se proyecta la salida antes de una publicación admisible.",
+    "YES: FRESH": "SÍ: VIGENTE",
+    "NO: MISS": "NO: SIN DATO",
+    "Resolve configuration and deadline": "Resolver configuración y plazo",
+    "Explicit → environment → local default": "Explícita → entorno → valor local",
+    "Fresh public bytes?": "¿Bytes públicos vigentes?",
+    "OPTIONAL CACHE": "CACHÉ OPCIONAL",
+    "Reuse projected bytes": "Reutilizar bytes proyectados",
+    "No provider calls": "Sin llamadas a proveedores",
+    "Bounded claim / wait": "Toma / espera acotada",
+    "Generation authority · fresh refresh owner": "Autoridad de generación · nuevo responsable",
+    "Execute enabled providers": "Ejecutar proveedores habilitados",
+    "Codex then OpenCode · Limitora public API": "Codex y luego OpenCode · API pública Limitora",
+    "Sanitize at the adapter": "Sanear en el adaptador",
+    "Immutable views, never raw provider payloads": "Vistas inmutables, nunca datos brutos",
+    "Finish bounded cleanup": "Terminar limpieza acotada",
+    "Terminate / close resources · release guard": "Terminar / cerrar recursos · liberar guarda",
+    "Project presentation and JSON bytes": "Proyectar presentación y bytes JSON",
+    "Then publish only if eligible + authoritative": "Luego publicar solo si admisible + con autoridad",
+    "Write stdout for YASB": "Escribir stdout para YASB",
+    "One UTF-8 JSON document + LF": "Un documento JSON UTF-8 + LF",
+    "Solid → miss-path processing / decision · Dashed → fresh-hit shortcut · Diamond → decision · Accent → sanitization boundary": "Línea continua → proceso sin acierto / decisión · Discontinua → atajo de acierto vigente · Rombo → decisión · Acento → límite de saneamiento",
+    "Optional caching is not universal: bypass paths run a fresh attempt without cache claim / publication. Live-owner waiters retry cache and marker state within their deadline; a waiter may return a newly published hit instead of becoming a producer. Unknown ownership fails closed, never spawning an uncoordinated producer.": "La caché opcional no es universal: las rutas que la omiten ejecutan un nuevo intento sin tomar autoridad ni publicar en caché. Quienes esperan a un responsable activo vuelven a comprobar la caché y el marcador dentro de su plazo; pueden devolver un acierto recién publicado en vez de convertirse en productores. Si se desconoce el responsable, se rechaza la operación por seguridad, sin crear un productor no coordinado.",
+    "The provider-work and sanitization boxes summarize repeated per-provider activity, not a raw aggregate handed to the parent. Sanitized views return from isolated execution; cleanup finishes before cache publication. The schema-5 envelope stores only a sanitized public document and digest-only fingerprint, with a 180-second TTL. Errors, timeouts, cleanup failures, and all-disabled runs are not published; publication also requires the exact current generation. Cache I/O failures do not rewrite a valid provider result.": "Las cajas de trabajo y saneamiento resumen actividad repetida por proveedor, no un agregado bruto entregado al proceso padre. La ejecución aislada devuelve vistas saneadas; la limpieza termina antes de publicar en caché. La envoltura schema-5 almacena solo un documento público saneado y una huella formada únicamente por un resumen criptográfico, con TTL de 180 segundos. No se publican errores, vencimientos de plazo, fallos de limpieza ni ejecuciones con todos los proveedores deshabilitados; publicar también exige la generación actual exacta. Los fallos de E/S de caché no reescriben un resultado válido del proveedor.",
+    "Stdout is machine-readable only. Sanitized diagnostics on stderr and exit status are separate channels. Unsupported-platform rejection has no stdout; invocation and configuration errors follow their documented failure paths. No root version field and no output-version selector are introduced.": "Stdout contiene solo salida legible por máquinas. Los diagnósticos saneados en stderr y el estado de salida son canales separados. El rechazo de una plataforma no compatible no genera stdout; los errores de invocación y configuración siguen sus rutas documentadas. No se añaden un campo de versión raíz ni un selector de versión de salida.",
+    "Sources at base": "Fuentes en la base",
+    ". Bounded flow abstraction, not a complete call graph. Offline font fallback is intentional: Instrument Serif / Geist / Geist Mono → platform serif / sans / monospace.": ". Abstracción acotada del flujo, no un grafo completo de llamadas. La sustitución de fuentes sin conexión es intencional: Instrument Serif / Geist / Geist Mono → serif / sans / monoespaciada de la plataforma."
+  };
+  const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT);
+  const entries = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (node.parentElement.closest('script, style, code, button')) continue;
+    const english = node.textContent.trim();
+    if (Object.prototype.hasOwnProperty.call(translations, english)) entries.push({node, original: node.textContent, english});
+  }
+  const controls = document.getElementById('language-controls');
+  const buttons = controls.querySelectorAll('button');
+  const applyLanguage = language => {
+    for (const {node, original, english} of entries) node.textContent = original.replace(english, language === 'es' ? translations[english] : english);
+    document.documentElement.lang = language;
+    for (const element of document.querySelectorAll('[data-i18n-label]')) {
+      const english = element.dataset.i18nLabel;
+      element.setAttribute('aria-label', language === 'es' ? translations[english] : english);
+    }
+    for (const button of buttons) button.setAttribute('aria-pressed', String(button.dataset.language === language));
+  };
+  let language = 'es';
+  try {
+    const saved = localStorage.getItem('yasb-limitora-language');
+    if (saved === 'es' || saved === 'en') language = saved;
+  } catch (_) { /* Storage may be unavailable, including on file://. */ }
+  applyLanguage(language);
+  for (const button of buttons) button.addEventListener('click', () => {
+    const selected = button.dataset.language;
+    if (selected !== 'es' && selected !== 'en') return;
+    applyLanguage(selected);
+    try { localStorage.setItem('yasb-limitora-language', selected); } catch (_) { /* Session-only choice. */ }
+  });
+  controls.hidden = false;
+})();
+</script></body></html>

@@ -18,7 +18,7 @@ COMPLETE_ORDER = (
     'proof-cases.html', 'lifecycle-verify.html',
 )
 # Registration is deliberate: a missing registered file is always an error.
-DELIVERED_PAGES = ('purpose.html', 'structure.html')
+DELIVERED_PAGES = ('purpose.html', 'structure.html', 'data-journey.html')
 GROUPS = {
     'product': COMPLETE_ORDER[:3],
     'installer': COMPLETE_ORDER[3:7],
@@ -251,6 +251,24 @@ def test_scroll_hint_and_explicit_legends(name):
             assert spanish.startswith('Línea continua →')
 
 
+def node_bounds(node):
+    rect = node.find('{http://www.w3.org/2000/svg}rect')
+    if rect is not None:
+        return tuple(float(rect.attrib[key]) for key in ('x', 'y', 'width', 'height'))
+    polygon = node.find('{http://www.w3.org/2000/svg}polygon')
+    assert polygon is not None, 'node must have a real rectangle or polygon'
+    coordinates = [float(value) for value in re.split(r'[\s,]+', polygon.attrib['points'].strip())]
+    assert len(coordinates) >= 6 and len(coordinates) % 2 == 0
+    xs, ys = coordinates[::2], coordinates[1::2]
+    return min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)
+
+
+def test_real_polygon_bounds_without_synthetic_rectangle():
+    node = ET.fromstring('<g xmlns="http://www.w3.org/2000/svg">'
+                         '<polygon points="640,136 760,192 640,248 520,192"/></g>')
+    assert node_bounds(node) == (520, 136, 240, 112)
+
+
 @pytest.mark.parametrize('name', DELIVERED_PAGES)
 def test_accessible_svg_budget_bounds_and_nonoverlap(name):
     svg = ET.fromstring(re.search(r'<svg\b.*?</svg>', read(name), re.S)[0])
@@ -272,8 +290,7 @@ def test_accessible_svg_budget_bounds_and_nonoverlap(name):
         assert len(nodes) >= 4
     boxes = []
     for node in nodes:
-        rect = node.find('s:rect', ns)
-        x, y, width, height = (float(rect.attrib[key]) for key in ('x', 'y', 'width', 'height'))
+        x, y, width, height = node_bounds(node)
         assert 40 <= x < x + width <= 1240
         assert 40 <= y < y + height <= 660
         for px, py, pw, ph in boxes:
@@ -322,6 +339,33 @@ def test_structure_nodes_and_resolved_source_links(name):
         ('projection.py', 'L484-L563'),
     ):
         target = (original_directory / '../../../src/yasb_limitora' / filename).resolve()
+        relocated = Path(os.path.relpath(target, ROOT)).as_posix()
+        assert f'href="{relocated}#{fragment}"' in source
+
+
+@pytest.mark.parametrize('name', tuple(name for name in DELIVERED_PAGES if name == 'data-journey.html'))
+def test_data_journey_decision_and_resolved_source_links(name):
+    source = read(name)
+    svg = ET.fromstring(re.search(r'<svg\b.*?</svg>', source, re.S)[0])
+    nodes = svg.findall('.//*[@data-node]')
+    assert {node.attrib['data-node'] for node in nodes} == {
+        'configuration', 'freshness', 'reuse', 'claim', 'providers',
+        'sanitize', 'cleanup', 'projection', 'stdout',
+    }
+    assert len(svg.findall('.//*[@marker-end]')) == 9
+    decision = next(node for node in nodes if node.attrib['data-node'] == 'freshness')
+    assert decision.find('{http://www.w3.org/2000/svg}rect') is None
+    assert node_bounds(decision) == (520, 136, 240, 112)
+    original_directory = REPOSITORY / 'docs' / 'diagrams' / 'product'
+    for original, fragment in (
+        ('../../../src/yasb_limitora/cli.py', 'L187-L334'),
+        ('../../../src/yasb_limitora/cache.py', 'L1169-L1300'),
+        ('../../../src/yasb_limitora/worker.py', 'L436-L673'),
+        ('../../../src/yasb_limitora/limitora_api.py', 'L330-L364'),
+        ('../../../src/yasb_limitora/projection.py', 'L484-L563'),
+        ('../../architecture/README.md', 'L63-L109'),
+    ):
+        target = (original_directory / original).resolve()
         relocated = Path(os.path.relpath(target, ROOT)).as_posix()
         assert f'href="{relocated}#{fragment}"' in source
 
