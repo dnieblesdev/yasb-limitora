@@ -1,5 +1,6 @@
 """Progressive, offline atlas contracts; these are not native UI proofs."""
 import json
+import os
 import re
 import subprocess
 import xml.etree.ElementTree as ET
@@ -17,7 +18,7 @@ COMPLETE_ORDER = (
     'proof-cases.html', 'lifecycle-verify.html',
 )
 # Registration is deliberate: a missing registered file is always an error.
-DELIVERED_PAGES = ()
+DELIVERED_PAGES = ('purpose.html',)
 GROUPS = {
     'product': COMPLETE_ORDER[:3],
     'installer': COMPLETE_ORDER[3:7],
@@ -85,6 +86,20 @@ def validate_registry(root, delivered):
                 assert target.path in {'index.html', *delivered}, href
 
 
+def assert_local_url_references(source):
+    for value in re.findall(r'url\s*\(([^)]*)\)', source, re.I):
+        value = value.strip().strip('\"\'')
+        assert re.fullmatch(r'#[\w-]+', value), 'no external CSS assets'
+
+
+def test_fragment_markers_allowed_but_external_assets_rejected():
+    assert_local_url_references('<path marker-end="url(#arrow)"/>')
+    for value in ('https://example.invalid/font.woff2', '//example.invalid/image',
+                  'image.png', 'data:image/png;base64,AAAA'):
+        with pytest.raises(AssertionError, match='no external CSS assets'):
+            assert_local_url_references(f'background:url("{value}")')
+
+
 def test_registered_inventory_and_nonempty_index():
     validate_registry(ROOT, DELIVERED_PAGES)
 
@@ -128,7 +143,7 @@ def test_standalone_i18n_and_accessibility(name):
     for forbidden in ('innerHTML', 'role="tab"', 'onclick='):
         assert forbidden not in source
     assert not re.search(r'<link\b|@import|(?:src|href)="https?://', source)
-    assert not re.search(r'url\s*\(', source), 'no external CSS assets'
+    assert_local_url_references(source)
     assert not re.search(r'<script[^>]+src=', source)
     assert source.endswith('\n')
     assert not any(line.rstrip() != line for line in source.splitlines())
@@ -266,6 +281,27 @@ def test_accessible_svg_budget_bounds_and_nonoverlap(name):
             assert y + 16 <= float(text.attrib['y']) <= y + height - 16
     for edge in svg.findall('s:path', ns):
         assert not re.search(r'[LlAaCcSsTt]', edge.attrib['d'])
+
+
+@pytest.mark.parametrize('name', tuple(name for name in DELIVERED_PAGES if name == 'purpose.html'))
+def test_purpose_ownership_and_resolved_source_links(name):
+    source = read(name)
+    svg = ET.fromstring(re.search(r'<svg\b.*?</svg>', source, re.S)[0])
+    assert {node.attrib['data-node'] for node in svg.findall('.//*[@data-node]')} == {
+        'yasb', 'cli', 'limitora',
+    }
+    assert len(svg.findall('.//*[@marker-end]')) == 3
+    assert '<code>execution_state, execution_error, general, providers</code>' in source
+    assert 'Native CLI proof is not automated YASB rendering proof.' in source
+    # Resolve the original repository-relative location, not the source worktree.
+    original_directory = REPOSITORY / 'docs' / 'diagrams' / 'product'
+    for original, fragment in (
+        ('../../architecture/README.md', 'L1-L47'),
+        ('../../../src/yasb_limitora/cli.py', 'L187-L334'),
+    ):
+        target = (original_directory / original).resolve()
+        relocated = Path(os.path.relpath(target, ROOT)).as_posix()
+        assert f'href="{relocated}#{fragment}"' in source
 
 
 PROOF_CLAIMS = {
