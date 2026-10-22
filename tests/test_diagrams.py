@@ -18,7 +18,7 @@ COMPLETE_ORDER = (
     'proof-cases.html', 'lifecycle-verify.html',
 )
 # Registration is deliberate: a missing registered file is always an error.
-DELIVERED_PAGES = ('purpose.html',)
+DELIVERED_PAGES = ('purpose.html', 'structure.html')
 GROUPS = {
     'product': COMPLETE_ORDER[:3],
     'installer': COMPLETE_ORDER[3:7],
@@ -218,6 +218,9 @@ def test_progressive_page_navigation_and_stable_code(name):
     for label in ('Area navigation', 'Language', 'Breadcrumb'):
         assert f'data-i18n-label="{label}"' in source
     assert 'class="breadcrumb"' in source
+    area = next(names for names in GROUPS.values() if name in names)
+    area_navigation = re.search(r'<nav class="area-nav"[^>]*>(.*?)</nav>', source, re.S)[1]
+    assert Page(area_navigation).links == [page for page in area if page in DELIVERED_PAGES]
     index = DELIVERED_PAGES.index(name)
     previous = DELIVERED_PAGES[index - 1] if index else 'index.html'
     following = DELIVERED_PAGES[index + 1] if index + 1 < len(DELIVERED_PAGES) else 'index.html'
@@ -300,6 +303,25 @@ def test_purpose_ownership_and_resolved_source_links(name):
         ('../../../src/yasb_limitora/cli.py', 'L187-L334'),
     ):
         target = (original_directory / original).resolve()
+        relocated = Path(os.path.relpath(target, ROOT)).as_posix()
+        assert f'href="{relocated}#{fragment}"' in source
+
+
+@pytest.mark.parametrize('name', tuple(name for name in DELIVERED_PAGES if name == 'structure.html'))
+def test_structure_nodes_and_resolved_source_links(name):
+    source = read(name)
+    svg = ET.fromstring(re.search(r'<svg\b.*?</svg>', source, re.S)[0])
+    assert {node.attrib['data-node'] for node in svg.findall('.//*[@data-node]')} == {
+        'cli', 'coordinator', 'orchestrator', 'attempt', 'executors', 'adapter', 'projection',
+    }
+    assert len(svg.findall('.//*[@marker-end]')) == 6
+    original_directory = REPOSITORY / 'docs' / 'diagrams' / 'product'
+    for filename, fragment in (
+        ('cli.py', 'L187-L334'), ('worker.py', 'L436-L673'),
+        ('codex_helper.py', 'L644-L708'), ('limitora_api.py', 'L330-L364'),
+        ('projection.py', 'L484-L563'),
+    ):
+        target = (original_directory / '../../../src/yasb_limitora' / filename).resolve()
         relocated = Path(os.path.relpath(target, ROOT)).as_posix()
         assert f'href="{relocated}#{fragment}"' in source
 
