@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Installer states and interruption</title>
+<style>
+body{margin:0;background:#f5f5f5;color:#2d3142;font-family:'Geist',system-ui,sans-serif}main{max-width:1280px;margin:auto;padding:32px 20px}h1,h2{font-family:'Instrument Serif',serif;font-weight:400}h1{font-size:32px}p,li,td{line-height:1.6}a{color:#2e5aa8}code{overflow-wrap:anywhere}footer{border-top:1px solid #bfc0c0;margin-top:24px;font-size:14px}
+.breadcrumb,.section-nav,.area-nav,.page-nav{display:flex;flex-wrap:wrap;gap:12px;margin:20px 0;align-items:center}.section-nav{padding:8px;background:#ececec;border-radius:8px}.section-nav a,.area-nav a,.page-nav a{padding:12px 16px;border:1px solid #4f5d75;border-radius:6px;text-decoration:none}.section-nav a{display:flex;align-items:center;gap:10px;color:#2d3142;font-weight:600}.section-nav a::before{content:'';width:8px;height:8px;border-radius:50%;background:#4f5d75;display:inline-block;flex-shrink:0}.section-nav [aria-current=location]{border-color:#bf4520}.area-nav [aria-current=page]{background:#2d3142;color:#f5f5f5}.page-nav{border-top:1px solid #bfc0c0;padding-top:16px}.progress{margin-right:auto}.page-nav [rel=next]{background:#2e5aa8;color:#f5f5f5}a:focus-visible,button:focus-visible{outline:3px solid #2e5aa8;outline-offset:4px}
+[hidden]{display:none!important}#language-controls{width:fit-content;margin-left:auto;border:1px solid #4f5d75;border-radius:6px;padding:4px;background:#ececec}#language-controls button{font:600 14px system-ui,sans-serif;min-height:40px;padding:8px 16px;border:0;background:transparent;color:#2d3142;cursor:pointer}#language-controls [aria-pressed=true]{background:#2d3142;color:#f5f5f5;border-radius:4px}
+figure{container-type:inline-size}.scroll-hint{display:none;font-size:14px;color:#4f5d75}.diagram-container{width:100%;overflow-x:auto}svg{display:block;width:100%;min-width:1280px}.name{font:600 14px system-ui,sans-serif;fill:#2d3142}.detail{font:400 12px system-ui,sans-serif;fill:#4f5d75}.tag{font:500 10px ui-monospace,monospace;fill:#4f5d75}.legend{font:400 12px system-ui,sans-serif;fill:#4f5d75}.table-container{overflow-x:auto}table{border-collapse:collapse;width:100%;background:#fff}caption{text-align:left;font-weight:600;margin:16px 0}th,td{padding:12px;text-align:left;vertical-align:top;border:1px solid #bfc0c0}th{background:#ececec}.source-hint{border-left:3px solid #4f5d75;padding:12px 16px}.warning{border-left:3px solid #bf4520;padding:12px 16px}
+@container(width < 1280px){.scroll-hint{display:block}}@media(max-width:640px){main{padding:20px 16px}.progress{flex-basis:100%}.section-nav a{padding:10px 12px}}@media print{.scroll-hint{display:none}}@media print{.diagram-container{overflow-x:visible}svg{min-width:0}#language-controls{display:none}}
+</style></head><body><main>
+<div id="language-controls" hidden role="group" aria-label="Language" data-i18n-label="Language"><button type="button" data-language="es" lang="es" aria-pressed="false">Español</button> <button type="button" data-language="en" lang="en" aria-pressed="false">English</button></div>
+<nav class="breadcrumb" aria-label="Breadcrumb" data-i18n-label="Breadcrumb"><a href="index.html">Diagram atlas</a><a href="index.html#responsibility">Responsibility</a></nav>
+<nav class="section-nav" aria-label="Sections" data-i18n-label="Sections"><a href="index.html#product">Product</a><a href="index.html#installer">Installer &amp; proof</a><a href="index.html#combined">Combined</a><a href="index.html#responsibility" aria-current="location">Responsibility</a></nav>
+<nav class="area-nav" aria-label="Area navigation" data-i18n-label="Area navigation"><a href="installer-states.html" aria-current="page">Installer states</a></nav>
+<nav class="page-nav" aria-label="Reading order" data-i18n-label="Reading order"><span class="progress">View 9 / 9</span><a rel="prev" href="lifecycle-verify.html">← Previous</a><a rel="next" href="index.html">Back to the atlas</a></nav>
+<h1>How responsibility survives interruption</h1>
+<p>Persistent artifacts outlive setup; transaction ownership flags do not. This state machine describes source guards, not a durable recovery protocol.</p>
+<p class="warning">No durable journal and no automatic crash resume.</p>
+<figure style="margin:0"><p class="scroll-hint">Scroll horizontally to see the full diagram</p><div class="diagram-container">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" role="img" aria-labelledby="installer-states-title installer-states-desc">
+<title id="installer-states-title">Installer states and interruption</title><desc id="installer-states-desc">Preparation branches on canonical-directory presence; live evacuation ownership permits guarded recovery, while interruption leaves artifacts requiring operator assessment.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#4f5d75"/></marker></defs>
+<rect width="1280" height="720" fill="#f5f5f5"/>
+<path data-from="prepare" data-to="empty" d="M 384 128 H 480" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/>
+<path data-from="prepare" data-to="evacuated" d="M 224 176 V 260" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/>
+<path data-from="evacuated" data-to="native" d="M 384 308 H 480" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/>
+<path data-from="native" data-to="committed" d="M 800 308 H 920" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/>
+<path data-from="native" data-to="recover" d="M 640 356 V 440" fill="none" stroke="#4f5d75" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+<path data-from="recover" data-to="restored" d="M 480 480 H 384" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/>
+<path data-from="restored" data-to="registry" d="M 224 520 V 560" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/>
+<path data-from="recover" data-to="residual" d="M 800 480 H 920" fill="none" stroke="#4f5d75" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+<rect x="396" y="100" width="72" height="20" fill="#f5f5f5"/><text x="432" y="114" class="tag" text-anchor="middle">APP ABSENT</text>
+<rect x="236" y="200" width="132" height="20" fill="#f5f5f5"/><text x="302" y="214" class="tag" text-anchor="middle">EXPORT + MOVE</text>
+<rect x="396" y="280" width="72" height="20" fill="#f5f5f5"/><text x="432" y="294" class="tag" text-anchor="middle">COPY</text>
+<rect x="808" y="280" width="104" height="20" fill="#f5f5f5"/><text x="860" y="294" class="tag" text-anchor="middle">DELETE OLD</text>
+<rect x="652" y="384" width="144" height="20" fill="#f5f5f5"/><text x="724" y="398" class="tag" text-anchor="middle">LIVE OWNER</text>
+<rect x="396" y="452" width="72" height="20" fill="#f5f5f5"/><text x="432" y="466" class="tag" text-anchor="middle">RENAME</text>
+<rect x="236" y="528" width="132" height="20" fill="#f5f5f5"/><text x="302" y="542" class="tag" text-anchor="middle">IMPORT</text>
+<rect x="808" y="452" width="104" height="20" fill="#f5f5f5"/><text x="860" y="466" class="tag" text-anchor="middle">GATE FAILS</text>
+<g data-node="prepare"><rect x="64" y="80" width="320" height="96" rx="8" fill="#fff" stroke="#2d3142"/><text x="88" y="112" class="name">Preparation gates</text><text x="88" y="144" class="detail">Consent, manual close, stale artifacts</text></g>
+<g data-node="empty"><rect x="480" y="80" width="320" height="96" rx="8" fill="#ececec" stroke="#4f5d75"/><text x="504" y="112" class="name">No evacuation this invocation</text><text x="504" y="144" class="detail">Native install may proceed; old is not resumed</text></g>
+<g data-node="evacuated"><rect x="64" y="260" width="320" height="96" rx="8" fill="#fff" stroke="#2d3142"/><text x="88" y="292" class="name">Prior bytes evacuated</text><text x="88" y="324" class="detail">Snapshot exported; live flags assigned</text></g>
+<g data-node="native"><rect x="480" y="260" width="320" height="96" rx="8" fill="#fff" stroke="#2d3142"/><text x="504" y="292" class="name">New canonical payload</text><text x="504" y="324" class="detail">Native copy and registration</text></g>
+<g data-node="committed"><rect x="920" y="260" width="296" height="96" rx="8" fill="#ececec" stroke="#4f5d75"/><text x="944" y="292" class="name">Committed installation</text><text x="944" y="324" class="detail">Clear snapshot and flags; then assist</text></g>
+<g data-node="recover"><rect x="480" y="440" width="320" height="80" rx="8" fill="#fff" stroke="#2d3142"/><text x="504" y="472" class="name">Guarded deinitialization</text><text x="504" y="504" class="detail">Owned uninstaller, wait, quarantine</text></g>
+<g data-node="restored"><rect x="64" y="440" width="320" height="80" rx="8" fill="#fff" stroke="#2d3142"/><text x="88" y="472" class="name">Prior bytes canonical again</text><text x="88" y="504" class="detail">Clean owned residual before registration</text></g>
+<g data-node="registry"><rect x="64" y="560" width="320" height="80" rx="8" fill="#ececec" stroke="#4f5d75"/><text x="88" y="592" class="name">Prior registry import attempted</text><text x="88" y="624" class="detail">Checked import; failure retains snapshot</text></g>
+<g data-node="residual"><rect x="920" y="440" width="296" height="80" rx="8" fill="#f5f5f5" stroke="#bf4520"/><text x="944" y="472" class="name">Residual / manual assessment</text><text x="944" y="504" class="detail">No forced cleanup or success claim</text></g>
+<text x="480" y="600" class="detail">Process kill can interrupt any state; no resume arrow exists.</text>
+<line x1="40" y1="660" x2="1240" y2="660" stroke="#bfc0c0"/><text x="64" y="688" class="legend">Solid → guarded transition · Dashed → conditional recovery or failure · Accent → retained responsibility</text>
+</svg></div><figcaption>
+<p>The empty-APP branch also proceeds to native installation, without a prior evacuation; its later work is omitted to keep the recovery path readable. A failed preparation returns an error before native copying.</p>
+<p>An absent APP returns successful preparation before the stale .old check.</p>
+<p>APP absent + .old present + .failed absent passes preparation without snapshot export or rename.</p>
+<p>A stale .failed aborts preparation even when APP is absent.</p>
+<p>APP present + .old present aborts. Otherwise an existing APP requires coherent prior registry and uninstaller ownership before export and rename.</p>
+<p>No independent stale .old.reg gate: export /y can overwrite an earlier snapshot when APP exists.</p>
+<p>Ownership means path and registry coherence plus file existence, not exact content hashes.</p>
+</figcaption></figure>
+<h2>Artifacts and responsibility after interruption</h2>
+<p><code>APP</code> <span>denotes the canonical installation directory, not a new configurable route.</span></p>
+<div class="table-container"><table><caption>Persistent artifacts versus live transaction flags</caption><thead><tr><th scope="col">Artifact</th><th scope="col">Transition and guard</th><th scope="col">Responsibility if interrupted</th></tr></thead><tbody>
+<tr><th scope="row"><code>APP</code></th><td>Native setup writes the canonical payload; rollback quarantines residual new bytes before restoring old bytes.</td><td>Setup owns only the checked transaction route. The operator assesses residual state after process loss; this page authorizes no deletion.</td></tr>
+<tr><th scope="row"><code>APP.old</code></th><td>Created by successful canonical rename after checked registry export. Commit deletes it with checked DelTree.</td><td>Partial DelTree failure may already destroy prior bytes; retained flags do not guarantee a complete old payload.</td></tr>
+<tr><th scope="row"><code>APP.failed</code></th><td>Stale on entry means abort. Current recovery may quarantine new bytes and delete only its owned quarantine.</td><td>Failed rename or cleanup can retain residual bytes. No ownership inference from a filename alone.</td></tr>
+<tr><th scope="row"><code>APP.old.reg</code></th><td>Full HKCU export before evacuation; import only after proven byte restoration and owned-residual cleanup.</td><td>Registry import failure retains the snapshot, not an automatic resume mechanism.</td></tr>
+<tr><th scope="row"><code>HKCU</code></th><td>Native registration may change before recovery. Prior values and original types return only through checked snapshot import.</td><td>Do not advertise successful recovery if import fails. A snapshot is not a journal.</td></tr>
+<tr><th scope="row"><code>EvacuatedOldDir</code><br><code>PriorRegistrySnapshot</code><br><code>FailedQuarantineOwned</code></th><td>Volatile process globals, assigned under transaction checks; not durable ownership records.</td><td>Normal DeinitializeSetup calls restoration only while live EvacuatedOldDir is nonempty. Process termination loses these flags.</td></tr>
+</tbody></table></div>
+<h2>Recovery guards are not guarantees</h2>
+<p>Uninstaller launch failure or nonzero exit logs and continues filesystem rollback.</p>
+<p>Zero exit enables a bounded cleanup wait; APP still present after that wait aborts rollback.</p>
+<p>Quarantine failure exits before moving prior bytes. Restore failure may attempt to rename the owned quarantine back. Post-restore quarantine cleanup failure exits before prior registry import.</p>
+<p>On successful commit, checked old-directory deletion precedes snapshot deletion and clearing live ownership. Post-commit assistance failure is not native installer rollback.</p>
+<h2>What is verified, and what remains pending</h2>
+<p>PENDING: native proof of the current Pascal rollback and interruption paths.</p>
+<p>The historical fallback shares the product AppId but uses a disposable path and harness-initiated uninstall and restore.</p>
+<p>It is not native proof of the current Pascal rollback. Static source assertions check ordering and guards, not execution, crash recovery, intact prior bytes, or automatic restoration.</p>
+<footer><p>Sources and static checks:</p><ul>
+<li><a href="../../packaging/inno/yasb-limitora.iss#L109-L114">yasb-limitora.iss:109–114</a> · <a href="../../packaging/inno/yasb-limitora.iss#L222-L323">yasb-limitora.iss:222–323</a> · <a href="../../packaging/inno/yasb-limitora.iss#L325-L448">yasb-limitora.iss:325–448</a></li>
+<li><a href="../../tests/test_inno_script.py#L214-L248"><code>test_complete_prior_registry_snapshot_is_exported_before_evacuation</code> / <code>test_registry_restore_is_verbatim_import_fail_closed_and_keeps_recovery_bytes</code></a></li>
+<li><a href="../../tests/test_inno_script.py#L349-L373"><code>test_post_install_cleanup_is_checked_and_failure_preserves_recovery_state</code> / <code>test_rollback_does_not_ignore_new_uninstaller_result</code></a></li>
+<li><a href="../../tests/test_inno_script.py#L411-L445"><code>test_rollback_restores_payload_before_registry_and_never_mixes_identities</code> / <code>test_stale_failed_payload_is_detected_and_preserved_before_transaction</code></a></li>
+<li><a href="../release/0.2.0/evidence/inno-staged-swap-spike.md#L125-L149">inno-staged-swap-spike.md:125–149</a></li>
+</ul><p>Offline system-font fallback is intentional; no external assets or font downloads. Static structural checks are not native proof or browser visual verification.</p></footer>
+<p class="source-hint">Source links require the local checkout. The diagram-only HTTP server does not serve source files.</p>
+</main><script>
+(() => {
+  'use strict';
+  const translations = {
+    "Installer states and interruption": "Estados del instalador e interrupción",
+    "Language": "Idioma", "Breadcrumb": "Ruta de navegación", "Sections": "Secciones",
+    "Area navigation": "Navegación por áreas", "Reading order": "Orden de lectura",
+    "Diagram atlas": "Atlas de diagramas", "Product": "Producto", "Installer & proof": "Instalador y pruebas", "Combined": "Combinado", "Responsibility": "Responsabilidad",
+    "Installer states": "Estados del instalador", "View 9 / 9": "Vista 9 / 9", "← Previous": "← Anterior", "Back to the atlas": "Volver al atlas",
+    "How responsibility survives interruption": "Cómo perdura la responsabilidad tras una interrupción",
+    "Persistent artifacts outlive setup; transaction ownership flags do not. This state machine describes source guards, not a durable recovery protocol.": "Los artefactos persistentes sobreviven al instalador; sus indicadores de propiedad no. Esta máquina describe controles del código, no un protocolo duradero de recuperación.",
+    "No durable journal and no automatic crash resume.": "No hay diario duradero ni reanudación automática tras un cierre abrupto.",
+    "Scroll horizontally to see the full diagram": "Deslizá horizontalmente para ver el diagrama completo",
+    "Preparation branches on canonical-directory presence; live evacuation ownership permits guarded recovery, while interruption leaves artifacts requiring operator assessment.": "La preparación se bifurca según exista el directorio canónico; la propiedad de evacuación vigente permite recuperar con controles, mientras una interrupción deja artefactos que debe evaluar el operador.",
+    "APP ABSENT": "APP AUSENTE", "EXPORT + MOVE": "EXPORTAR + MOVER", "COPY": "COPIAR", "DELETE OLD": "BORRAR OLD", "LIVE OWNER": "PROPIEDAD VIVA", "RENAME": "RENOMBRAR", "IMPORT": "IMPORTAR", "GATE FAILS": "FALLA CONTROL",
+    "Preparation gates": "Controles de preparación", "Consent, manual close, stale artifacts": "Consentimiento, cierre manual, residuos",
+    "No evacuation this invocation": "Sin evacuación en esta invocación", "Native install may proceed; old is not resumed": "Puede instalar; no se reanuda old",
+    "Prior bytes evacuated": "Bytes anteriores evacuados", "Snapshot exported; live flags assigned": "Registro exportado; indicadores asignados",
+    "New canonical payload": "Nuevo contenido canónico", "Native copy and registration": "Copia y registro nativos",
+    "Committed installation": "Instalación confirmada", "Clear snapshot and flags; then assist": "Limpiar copia e indicadores; luego asistir",
+    "Guarded deinitialization": "Finalización con controles", "Owned uninstaller, wait, quarantine": "Desinstalador propio, espera, aislamiento",
+    "Prior bytes canonical again": "Bytes anteriores de nuevo canónicos", "Clean owned residual before registration": "Limpiar residuo propio antes del registro",
+    "Prior registry import attempted": "Importación del registro anterior", "Checked import; failure retains snapshot": "Importación comprobada; fallo conserva copia",
+    "Residual / manual assessment": "Residuos / evaluación manual", "No forced cleanup or success claim": "Sin limpieza forzada ni afirmar éxito",
+    "Process kill can interrupt any state; no resume arrow exists.": "Terminar el proceso interrumpe cualquier estado; no hay flecha de reanudación.",
+    "Solid → guarded transition · Dashed → conditional recovery or failure · Accent → retained responsibility": "Línea continua → transición controlada · Discontinua → recuperación condicional o fallo · Acento → responsabilidad retenida",
+    "The empty-APP branch also proceeds to native installation, without a prior evacuation; its later work is omitted to keep the recovery path readable. A failed preparation returns an error before native copying.": "La rama sin APP también pasa a instalación nativa, sin evacuación previa; se omite su continuación para facilitar la lectura de la recuperación. Una preparación fallida devuelve error antes de la copia nativa.",
+    "An absent APP returns successful preparation before the stale .old check.": "Si APP no existe, la preparación devuelve éxito antes de comprobar .old residual.",
+    "APP absent + .old present + .failed absent passes preparation without snapshot export or rename.": "APP ausente + .old presente + .failed ausente supera la preparación sin exportar registro ni renombrar.",
+    "A stale .failed aborts preparation even when APP is absent.": "Un .failed residual aborta la preparación incluso si APP no existe.",
+    "APP present + .old present aborts. Otherwise an existing APP requires coherent prior registry and uninstaller ownership before export and rename.": "APP presente + .old presente aborta. En otro caso, APP existente exige coherencia del registro anterior y propiedad del desinstalador antes de exportar y renombrar.",
+    "No independent stale .old.reg gate: export /y can overwrite an earlier snapshot when APP exists.": "No hay control independiente de .old.reg residual: export /y puede sobrescribir una copia anterior si APP existe.",
+    "Ownership means path and registry coherence plus file existence, not exact content hashes.": "La propiedad significa coherencia de rutas y registro más existencia del archivo, no hashes exactos del contenido.",
+    "Artifacts and responsibility after interruption": "Artefactos y responsabilidad tras una interrupción",
+    "denotes the canonical installation directory, not a new configurable route.": "denota el directorio canónico de instalación, no una nueva ruta configurable.",
+    "Persistent artifacts versus live transaction flags": "Artefactos persistentes frente a indicadores de transacción vigentes",
+    "Artifact": "Artefacto", "Transition and guard": "Transición y control", "Responsibility if interrupted": "Responsabilidad si se interrumpe",
+    "Native setup writes the canonical payload; rollback quarantines residual new bytes before restoring old bytes.": "La instalación nativa escribe el contenido canónico; la recuperación aísla bytes nuevos residuales antes de restaurar los anteriores.",
+    "Setup owns only the checked transaction route. The operator assesses residual state after process loss; this page authorizes no deletion.": "El instalador solo posee la ruta comprobada de la transacción. El operador evalúa residuos tras perder el proceso; esta página no autoriza borrados.",
+    "Created by successful canonical rename after checked registry export. Commit deletes it with checked DelTree.": "Se crea al renombrar el directorio canónico tras exportar el registro con comprobación. La confirmación lo elimina con DelTree comprobado.",
+    "Partial DelTree failure may already destroy prior bytes; retained flags do not guarantee a complete old payload.": "Un fallo parcial de DelTree puede haber destruido bytes anteriores; conservar indicadores no garantiza el contenido anterior completo.",
+    "Stale on entry means abort. Current recovery may quarantine new bytes and delete only its owned quarantine.": "Un residuo al entrar implica abortar. La recuperación actual puede aislar bytes nuevos y borrar solo su propio aislamiento.",
+    "Failed rename or cleanup can retain residual bytes. No ownership inference from a filename alone.": "Un fallo al renombrar o limpiar puede conservar bytes residuales. El nombre del archivo por sí solo no demuestra propiedad.",
+    "Full HKCU export before evacuation; import only after proven byte restoration and owned-residual cleanup.": "Exportación completa de HKCU antes de evacuar; importar solo tras demostrar la restauración de bytes y limpiar residuos propios.",
+    "Registry import failure retains the snapshot, not an automatic resume mechanism.": "El fallo al importar el registro conserva la copia, no un mecanismo de reanudación automática.",
+    "Native registration may change before recovery. Prior values and original types return only through checked snapshot import.": "El registro nativo puede cambiar antes de recuperar. Los valores y tipos anteriores solo vuelven mediante importación comprobada de la copia.",
+    "Do not advertise successful recovery if import fails. A snapshot is not a journal.": "No anunciar recuperación satisfactoria si falla la importación. Una copia no es un diario.",
+    "Volatile process globals, assigned under transaction checks; not durable ownership records.": "Variables globales volátiles del proceso, asignadas bajo controles de transacción; no son registros duraderos de propiedad.",
+    "Normal DeinitializeSetup calls restoration only while live EvacuatedOldDir is nonempty. Process termination loses these flags.": "DeinitializeSetup normal solo llama a restaurar mientras EvacuatedOldDir vigente no esté vacío. Terminar el proceso pierde estos indicadores.",
+    "Recovery guards are not guarantees": "Los controles de recuperación no son garantías",
+    "Uninstaller launch failure or nonzero exit logs and continues filesystem rollback.": "El fallo al lanzar el desinstalador o su salida no nula se registra y continúa la recuperación del sistema de archivos.",
+    "Zero exit enables a bounded cleanup wait; APP still present after that wait aborts rollback.": "La salida cero habilita una espera acotada de limpieza; APP aún presente tras ella aborta la recuperación.",
+    "Quarantine failure exits before moving prior bytes. Restore failure may attempt to rename the owned quarantine back. Post-restore quarantine cleanup failure exits before prior registry import.": "El fallo de aislamiento termina antes de mover bytes anteriores. Si falla restaurar, se puede intentar devolver el aislamiento propio al nombre canónico. El fallo de limpieza posterior termina antes de importar el registro anterior.",
+    "On successful commit, checked old-directory deletion precedes snapshot deletion and clearing live ownership. Post-commit assistance failure is not native installer rollback.": "Al confirmar, el borrado comprobado del directorio anterior precede a borrar la copia y limpiar la propiedad vigente. El fallo de asistencia posterior no revierte la instalación nativa.",
+    "What is verified, and what remains pending": "Qué se verifica y qué sigue pendiente",
+    "PENDING: native proof of the current Pascal rollback and interruption paths.": "PENDIENTE: prueba nativa de la recuperación Pascal actual y de las rutas de interrupción.",
+    "The historical fallback shares the product AppId but uses a disposable path and harness-initiated uninstall and restore.": "La alternativa histórica comparte AppId con el producto, pero usa una ruta desechable y desinstalación y restauración iniciadas por el arnés.",
+    "It is not native proof of the current Pascal rollback. Static source assertions check ordering and guards, not execution, crash recovery, intact prior bytes, or automatic restoration.": "No es prueba nativa de la recuperación Pascal actual. Las aserciones estáticas comprueban orden y controles, no ejecución, recuperación tras cierre abrupto, integridad de bytes anteriores ni restauración automática.",
+    "Sources and static checks:": "Fuentes y comprobaciones estáticas:", "·": "·", "/": "/",
+    "Offline system-font fallback is intentional; no external assets or font downloads. Static structural checks are not native proof or browser visual verification.": "La sustitución por fuentes locales es intencional; sin recursos externos ni descargas de fuentes. Las comprobaciones estructurales estáticas no son prueba nativa ni verificación visual en navegador.",
+    "Source links require the local checkout. The diagram-only HTTP server does not serve source files.": "Los enlaces a fuentes requieren la copia local del repositorio. El servidor HTTP de diagramas no sirve los archivos fuente."
+  };
+  const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT);
+  const entries = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (node.parentElement.closest('script, style, code, button')) continue;
+    const english = node.textContent.trim();
+    if (Object.prototype.hasOwnProperty.call(translations, english)) entries.push({node, original: node.textContent, english});
+  }
+  const controls = document.getElementById('language-controls');
+  const buttons = controls.querySelectorAll('button');
+  const applyLanguage = language => {
+    for (const {node, original, english} of entries) node.textContent = original.replace(english, language === 'es' ? translations[english] : english);
+    document.documentElement.lang = language;
+    for (const element of document.querySelectorAll('[data-i18n-label]')) {
+      const english = element.dataset.i18nLabel;
+      element.setAttribute('aria-label', language === 'es' ? translations[english] : english);
+    }
+    for (const button of buttons) button.setAttribute('aria-pressed', String(button.dataset.language === language));
+  };
+  let language = 'es';
+  try {
+    const saved = localStorage.getItem('yasb-limitora-language');
+    if (saved === 'es' || saved === 'en') language = saved;
+  } catch (_) { /* Storage may be unavailable, including on file://. */ }
+  applyLanguage(language);
+  for (const button of buttons) button.addEventListener('click', () => {
+    const selected = button.dataset.language;
+    if (selected !== 'es' && selected !== 'en') return;
+    applyLanguage(selected);
+    try { localStorage.setItem('yasb-limitora-language', selected); } catch (_) { /* Session-only choice. */ }
+  });
+  controls.hidden = false;
+})();
+</script></body></html>

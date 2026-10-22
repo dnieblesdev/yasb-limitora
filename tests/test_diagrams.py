@@ -15,17 +15,20 @@ ROOT = REPOSITORY / 'docs' / 'diagramas'
 COMPLETE_ORDER = (
     'purpose.html', 'structure.html', 'data-journey.html',
     'installer-transaction.html', 'setup-assist.html', 'proof-harness.html',
-    'proof-cases.html', 'lifecycle-verify.html',
+    'proof-cases.html', 'lifecycle-verify.html', 'installer-states.html',
+    'resource-ownership.html', 'claim-traceability.html', 'harness-failures.html',
 )
 # Registration is deliberate: a missing registered file is always an error.
 DELIVERED_PAGES = (
     'purpose.html', 'structure.html', 'data-journey.html', 'installer-transaction.html',
     'setup-assist.html', 'proof-harness.html', 'proof-cases.html', 'lifecycle-verify.html',
+    'installer-states.html',
 )
 GROUPS = {
     'product': COMPLETE_ORDER[:3],
     'installer': COMPLETE_ORDER[3:7],
-    'combined': COMPLETE_ORDER[7:],
+    'combined': COMPLETE_ORDER[7:8],
+    'responsibility': COMPLETE_ORDER[8:],
 }
 TITLES = (
     'Purpose and boundaries', 'Internal structure', 'Data journey',
@@ -209,7 +212,7 @@ def test_progressive_index_and_original_display_texts():
         area = next(area for area, names in GROUPS.items() if href in names)
         section = re.search(rf'<section id="{area}"[^>]*>(.*?)</section>', source, re.S)[1]
         assert f'href="{href}"' in section
-    assert f'Available: {len(DELIVERED_PAGES)} / Planned: 8' in source
+    assert f'Available: {len(DELIVERED_PAGES)} / Planned: {len(COMPLETE_ORDER)}' in source
 
 
 @pytest.mark.parametrize('name', DELIVERED_PAGES)
@@ -492,6 +495,39 @@ def test_lifecycle_candidate_branch_and_repository_source_links(name):
         relocated = Path(os.path.relpath(target, ROOT)).as_posix()
         for fragment in fragments:
             assert f'href="{relocated}#{fragment}"' in source
+
+
+@pytest.mark.parametrize('name', tuple(
+    name for name in DELIVERED_PAGES if name == 'installer-states.html'
+))
+def test_installer_states_artifacts_guards_and_responsibility(name):
+    source = read(name)
+    page = Page(source)
+    public_text = ' '.join(page.texts)
+    for claim in (
+        'No durable journal and no automatic crash resume.',
+        'An absent APP returns successful preparation before the stale .old check.',
+        'APP absent + .old present + .failed absent passes preparation without snapshot export or rename.',
+        'A stale .failed aborts preparation even when APP is absent.',
+        'No independent stale .old.reg gate: export /y can overwrite an earlier snapshot when APP exists.',
+        'Ownership means path and registry coherence plus file existence, not exact content hashes.',
+        'Uninstaller launch failure or nonzero exit logs and continues filesystem rollback.',
+        'Zero exit enables a bounded cleanup wait; APP still present after that wait aborts rollback.',
+        'Partial DelTree failure may already destroy prior bytes; retained flags do not guarantee a complete old payload.',
+        'Registry import failure retains the snapshot, not an automatic resume mechanism.',
+        'PENDING: native proof of the current Pascal rollback and interruption paths.',
+        'The historical fallback shares the product AppId but uses a disposable path and harness-initiated uninstall and restore.',
+    ):
+        assert claim in public_text
+    for artifact in ('APP', 'APP.old', 'APP.failed', 'APP.old.reg', 'HKCU',
+                     'EvacuatedOldDir', 'PriorRegistrySnapshot', 'FailedQuarantineOwned'):
+        assert f'<code>{artifact}</code>' in source.split('<script>')[0]
+    assert '<table' in source and '<caption>' in source and 'scope="col"' in source
+    svg = ET.fromstring(re.search(r'<svg\b.*?</svg>', source, re.S)[0])
+    assert len(svg.findall('.//*[@data-node]')) == 9
+    assert len(svg.findall('.//*[@marker-end]')) == 8
+    assert 'tests/test_inno_script.py#L214-L248' in source
+    assert 'inno-staged-swap-spike.md#L125-L149' in source
 
 
 PROOF_CLAIMS = {
