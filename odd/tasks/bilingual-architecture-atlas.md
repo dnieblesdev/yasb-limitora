@@ -20,9 +20,9 @@ Checks: `.venv/Scripts/python.exe -m pytest -q --strict-markers tests/test_diagr
 - T0 [S1-S4,S10] delegated/parent done — foundation and progressive pytest migration; RED 5 missing-index failures, GREEN 7 passed / 4 explicitly empty future-page parametrizations; commit eecf66a (540 authored lines including tracking); native assessment unavailable due to unrelated untracked paths, ordinary structural checks passed.
 - T1 [S1-S4,S10] delegated/parent done — purpose migrated, 15 passed / 1 not-yet-applicable proof parametrization; commit da43256; assessment unavailable (untracked paths).
 - T2 [S1-S4,S10] delegated/parent done — structure migrated, 22 passed / 1 future proof parametrization; commit ece6928; assessment unavailable (untracked paths).
-- T3 [S1-S4,S10] delegated/parent done — data journey migrated, 30 passed / 1 future proof parametrization; this commit records outcome.
-- T4 [S1-S4,S10] delegated/parent in_progress — installer transaction diagram with checks; commit pending.
-- T5 [S1-S4,S10] delegated/parent pending — setup assistance diagram with checks; commit pending.
+- T3 [S1-S4,S10] delegated/parent done — data journey migrated, 30 passed / 1 future proof parametrization; commit e6aec20; assessment unavailable (untracked paths).
+- T4 [S1-S4,S10] delegated/parent done — installer transaction migrated, 37 passed / 1 future proof parametrization; this commit records outcome.
+- T5 [S1-S4,S10] delegated/parent in_progress — setup assistance diagram with checks; commit pending.
 - T6 [S1-S4,S10] delegated/parent pending — reusable harness diagram with checks; commit pending.
 - T7 [S1-S4,S10] delegated/parent pending — proof boundaries diagram with checks; commit pending.
 - T8 [S1-S4,S10] delegated/parent pending — combined diagram with checks; commit pending.

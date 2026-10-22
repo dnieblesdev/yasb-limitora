@@ -18,7 +18,9 @@ COMPLETE_ORDER = (
     'proof-cases.html', 'lifecycle-verify.html',
 )
 # Registration is deliberate: a missing registered file is always an error.
-DELIVERED_PAGES = ('purpose.html', 'structure.html', 'data-journey.html')
+DELIVERED_PAGES = (
+    'purpose.html', 'structure.html', 'data-journey.html', 'installer-transaction.html',
+)
 GROUPS = {
     'product': COMPLETE_ORDER[:3],
     'installer': COMPLETE_ORDER[3:7],
@@ -367,6 +369,34 @@ def test_data_journey_decision_and_resolved_source_links(name):
     ):
         target = (original_directory / original).resolve()
         relocated = Path(os.path.relpath(target, ROOT)).as_posix()
+        assert f'href="{relocated}#{fragment}"' in source
+
+
+@pytest.mark.parametrize('name', tuple(
+    name for name in DELIVERED_PAGES if name == 'installer-transaction.html'
+))
+def test_installer_transaction_recovery_caveats_and_source_links(name):
+    source = read(name)
+    public_text = ' '.join(Page(source).texts)
+    for claim in (
+        'DeinitializeSetup restores only while an evacuation remains uncommitted.',
+        'Failed checked deletion at commit raises an exception and preserves recovery state.',
+        'failure may retain recovery bytes instead of restoring automatically.',
+        'Not an automatic installer rollback',
+        'never imports prior registration before proven byte restoration.',
+        'This is an explanatory source view, not new installer or VM proof.',
+    ):
+        assert claim in public_text
+    svg = ET.fromstring(re.search(r'<svg\b.*?</svg>', source, re.S)[0])
+    assert {node.attrib['data-node'] for node in svg.findall('.//*[@data-node]')} == {
+        'gate', 'evacuate', 'native', 'commit', 'assist', 'uninstall',
+        'quarantine', 'restore', 'registry',
+    }
+    assert len(svg.findall('.//*[@marker-end]')) == 8
+    original_directory = REPOSITORY / 'docs' / 'diagrams' / 'product'
+    target = (original_directory / '../../../packaging/inno/yasb-limitora.iss').resolve()
+    relocated = Path(os.path.relpath(target, ROOT)).as_posix()
+    for fragment in ('L1-L45', 'L222-L448', 'L904-L952'):
         assert f'href="{relocated}#{fragment}"' in source
 
 
