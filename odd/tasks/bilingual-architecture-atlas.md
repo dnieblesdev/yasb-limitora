@@ -28,9 +28,9 @@ Checks: `.venv/Scripts/python.exe -m pytest -q --strict-markers tests/test_diagr
 - T8 [S1-S4,S10] delegated/parent done — combined diagram migrated, 68 passed / no ignored-worktree test dependency; commit a6a97e5; assessment unavailable (untracked paths).
 - T9 [S5,S9,S10] delegated/parent done — persistent states and interruption, correct early Exit branch and pending native recovery; 75 passed; commit 13b5957; assessment unavailable (untracked paths).
 - T10 [S6,S9,S10] delegated/parent done — 13-resource ownership/retention/recovery matrix, 82 passed; commit 3b70204; assessment unavailable (untracked paths).
-- T11 [S7,S9,S10] delegated/parent done — 19 invariants, 14 AST-validated test node references, 5 explicit gaps and no embedded execution claims; 90 passed; this commit records outcome.
-- T12 [S8,S9,S10] delegated/parent in_progress — harness failure/responsibility diagram; commit pending.
-- T13 [S2-S4,S9-S10] parent pending — complete focused/full/lint/Ego verification, source tree custody and normal push to origin/main.
+- T11 [S7,S9,S10] delegated/parent done — 19 invariants, 14 AST-validated test node references, 5 explicit gaps and no embedded execution claims; 90 passed; commit 2fb5963; assessment unavailable (untracked paths).
+- T12 [S8,S9,S10] delegated/parent done — failure/responsibility matrix, independent guest/host budgets and pending diagnostics; 97 passed; this commit records outcome.
+- T13 [S2-S4,S9-S10] parent in_progress — complete focused/full/lint/Ego verification, source tree custody and normal push to origin/main.
 
 ## Log
 

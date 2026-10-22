@@ -24,6 +24,7 @@ DELIVERED_PAGES = (
     'purpose.html', 'structure.html', 'data-journey.html', 'installer-transaction.html',
     'setup-assist.html', 'proof-harness.html', 'proof-cases.html', 'lifecycle-verify.html',
     'installer-states.html', 'resource-ownership.html', 'claim-traceability.html',
+    'harness-failures.html',
 )
 GROUPS = {
     'product': COMPLETE_ORDER[:3],
@@ -631,6 +632,51 @@ def test_traceability_rows_and_literal_test_nodeids(name):
         'Historical harness-initiated restoration is not current Pascal rollback proof.',
     ):
         assert claim in public_text
+
+
+@pytest.mark.parametrize('name', tuple(
+    name for name in DELIVERED_PAGES if name == 'harness-failures.html'
+))
+def test_harness_failures_budgets_responsibility_and_evidence(name):
+    source = read(name)
+    rows = re.findall(r'<tr data-fault="([^"]+)">(.*?)</tr>', source, re.S)
+    assert [key for key, _ in rows] == [
+        'guest-timeout', 'scenario-artifact', 'restore-attach', 'guest-not-off',
+        'extraction', 'incomplete-evidence', 'verification', 'cleanup',
+    ]
+    for key, row in rows:
+        assert row.count('<td>') == 4, key
+        assert 'scope="row"' in row and '<a href=' in row, key
+        assert 'PENDING' in row, key
+    public_text = ' '.join(Page(source).texts)
+    for claim in (
+        'Guest runner budget: 300 seconds by default; bounded kill/waits can return 124. Kill failure throws instead.',
+        'Host Off watchdog: independent 600-second default. These budgets are not added into one shared deadline.',
+        'Generic bootstrap rejects any nonzero runner exit, attempts failed records, and leaves the guest up without controlled shutdown.',
+        'The host does not automatically Stop-VM on watchdog failure and does not directly propagate guest exit 124 as its own exit code.',
+        'A scenario-specific runner may interpret an expected step failure and return 0 with expected artifacts; generic bootstrap does not interpret legacy expectFailure.',
+        'Failure extraction attempts evidence-disk detach, then read-only mount and copy. It may succeed or fail while the guest is running.',
+        'Standalone verifier host provenance is optional; the orchestrator requires and passes host provenance.',
+        'Partial evidence, missing done.json, malformed/nonzero completion or hash mismatch cannot certify controlled success.',
+        'Source-observed diagnostic-loss concern, not reproduced or fixed here: extraction writes host-failure.json, then the outer catch can overwrite that same file; provenance-write failure can replace the primary message.',
+        'Finally attempts both disk detaches and both image dismounts independently; it does not delete VM, checkpoint, VHDX or archive.',
+        'Historical MAX_PATH recovery and verifier success do not rewrite failed host overall status or bind a new candidate.',
+        'REFERENCE ONLY: available tests and source links embed no execution result. Native current remains PENDING.',
+    ):
+        assert claim in public_text
+    assert '<code>300</code>' not in source  # budgets must remain translated human text
+    svg = ET.fromstring(re.search(r'<svg\b.*?</svg>', source, re.S)[0])
+    assert len(svg.findall('.//*[@data-node]')) == 6
+    assert len(svg.findall('.//*[@marker-end]')) == 5
+    for attrs, content in re.findall(r'<a\b([^>]*data-test-node="[^"]+"[^>]*)>(.*?)</a>', source, re.S):
+        attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', attrs))
+        nodeid = attrs['data-test-node']
+        path, function_name = nodeid.split('::')
+        target = urlsplit(attrs['href'])
+        linked = (ROOT / target.path).resolve()
+        assert linked == (REPOSITORY / path).resolve()
+        assert f'<code>{nodeid}</code>' in content
+        assert_named_test_anchor(linked.read_text(encoding='utf-8'), function_name, target.fragment)
 
 
 PROOF_CLAIMS = {
