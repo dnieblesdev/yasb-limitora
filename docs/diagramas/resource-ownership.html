@@ -1,12 +1,28 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Resource ownership</title><style>
-body{margin:0;background:#f5f5f5;color:#2d3142;font-family:'Geist',system-ui,sans-serif}main{max-width:1280px;margin:auto;padding:32px 20px}h1,h2{font-family:'Instrument Serif',serif;font-weight:400}p,td{line-height:1.6}a{color:#2e5aa8}code{overflow-wrap:anywhere}footer{border-top:1px solid #bfc0c0;margin-top:24px}
-.breadcrumb,.section-nav,.area-nav,.page-nav{display:flex;flex-wrap:wrap;gap:12px;margin:20px 0;align-items:center}.section-nav{padding:8px;background:#ececec;border-radius:8px}.section-nav a,.area-nav a,.page-nav a{padding:12px 16px;border:1px solid #4f5d75;border-radius:6px;text-decoration:none}.section-nav a{display:flex;align-items:center;gap:10px;color:#2d3142;font-weight:600}.section-nav a::before{content:'';width:8px;height:8px;border-radius:50%;background:#4f5d75;display:inline-block;flex-shrink:0}.section-nav [aria-current=location]{border-color:#bf4520}.area-nav [aria-current=page]{background:#2d3142;color:#f5f5f5}.page-nav{border-top:1px solid #bfc0c0;padding-top:16px}.progress{margin-right:auto}a:focus-visible,button:focus-visible{outline:3px solid #2e5aa8;outline-offset:4px}
-[hidden]{display:none!important}#language-controls{width:fit-content;margin-left:auto;border:1px solid #4f5d75;border-radius:6px;padding:4px;background:#ececec}#language-controls button{font:600 14px system-ui,sans-serif;min-height:40px;padding:8px 16px;border:0;background:transparent;color:#2d3142;cursor:pointer}#language-controls [aria-pressed=true]{background:#2d3142;color:#f5f5f5;border-radius:4px}
-figure{container-type:inline-size}.scroll-hint{display:none;font-size:14px;color:#4f5d75}.diagram-container{width:100%;overflow-x:auto}svg{display:block;width:100%;min-width:1280px}.name{font:600 16px system-ui,sans-serif;fill:#2d3142}.detail{font:400 13px system-ui,sans-serif;fill:#4f5d75}.tag{font:500 10px ui-monospace,monospace;fill:#4f5d75}.legend{font:400 12px system-ui,sans-serif;fill:#4f5d75}.table-container{overflow-x:auto}table{border-collapse:collapse;min-width:1280px;width:100%;background:#fff}caption{text-align:left;font-weight:600;margin:16px 0}th,td{padding:12px;text-align:left;vertical-align:top;border:1px solid #bfc0c0}th{background:#ececec}.source-hint{border-left:3px solid #4f5d75;padding:12px 16px}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:'Geist',system-ui,sans-serif}main{max-width:1280px;margin:auto;padding:32px 20px}h1,h2{font-family:'Instrument Serif',serif;font-weight:400}p,td{line-height:1.6}a{color:var(--link)}code{overflow-wrap:anywhere}footer{border-top:1px solid var(--rule-solid);margin-top:24px}
+.breadcrumb,.section-nav,.area-nav,.page-nav{display:flex;flex-wrap:wrap;gap:12px;margin:20px 0;align-items:center}.section-nav{padding:8px;background:var(--paper-2);border-radius:8px}.section-nav a,.area-nav a,.page-nav a{padding:12px 16px;border:1px solid var(--muted);border-radius:6px;text-decoration:none}.section-nav a{display:flex;align-items:center;gap:10px;color:var(--ink);font-weight:600}.section-nav a::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block;flex-shrink:0}.section-nav [aria-current=location]{border-color:var(--accent)}.area-nav [aria-current=page]{background:var(--ink);color:var(--paper)}.page-nav{border-top:1px solid var(--rule-solid);padding-top:16px}.progress{margin-right:auto}a:focus-visible,button:focus-visible{outline:3px solid var(--link);outline-offset:4px}
+[hidden]{display:none!important}#language-controls{width:fit-content;margin-left:auto;border:1px solid var(--muted);border-radius:6px;padding:4px;background:var(--paper-2)}#language-controls button{font:600 14px system-ui,sans-serif;min-height:40px;padding:8px 16px;border:0;background:transparent;color:var(--ink);cursor:pointer}#language-controls [aria-pressed=true]{background:var(--ink);color:var(--paper);border-radius:4px}
+figure{container-type:inline-size}.scroll-hint{display:none;font-size:14px;color:var(--muted)}.diagram-container{width:100%;overflow-x:auto}svg{display:block;width:100%;min-width:1280px}.name{font:600 16px system-ui,sans-serif;fill:var(--ink)}.detail{font:400 13px system-ui,sans-serif;fill:var(--muted)}.tag{font:500 10px ui-monospace,monospace;fill:var(--muted)}.legend{font:400 12px system-ui,sans-serif;fill:var(--muted)}.table-container{overflow-x:auto}table{border-collapse:collapse;min-width:1280px;width:100%;background:var(--surface)}caption{text-align:left;font-weight:600;margin:16px 0}th,td{padding:12px;text-align:left;vertical-align:top;border:1px solid var(--rule-solid)}th{background:var(--paper-2)}.source-hint{border-left:3px solid var(--muted);padding:12px 16px}
 @container(width < 1280px){.scroll-hint{display:block}}@media(max-width:640px){main{padding:20px 16px}.progress{flex-basis:100%}.section-nav a{padding:10px 12px}}@media print{.scroll-hint{display:none}}@media print{svg,table{min-width:0}.diagram-container,.table-container{overflow-x:visible}#language-controls{display:none}}
+
+/* Light retains the original palette. Dark soft/link text is lifted for surface contrast. */
+:root{--paper:#f5f5f5;--paper-2:#ececec;--surface:#fff;--ink:#2d3142;--muted:#4f5d75;--soft:#5a6580;--rule-solid:#bfc0c0;--accent:#bf4520;--link:#2e5aa8;color-scheme:light}
+:root[data-theme="dark"]{--paper:#2d3142;--paper-2:#393e53;--surface:#393e53;--ink:#f5f5f5;--muted:#bfc0c0;--soft:#bfc0c0;--rule-solid:rgba(191,192,192,0.25);--accent:#f08a59;--link:#8ab4ef;color-scheme:dark}
+.control-bar{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:8px}
+.control-bar #language-controls{margin:0}
+#theme-toggle{box-sizing:border-box;display:grid;place-items:center;min-width:44px;min-height:44px;padding:10px;border:1px solid var(--muted);border-radius:6px;background:var(--paper-2);color:var(--ink);cursor:pointer}
+#theme-toggle:hover{border-color:var(--link)}
+.theme-icon{box-sizing:border-box;position:relative;display:block;border:2px solid currentColor;border-radius:50%}
+.theme-moon{width:18px;height:18px}
+.theme-moon::after{content:'';position:absolute;inset:-4px -4px 4px 4px;border-radius:50%;background:var(--paper-2)}
+.theme-sun{display:none;width:12px;height:12px}
+.theme-sun::before{content:'';position:absolute;inset:-7px;border:2px dashed currentColor;border-radius:50%}
+:root[data-theme="dark"] .theme-moon{display:none}
+:root[data-theme="dark"] .theme-sun{display:block}
+@media print{.control-bar{display:none}}
 </style></head><body><main>
-<div id="language-controls" hidden role="group" aria-label="Language" data-i18n-label="Language"><button type="button" data-language="es" lang="es" aria-pressed="false">Español</button> <button type="button" data-language="en" lang="en" aria-pressed="false">English</button></div>
+<div class="control-bar"><div id="language-controls" hidden role="group" aria-label="Language" data-i18n-label="Language"><button type="button" data-language="es" lang="es" aria-pressed="false">Español</button> <button type="button" data-language="en" lang="en" aria-pressed="false">English</button></div><button id="theme-toggle" hidden type="button" aria-pressed="false" aria-label="Switch to dark theme" title="Switch to dark theme"><span class="theme-icon theme-moon" aria-hidden="true"></span><span class="theme-icon theme-sun" aria-hidden="true"></span></button></div>
 <nav class="breadcrumb" aria-label="Breadcrumb" data-i18n-label="Breadcrumb"><a href="index.html">Diagram atlas</a><a href="index.html#responsibility">Responsibility</a></nav>
 <nav class="section-nav" aria-label="Sections" data-i18n-label="Sections"><a href="index.html#product">Product</a><a href="index.html#installer">Installer &amp; proof</a><a href="index.html#combined">Combined</a><a href="index.html#responsibility" aria-current="location">Responsibility</a></nav>
 <nav class="area-nav" aria-label="Area navigation" data-i18n-label="Area navigation"><a href="installer-states.html">Installer states</a><a href="resource-ownership.html" aria-current="page">Resource ownership</a><a href="claim-traceability.html">Claim traceability</a><a href="harness-failures.html">Harness failures</a></nav>
@@ -15,15 +31,15 @@ figure{container-type:inline-size}.scroll-hint{display:none;font-size:14px;color
 <p>A filename alone is not deletion authority; process globals are not durable ownership.</p>
 <figure style="margin:0"><p class="scroll-hint">Scroll horizontally to see the full diagram</p><div class="diagram-container"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" role="img" aria-labelledby="resource-ownership-title resource-ownership-desc">
 <title id="resource-ownership-title">Resource ownership</title><desc id="resource-ownership-desc">The operator authorizes separate installer, assistant and host responsibilities, each bounded by resource-specific ownership checks rather than blanket cleanup authority.</desc>
-<defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#4f5d75"/></marker></defs><rect width="1280" height="720" fill="#f5f5f5"/>
-<path d="M 480 136 H 192 Q 184 136 184 144 V 320" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/><path d="M 640 192 V 320" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/><path d="M 800 136 H 1060 Q 1068 136 1068 144 V 320" fill="none" stroke="#4f5d75" marker-end="url(#arrow)"/>
-<rect x="196" y="236" width="128" height="20" fill="#f5f5f5"/><text x="260" y="250" text-anchor="middle" class="tag">INSTALL CONSENT</text><rect x="652" y="236" width="112" height="20" fill="#f5f5f5"/><text x="708" y="250" text-anchor="middle" class="tag">TASK CONSENT</text><rect x="1080" y="236" width="128" height="20" fill="#f5f5f5"/><text x="1144" y="250" text-anchor="middle" class="tag">VM AUTHORITY</text>
-<g data-node="operator"><rect x="480" y="80" width="320" height="112" rx="6" fill="#f5f5f5" stroke="#bf4520"/><text x="504" y="116" class="name">Operator / maintainer</text><text x="504" y="156" class="detail">Retains uncertain resources and decisions</text></g>
-<g data-node="installer"><rect x="64" y="320" width="320" height="128" rx="6" fill="#fff" stroke="#2d3142"/><text x="88" y="360" class="name">Native installer</text><text x="88" y="404" class="detail">Payload, registry, guarded recovery</text></g>
-<g data-node="assistant"><rect x="480" y="320" width="320" height="128" rx="6" fill="#fff" stroke="#2d3142"/><text x="504" y="360" class="name">Private assistant</text><text x="504" y="404" class="detail">Owned PATH, configuration, state</text></g>
-<g data-node="host"><rect x="920" y="320" width="296" height="128" rx="6" fill="#fff" stroke="#2d3142"/><text x="944" y="360" class="name">Authorized proof host</text><text x="944" y="404" class="detail">Fresh disks, restore, extract, verify</text></g>
+<defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--muted)"/></marker></defs><rect width="1280" height="720" fill="var(--paper)"/>
+<path d="M 480 136 H 192 Q 184 136 184 144 V 320" fill="none" stroke="var(--muted)" marker-end="url(#arrow)"/><path d="M 640 192 V 320" fill="none" stroke="var(--muted)" marker-end="url(#arrow)"/><path d="M 800 136 H 1060 Q 1068 136 1068 144 V 320" fill="none" stroke="var(--muted)" marker-end="url(#arrow)"/>
+<rect x="196" y="236" width="128" height="20" fill="var(--paper)"/><text x="260" y="250" text-anchor="middle" class="tag">INSTALL CONSENT</text><rect x="652" y="236" width="112" height="20" fill="var(--paper)"/><text x="708" y="250" text-anchor="middle" class="tag">TASK CONSENT</text><rect x="1080" y="236" width="128" height="20" fill="var(--paper)"/><text x="1144" y="250" text-anchor="middle" class="tag">VM AUTHORITY</text>
+<g data-node="operator"><rect x="480" y="80" width="320" height="112" rx="6" fill="var(--paper)" stroke="var(--accent)"/><text x="504" y="116" class="name">Operator / maintainer</text><text x="504" y="156" class="detail">Retains uncertain resources and decisions</text></g>
+<g data-node="installer"><rect x="64" y="320" width="320" height="128" rx="6" fill="var(--surface)" stroke="var(--ink)"/><text x="88" y="360" class="name">Native installer</text><text x="88" y="404" class="detail">Payload, registry, guarded recovery</text></g>
+<g data-node="assistant"><rect x="480" y="320" width="320" height="128" rx="6" fill="var(--surface)" stroke="var(--ink)"/><text x="504" y="360" class="name">Private assistant</text><text x="504" y="404" class="detail">Owned PATH, configuration, state</text></g>
+<g data-node="host"><rect x="920" y="320" width="296" height="128" rx="6" fill="var(--surface)" stroke="var(--ink)"/><text x="944" y="360" class="name">Authorized proof host</text><text x="944" y="404" class="detail">Fresh disks, restore, extract, verify</text></g>
 <text x="64" y="536" class="detail">Independent authority domains, not a processing sequence. The matrix below defines each resource boundary.</text>
-<line x1="40" y1="660" x2="1240" y2="660" stroke="#bfc0c0"/><text x="64" y="688" class="legend">Solid → scoped authorization · Accent → retained human authority · No blanket deletion permission</text>
+<line x1="40" y1="660" x2="1240" y2="660" stroke="var(--rule-solid)"/><text x="64" y="688" class="legend">Solid → scoped authorization · Accent → retained human authority · No blanket deletion permission</text>
 </svg></div></figure>
 <h2>Resource matrix</h2>
 <p>Scroll the matrix horizontally on narrow screens. Each row identifies permitted changes, retention, recovery preconditions and evidence limits.</p>
@@ -103,6 +119,33 @@ figure{container-type:inline-size}.scroll-hint{display:none;font-size:14px;color
   }
   const controls = document.getElementById('language-controls');
   const buttons = controls.querySelectorAll('button');
+  const themeButton = document.getElementById('theme-toggle');
+  let theme = 'light';
+  const updateThemeControl = () => {
+    const dark = theme === 'dark';
+    const spanish = document.documentElement.lang === 'es';
+    const label = spanish
+      ? (dark ? 'Activar tema claro' : 'Activar tema oscuro')
+      : (dark ? 'Switch to light theme' : 'Switch to dark theme');
+    themeButton.setAttribute('aria-label', label);
+    themeButton.title = label;
+    themeButton.setAttribute('aria-pressed', String(dark));
+  };
+  const applyTheme = selected => {
+    theme = selected === 'dark' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = theme;
+    updateThemeControl();
+  };
+  try {
+    const saved = localStorage.getItem('yasb-limitora-theme');
+    if (saved === 'light' || saved === 'dark') theme = saved;
+  } catch (_) { /* Storage may be unavailable, including on file://. */ }
+  applyTheme(theme);
+  themeButton.addEventListener('click', () => {
+    applyTheme(theme === 'dark' ? 'light' : 'dark');
+    try { localStorage.setItem('yasb-limitora-theme', theme); } catch (_) { /* Session-only choice. */ }
+  });
+  themeButton.hidden = false;
   const applyLanguage = language => {
     for (const {node, original, english} of entries) node.textContent = original.replace(english, language === 'es' ? translations[english] : english);
     document.documentElement.lang = language;
@@ -111,6 +154,7 @@ figure{container-type:inline-size}.scroll-hint{display:none;font-size:14px;color
       element.setAttribute('aria-label', language === 'es' ? translations[english] : english);
     }
     for (const button of buttons) button.setAttribute('aria-pressed', String(button.dataset.language === language));
+    updateThemeControl();
   };
   let language = 'es';
   try {

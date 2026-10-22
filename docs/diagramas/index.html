@@ -6,45 +6,61 @@
 <title>yasb-limitora product diagrams</title>
 <style>
 *{box-sizing:border-box}
-body{margin:0;background:#f5f5f5;color:#2d3142;font-family:'Geist',system-ui,sans-serif}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:'Geist',system-ui,sans-serif}
 main{max-width:1280px;min-width:0;margin:auto;padding:32px 24px}
 h1{font:400 clamp(32px,4vw,48px) 'Instrument Serif',serif;max-width:840px;line-height:1.15;margin:28px 0 20px}
 h2{font:400 32px 'Instrument Serif',serif;margin:0 0 12px}
 h3{font-size:20px;margin:0 0 16px}
-a{color:#2e5aa8}
+a{color:var(--link)}
 p{line-height:1.7}
-footer{border-top:1px solid #bfc0c0;margin-top:40px;font-size:14px;color:#4f5d75}
-.breadcrumb{display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:14px;margin:16px 0;color:#4f5d75}
-.breadcrumb [aria-current=page]{font-weight:600;color:#2d3142;text-decoration-thickness:2px}
-.section-nav{display:flex;flex-wrap:wrap;gap:8px;padding:8px;background:#ececec;border-radius:8px;margin:28px 0}
-.section-nav a{display:flex;align-items:center;gap:10px;padding:12px 18px;border:1px solid transparent;border-radius:4px;color:#2d3142;text-decoration:none;font-weight:600}
-.section-nav a::before{content:'';width:8px;height:8px;border-radius:50%;background:#4f5d75;display:inline-block;flex-shrink:0}
-.section-nav a:hover{border-color:#2e5aa8}
-.atlas-area{margin:48px 0;padding:0 0 0 20px;border-left:3px solid #bfc0c0;scroll-margin-top:24px}
-.atlas-area:target{border-left-color:#bf4520}
+footer{border-top:1px solid var(--rule-solid);margin-top:40px;font-size:14px;color:var(--muted)}
+.breadcrumb{display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:14px;margin:16px 0;color:var(--muted)}
+.breadcrumb [aria-current=page]{font-weight:600;color:var(--ink);text-decoration-thickness:2px}
+.section-nav{display:flex;flex-wrap:wrap;gap:8px;padding:8px;background:var(--paper-2);border-radius:8px;margin:28px 0}
+.section-nav a{display:flex;align-items:center;gap:10px;padding:12px 18px;border:1px solid transparent;border-radius:4px;color:var(--ink);text-decoration:none;font-weight:600}
+.section-nav a::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block;flex-shrink:0}
+.section-nav a:hover{border-color:var(--link)}
+.atlas-area{margin:48px 0;padding:0 0 0 20px;border-left:3px solid var(--rule-solid);scroll-margin-top:24px}
+.atlas-area:target{border-left-color:var(--accent)}
 .card-grid{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:16px;margin:24px 0}
 .installer-grid{grid-template-columns:1fr 1fr}
-.atlas-card,.planned-card{position:relative;display:flex;flex-direction:column;min-width:0;padding:24px;background:#fff;border:1px solid #4f5d75;border-radius:6px;color:#2d3142;text-decoration:none}
-.atlas-card:first-child,.planned-card:first-child{border-top:4px solid #bf4520}
-.atlas-card:hover{border-color:#2e5aa8;background:#ececec}
-.card-enter::after{content:'↗';position:absolute;right:20px;bottom:16px;color:#2e5aa8;font-size:24px}
+.atlas-card,.planned-card{position:relative;display:flex;flex-direction:column;min-width:0;padding:24px;background:var(--surface);border:1px solid var(--muted);border-radius:6px;color:var(--ink);text-decoration:none}
+.atlas-card:first-child,.planned-card:first-child{border-top:4px solid var(--accent)}
+.atlas-card:hover{border-color:var(--link);background:var(--paper-2)}
+.card-enter::after{content:'↗';position:absolute;right:20px;bottom:16px;color:var(--link);font-size:24px}
 .atlas-card{padding-bottom:56px}
-.card-kicker{font-size:13px;letter-spacing:.04em;color:#4f5d75;margin-bottom:24px}
-.planned-card p{margin:0;font-size:15px;color:#4f5d75}
+.card-kicker{font-size:13px;letter-spacing:.04em;color:var(--muted);margin-bottom:24px}
+.planned-card p{margin:0;font-size:15px;color:var(--muted)}
 .combined-grid{grid-template-columns:1fr}
-.source-hint{padding:12px 16px;border-left:3px solid #4f5d75;font-size:14px;color:#4f5d75}
+.source-hint{padding:12px 16px;border-left:3px solid var(--muted);font-size:14px;color:var(--muted)}
 [hidden]{display:none!important}
-#language-controls{width:fit-content;margin-left:auto;border:1px solid #4f5d75;border-radius:6px;padding:4px;background:#ececec}
-#language-controls button{font:600 14px 'Geist',system-ui,sans-serif;min-height:40px;padding:8px 16px;border:0;background:transparent;color:#2d3142;cursor:pointer}
-#language-controls [aria-pressed=true]{background:#2d3142;color:#f5f5f5;border-radius:4px}
-a:focus-visible,button:focus-visible{outline:3px solid #2e5aa8;outline-offset:4px}
+#language-controls{width:fit-content;margin-left:auto;border:1px solid var(--muted);border-radius:6px;padding:4px;background:var(--paper-2)}
+#language-controls button{font:600 14px 'Geist',system-ui,sans-serif;min-height:40px;padding:8px 16px;border:0;background:transparent;color:var(--ink);cursor:pointer}
+#language-controls [aria-pressed=true]{background:var(--ink);color:var(--paper);border-radius:4px}
+a:focus-visible,button:focus-visible{outline:3px solid var(--link);outline-offset:4px}
 @media(max-width:900px){.card-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:640px){main{padding:20px 16px}.section-nav a{padding:10px 12px}.atlas-area{padding-left:12px}.card-grid{grid-template-columns:1fr}.planned-card{padding:20px}.card-kicker{margin-bottom:16px}}
 @media print{#language-controls{display:none}.card-grid{grid-template-columns:1fr 1fr}.planned-card{break-inside:avoid}}
+
+/* Light retains the original palette. Dark soft/link text is lifted for surface contrast. */
+:root{--paper:#f5f5f5;--paper-2:#ececec;--surface:#fff;--ink:#2d3142;--muted:#4f5d75;--soft:#5a6580;--rule-solid:#bfc0c0;--accent:#bf4520;--link:#2e5aa8;color-scheme:light}
+:root[data-theme="dark"]{--paper:#2d3142;--paper-2:#393e53;--surface:#393e53;--ink:#f5f5f5;--muted:#bfc0c0;--soft:#bfc0c0;--rule-solid:rgba(191,192,192,0.25);--accent:#f08a59;--link:#8ab4ef;color-scheme:dark}
+.control-bar{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:8px}
+.control-bar #language-controls{margin:0}
+#theme-toggle{box-sizing:border-box;display:grid;place-items:center;min-width:44px;min-height:44px;padding:10px;border:1px solid var(--muted);border-radius:6px;background:var(--paper-2);color:var(--ink);cursor:pointer}
+#theme-toggle:hover{border-color:var(--link)}
+.theme-icon{box-sizing:border-box;position:relative;display:block;border:2px solid currentColor;border-radius:50%}
+.theme-moon{width:18px;height:18px}
+.theme-moon::after{content:'';position:absolute;inset:-4px -4px 4px 4px;border-radius:50%;background:var(--paper-2)}
+.theme-sun{display:none;width:12px;height:12px}
+.theme-sun::before{content:'';position:absolute;inset:-7px;border:2px dashed currentColor;border-radius:50%}
+:root[data-theme="dark"] .theme-moon{display:none}
+:root[data-theme="dark"] .theme-sun{display:block}
+@media print{.control-bar{display:none}}
 </style>
 </head>
 <body><main>
-<div id="language-controls" hidden role="group" aria-label="Language" data-i18n-label="Language"><button type="button" data-language="es" lang="es" aria-pressed="false">Español</button> <button type="button" data-language="en" lang="en" aria-pressed="false">English</button></div>
+<div class="control-bar"><div id="language-controls" hidden role="group" aria-label="Language" data-i18n-label="Language"><button type="button" data-language="es" lang="es" aria-pressed="false">Español</button> <button type="button" data-language="en" lang="en" aria-pressed="false">English</button></div><button id="theme-toggle" hidden type="button" aria-pressed="false" aria-label="Switch to dark theme" title="Switch to dark theme"><span class="theme-icon theme-moon" aria-hidden="true"></span><span class="theme-icon theme-sun" aria-hidden="true"></span></button></div>
 <nav class="breadcrumb" aria-label="Breadcrumb" data-i18n-label="Breadcrumb"><a href="index.html" aria-current="page">Diagram atlas</a></nav>
 <p>PRODUCT · WINDOWS ONLY</p>
 <h1>Understand yasb-limitora and its responsibilities</h1>
@@ -89,8 +105,8 @@ a:focus-visible,button:focus-visible{outline:3px solid #2e5aa8;outline-offset:4p
 <p>Figures are explanatory abstractions, not complete call graphs or promises of automated YASB rendering. Installer diagrams explain source behavior, not new native proof.</p>
 <p class="source-hint">Source links open the published GitHub revision with pinned line anchors; clicking them requires a network connection, but the atlas renders offline.</p>
 <footer>
-<p>Spanish and English are available through the language selector. Without JavaScript the page remains readable in English.</p>
-<p>Only local language-selection JavaScript; rendering loads no external assets or fonts. Source clicks open GitHub over the network. Intentional system fallback: Instrument Serif → platform serif, Geist → system sans, Geist Mono → platform monospace. Font metrics can vary by machine.</p>
+<p>Spanish and English are available through the language selector; the adjacent moon/sun button switches themes. Choices are saved locally when storage is available; otherwise they last for this page only. Without JavaScript the page remains readable in English with the light theme.</p>
+<p>Only local language/theme-selection JavaScript; rendering loads no external assets or fonts. Source clicks open GitHub over the network. Intentional system fallback: Instrument Serif → platform serif, Geist → system sans, Geist Mono → platform monospace. Font metrics can vary by machine.</p>
 <p>Reference: <a href="https://github.com/dnieblesdev/yasb-limitora/blob/8e4bd6016ca99b4ef20e7eb3555b79525bba3a00/docs/architecture/README.md#L1-L109" target="_blank" rel="noopener noreferrer">product architecture:1–109</a></p>
 <p>Static structural checks do not constitute screenshot or native UI verification.</p>
 </footer>
@@ -157,8 +173,8 @@ a:focus-visible,button:focus-visible{outline:3px solid #2e5aa8;outline-offset:4p
     "Persistent artifacts, volatile ownership, guarded restoration and the limits of crash recovery.": "Artefactos persistentes, propiedad volátil, restauración controlada y límites de recuperación tras cierre abrupto.",
     "Figures are explanatory abstractions, not complete call graphs or promises of automated YASB rendering. Installer diagrams explain source behavior, not new native proof.": "Las figuras son abstracciones explicativas, no grafos completos de llamadas ni promesas de renderizado automatizado de YASB. Los diagramas del instalador explican las fuentes; no son nuevas pruebas nativas.",
     "Source links open the published GitHub revision with pinned line anchors; clicking them requires a network connection, but the atlas renders offline.": "Los enlaces a fuentes abren la revisión publicada en GitHub con líneas fijadas; abrirlos requiere conexión, pero el atlas se muestra sin conexión.",
-    "Spanish and English are available through the language selector. Without JavaScript the page remains readable in English.": "El selector permite elegir español o inglés. Sin JavaScript la página sigue siendo legible en inglés.",
-    "Only local language-selection JavaScript; rendering loads no external assets or fonts. Source clicks open GitHub over the network. Intentional system fallback: Instrument Serif → platform serif, Geist → system sans, Geist Mono → platform monospace. Font metrics can vary by machine.": "Solo JavaScript local para elegir idioma; mostrar la página no carga recursos ni fuentes externos. Abrir fuentes conecta con GitHub. Sustitución intencional: Instrument Serif → serif local, Geist → sans local, Geist Mono → monoespaciada local. Las métricas pueden variar según el equipo.",
+    "Spanish and English are available through the language selector; the adjacent moon/sun button switches themes. Choices are saved locally when storage is available; otherwise they last for this page only. Without JavaScript the page remains readable in English with the light theme.": "El selector permite elegir español o inglés; el botón de luna/sol contiguo cambia el tema. Las preferencias se guardan localmente cuando el almacenamiento está disponible; en caso contrario solo duran en esta página. Sin JavaScript la página sigue siendo legible en inglés con el tema claro.",
+    "Only local language/theme-selection JavaScript; rendering loads no external assets or fonts. Source clicks open GitHub over the network. Intentional system fallback: Instrument Serif → platform serif, Geist → system sans, Geist Mono → platform monospace. Font metrics can vary by machine.": "Solo JavaScript local para elegir idioma/tema; mostrar la página no carga recursos ni fuentes externos. Abrir fuentes conecta con GitHub. Sustitución intencional: Instrument Serif → serif local, Geist → sans local, Geist Mono → monoespaciada local. Las métricas pueden variar según el equipo.",
     "Reference:": "Referencia:",
     "Static structural checks do not constitute screenshot or native UI verification.": "Las comprobaciones estructurales estáticas no equivalen a verificar capturas ni la interfaz nativa."
   };
@@ -174,6 +190,33 @@ a:focus-visible,button:focus-visible{outline:3px solid #2e5aa8;outline-offset:4p
   }
   const controls = document.getElementById('language-controls');
   const buttons = controls.querySelectorAll('button');
+  const themeButton = document.getElementById('theme-toggle');
+  let theme = 'light';
+  const updateThemeControl = () => {
+    const dark = theme === 'dark';
+    const spanish = document.documentElement.lang === 'es';
+    const label = spanish
+      ? (dark ? 'Activar tema claro' : 'Activar tema oscuro')
+      : (dark ? 'Switch to light theme' : 'Switch to dark theme');
+    themeButton.setAttribute('aria-label', label);
+    themeButton.title = label;
+    themeButton.setAttribute('aria-pressed', String(dark));
+  };
+  const applyTheme = selected => {
+    theme = selected === 'dark' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = theme;
+    updateThemeControl();
+  };
+  try {
+    const saved = localStorage.getItem('yasb-limitora-theme');
+    if (saved === 'light' || saved === 'dark') theme = saved;
+  } catch (_) { /* Storage may be unavailable, including on file://. */ }
+  applyTheme(theme);
+  themeButton.addEventListener('click', () => {
+    applyTheme(theme === 'dark' ? 'light' : 'dark');
+    try { localStorage.setItem('yasb-limitora-theme', theme); } catch (_) { /* Session-only choice. */ }
+  });
+  themeButton.hidden = false;
   const applyLanguage = language => {
     for (const {node, original, english} of entries) {
       node.textContent = original.replace(english, language === 'es' ? translations[english] : english);
@@ -184,6 +227,7 @@ a:focus-visible,button:focus-visible{outline:3px solid #2e5aa8;outline-offset:4p
       element.setAttribute('aria-label', language === 'es' ? translations[english] : english);
     }
     for (const button of buttons) button.setAttribute('aria-pressed', String(button.dataset.language === language));
+    updateThemeControl();
   };
   let language = 'es';
   try {

@@ -1,7 +1,8 @@
-"""Progressive, offline atlas contracts; these are not native UI proofs."""
+"""Offline atlas contracts, not native UI proofs; JS execution optionally uses Node."""
 import ast
 import json
 import re
+import shutil
 import subprocess
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
@@ -215,7 +216,10 @@ def test_standalone_i18n_and_accessibility(name):
     source = read(name)
     page = Page(source)
     dictionary = translations(source)
-    assert {b['data-language'] for b in page.buttons} == {'es', 'en'}
+    # Theme adds a button; language membership belongs to language controls only.
+    language_buttons = [button for button in page.buttons if 'data-language' in button]
+    assert len(language_buttons) == 2
+    assert {button['data-language'] for button in language_buttons} == {'es', 'en'}
     assert 'id="language-controls" hidden' in source
     assert 'lang="en"' in source  # coherent no-JS fallback
     stable = r'[\w. /–:+-]+:\d+–\d+|[.;:]|yasb-limitora|YASB CustomWidget|ExecutionOrchestrator|RefreshAttempt|stdout / stderr / exit status'
@@ -281,7 +285,9 @@ def test_sections_and_filled_dot_markers(name):
     source = read(name)
     marker = re.search(r'\.section-nav a::before\{([^}]+)\}', source)[1]
     assert 'border-radius:50%' in marker
-    assert 'background:#4f5d75' in marker
+    paint = re.search(r'background:([^;]+)', marker)[1]
+    assert resolve_paint(paint, theme_palette(source)) == '#4f5d75'
+    assert resolve_paint(paint, theme_palette(source, dark=True)) == '#bfc0c0'
     assert 'border:2px' not in marker
     navigation = re.search(r'<nav class="section-nav"[^>]*>(.*?)</nav>', source, re.S)[1]
     prefix = '#' if name == 'index.html' else 'index.html#'
@@ -784,6 +790,184 @@ def test_all_sources_share_one_full_published_revision():
                 revisions.add(urlsplit(href).path.split('/')[4])
     assert len(revisions) == 1
     assert re.fullmatch(r'[0-9a-f]{40}', revisions.pop())
+
+
+LIGHT_PALETTE = {
+    'paper': '#f5f5f5', 'paper-2': '#ececec', 'surface': '#fff',
+    'ink': '#2d3142', 'muted': '#4f5d75', 'soft': '#5a6580',
+    'rule-solid': '#bfc0c0', 'accent': '#bf4520', 'link': '#2e5aa8',
+}
+DARK_PALETTE = {
+    'paper': '#2d3142', 'paper-2': '#393e53', 'surface': '#393e53',
+    'ink': '#f5f5f5', 'muted': '#bfc0c0', 'soft': '#bfc0c0',
+    'rule-solid': 'rgba(191,192,192,0.25)', 'accent': '#f08a59', 'link': '#8ab4ef',
+}
+
+
+def resolve_paint(value, palette):
+    match = re.fullmatch(r'var\(--([\w-]+)\)', value)
+    assert match, value
+    return palette[match[1]]
+
+
+def theme_palette(source, dark=False):
+    selector = r':root\[data-theme="dark"\]' if dark else ':root'
+    match = re.search(selector + r'\s*\{([^}]+)\}', source)
+    assert match, 'theme palette required'
+    return dict(re.findall(r'--([\w-]+):\s*([^;]+);', match[1]))
+
+
+@pytest.mark.parametrize('name', ('index.html', *DELIVERED_PAGES))
+def test_theme_controls_and_complete_semantic_paint(name):
+    source = read(name)
+    page = Page(source)
+    theme_buttons = [attrs for attrs in page.buttons if attrs.get('id') == 'theme-toggle']
+    assert len(theme_buttons) == 1
+    button = theme_buttons[0]
+    assert 'hidden' in button and button['type'] == 'button'
+    assert button['aria-pressed'] == 'false'
+    assert button['aria-label'] == button['title'] == 'Switch to dark theme'
+    assert 'class="control-bar"' in source
+    assert 'data-theme' not in re.search(r'<html\b[^>]*>', source)[0]
+    assert source.index('id="language-controls"') < source.index('id="theme-toggle"')
+    for required in ('min-width:44px', 'min-height:44px', '.theme-moon', '.theme-sun',
+                     'Switch to dark theme', 'Switch to light theme',
+                     'Activar tema oscuro', 'Activar tema claro'):
+        assert required in source
+    for dark, expected in ((False, LIGHT_PALETTE), (True, DARK_PALETTE)):
+        assert theme_palette(source, dark) == expected
+    styles = re.search(r'<style>(.*?)</style>', source, re.S)[1]
+    for rule in re.findall(r'([^{}]+)\{([^{}]*)\}', styles):
+        if '--paper:' not in rule[1]:
+            assert not re.search(r'#[0-9a-fA-F]{3,8}\b', rule[1]), rule
+    assert 'box-shadow' not in styles and 'animation:' not in styles
+    if name != 'index.html':
+        svg = ET.fromstring(re.search(r'<svg\b.*?</svg>', source, re.S)[0])
+        for element in svg.iter():
+            for paint in ('fill', 'stroke'):
+                value = element.attrib.get(paint)
+                if value and value != 'none':
+                    match = re.fullmatch(r'var\(--([\w-]+)\)', value)
+                    assert match, (element.tag, paint, value)
+                    assert match[1] in LIGHT_PALETTE
+        background = svg.find('{http://www.w3.org/2000/svg}rect')
+        assert background.attrib['fill'] == 'var(--paper)'
+
+
+def contrast_ratio(first, second):
+    def luminance(color):
+        color = color.lstrip('#')
+        if len(color) == 3:
+            color = ''.join(character * 2 for character in color)
+        channels = [int(color[index:index + 2], 16) / 255 for index in (0, 2, 4)]
+        linear = [value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+                  for value in channels]
+        return sum(value * weight for value, weight in zip(linear, (0.2126, 0.7152, 0.0722)))
+    bright, dim = sorted((luminance(first), luminance(second)), reverse=True)
+    return (bright + 0.05) / (dim + 0.05)
+
+
+@pytest.mark.parametrize('name', ('index.html', *DELIVERED_PAGES))
+def test_theme_text_and_essential_mark_contrast(name):
+    for dark in (False, True):
+        palette = theme_palette(read(name), dark)
+        for surface in ('paper', 'paper-2', 'surface'):
+            for text in ('ink', 'muted', 'soft', 'link'):
+                assert contrast_ratio(palette[text], palette[surface]) >= 4.5, (dark, text, surface)
+            assert contrast_ratio(palette['accent'], palette[surface]) >= 3
+
+
+THEME_DOM_HARNESS = r"""
+const vm = require('node:vm');
+const fs = require('node:fs');
+const script = fs.readFileSync(0, 'utf8');
+function run(saved, blocked = false) {
+  const storage = {...saved};
+  const makeButton = language => ({dataset: {language}, attributes: {}, hidden: true,
+    events: {}, setAttribute(k, v) { this.attributes[k] = v; },
+    addEventListener(k, v) { this.events[k] = v; }});
+  const es = makeButton('es'), en = makeButton('en'), theme = makeButton();
+  const controls = {hidden: true, querySelectorAll: () => [es, en]};
+  const label = {dataset: {i18nLabel: 'Language'}, setAttribute() {}};
+  const node = {textContent: 'Product', parentElement: {closest: () => false}};
+  let visited = false;
+  const root = {lang: 'en', dataset: {}};
+  const context = {NodeFilter: {SHOW_TEXT: 4}, document: {
+    documentElement: root,
+    createTreeWalker: () => ({currentNode: node, nextNode: () => {
+      if (visited) return false; visited = true; return true;
+    }}),
+    getElementById: id => id === 'language-controls' ? controls : theme,
+    querySelectorAll: () => [label],
+  }, localStorage: {
+    getItem(key) { if (blocked) throw Error('blocked'); return storage[key] ?? null; },
+    setItem(key, value) { if (blocked) throw Error('blocked'); storage[key] = value; },
+  }};
+  vm.runInNewContext(script, context);
+  const state = () => ({theme: root.dataset.theme, language: root.lang,
+    label: theme.attributes['aria-label'], title: theme.title,
+    pressed: theme.attributes['aria-pressed'], hidden: theme.hidden,
+    text: node.textContent, storage: {...storage}});
+  const initial = state();
+  theme.events.click();
+  const toggled = state();
+  en.events.click();
+  const english = state();
+  theme.events.click();
+  const restored = state();
+  return {initial, toggled, english, restored};
+}
+const cases = [run({}), run({'yasb-limitora-theme': 'dark', 'yasb-limitora-language': 'en'}),
+  run({'yasb-limitora-theme': 'invalid', 'yasb-limitora-language': 'es'}), run({}, true),
+  run({'yasb-limitora-theme': 'light', 'yasb-limitora-language': 'en'})];
+const reload = run(cases[0].english.storage).initial;
+process.stdout.write(JSON.stringify({cases, reload}));
+"""
+
+
+@pytest.mark.parametrize('name', ('index.html', *DELIVERED_PAGES))
+def test_theme_controller_live_persistence_storage_and_language_preservation(name):
+    # Optional JS tool only: never install it or gate structural/color checks on it.
+    node = shutil.which('node')
+    if node is None:
+        pytest.skip('Optional atlas JS execution unavailable: Node not found; structural/color checks remain active.')
+    source = read(name)
+    script = re.search(r'<script>(.*?)</script>', source, re.S)[1]
+    result = subprocess.run([node, '-e', THEME_DOM_HARNESS], input=script,
+                            text=True, encoding='utf-8', capture_output=True, check=False,
+                            timeout=10)
+    assert result.returncode == 0, result.stderr
+    observed = json.loads(result.stdout)
+    for index, case in enumerate(observed['cases']):
+        for state in case.values():
+            dark = state['theme'] == 'dark'
+            assert state['pressed'] == str(dark).lower()
+            expected = (('Activar tema claro' if dark else 'Activar tema oscuro')
+                        if state['language'] == 'es' else
+                        ('Switch to light theme' if dark else 'Switch to dark theme'))
+            assert state['label'] == state['title'] == expected
+        initial_dark = index == 1
+        assert case['initial']['theme'] == ('dark' if initial_dark else 'light')
+        assert case['initial']['hidden'] is False
+        assert case['initial']['pressed'] == str(initial_dark).lower()
+        assert case['initial']['label'] == case['initial']['title']
+        assert case['toggled']['theme'] == ('light' if initial_dark else 'dark')
+        assert case['toggled']['language'] == case['initial']['language']
+        assert case['toggled']['text'] == case['initial']['text']
+        assert case['english']['language'] == 'en' and case['english']['text'] == 'Product'
+        assert case['english']['theme'] == case['toggled']['theme']
+        assert case['english']['label'] == ('Switch to dark theme' if initial_dark else 'Switch to light theme')
+        assert case['english']['title'] == case['english']['label']
+        assert case['restored']['theme'] == case['initial']['theme']
+        assert case['restored']['language'] == 'en'
+        if index != 3:
+            assert case['toggled']['storage']['yasb-limitora-theme'] == case['toggled']['theme']
+            assert case['english']['storage']['yasb-limitora-language'] == 'en'
+    assert observed['cases'][2]['initial']['storage']['yasb-limitora-theme'] == 'invalid'
+    assert observed['cases'][3]['restored']['storage'] == {}
+    assert observed['cases'][0]['initial']['label'] == 'Activar tema oscuro'
+    assert observed['cases'][0]['toggled']['label'] == 'Activar tema claro'
+    assert observed['reload']['theme'] == 'dark' and observed['reload']['language'] == 'en'
 
 
 PROOF_CLAIMS = {
