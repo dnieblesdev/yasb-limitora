@@ -20,7 +20,7 @@ COMPLETE_ORDER = (
 # Registration is deliberate: a missing registered file is always an error.
 DELIVERED_PAGES = (
     'purpose.html', 'structure.html', 'data-journey.html', 'installer-transaction.html',
-    'setup-assist.html', 'proof-harness.html', 'proof-cases.html',
+    'setup-assist.html', 'proof-harness.html', 'proof-cases.html', 'lifecycle-verify.html',
 )
 GROUPS = {
     'product': COMPLETE_ORDER[:3],
@@ -316,13 +316,11 @@ def test_purpose_ownership_and_resolved_source_links(name):
     assert len(svg.findall('.//*[@marker-end]')) == 3
     assert '<code>execution_state, execution_error, general, providers</code>' in source
     assert 'Native CLI proof is not automated YASB rendering proof.' in source
-    # Resolve the original repository-relative location, not the source worktree.
-    original_directory = REPOSITORY / 'docs' / 'diagrams' / 'product'
-    for original, fragment in (
-        ('../../architecture/README.md', 'L1-L47'),
-        ('../../../src/yasb_limitora/cli.py', 'L187-L334'),
+    for repository_path, fragment in (
+        ('docs/architecture/README.md', 'L1-L47'),
+        ('src/yasb_limitora/cli.py', 'L187-L334'),
     ):
-        target = (original_directory / original).resolve()
+        target = (REPOSITORY / repository_path).resolve()
         relocated = Path(os.path.relpath(target, ROOT)).as_posix()
         assert f'href="{relocated}#{fragment}"' in source
 
@@ -335,13 +333,12 @@ def test_structure_nodes_and_resolved_source_links(name):
         'cli', 'coordinator', 'orchestrator', 'attempt', 'executors', 'adapter', 'projection',
     }
     assert len(svg.findall('.//*[@marker-end]')) == 6
-    original_directory = REPOSITORY / 'docs' / 'diagrams' / 'product'
     for filename, fragment in (
         ('cli.py', 'L187-L334'), ('worker.py', 'L436-L673'),
         ('codex_helper.py', 'L644-L708'), ('limitora_api.py', 'L330-L364'),
         ('projection.py', 'L484-L563'),
     ):
-        target = (original_directory / '../../../src/yasb_limitora' / filename).resolve()
+        target = (REPOSITORY / 'src' / 'yasb_limitora' / filename).resolve()
         relocated = Path(os.path.relpath(target, ROOT)).as_posix()
         assert f'href="{relocated}#{fragment}"' in source
 
@@ -359,16 +356,15 @@ def test_data_journey_decision_and_resolved_source_links(name):
     decision = next(node for node in nodes if node.attrib['data-node'] == 'freshness')
     assert decision.find('{http://www.w3.org/2000/svg}rect') is None
     assert node_bounds(decision) == (520, 136, 240, 112)
-    original_directory = REPOSITORY / 'docs' / 'diagrams' / 'product'
-    for original, fragment in (
-        ('../../../src/yasb_limitora/cli.py', 'L187-L334'),
-        ('../../../src/yasb_limitora/cache.py', 'L1169-L1300'),
-        ('../../../src/yasb_limitora/worker.py', 'L436-L673'),
-        ('../../../src/yasb_limitora/limitora_api.py', 'L330-L364'),
-        ('../../../src/yasb_limitora/projection.py', 'L484-L563'),
-        ('../../architecture/README.md', 'L63-L109'),
+    for repository_path, fragment in (
+        ('src/yasb_limitora/cli.py', 'L187-L334'),
+        ('src/yasb_limitora/cache.py', 'L1169-L1300'),
+        ('src/yasb_limitora/worker.py', 'L436-L673'),
+        ('src/yasb_limitora/limitora_api.py', 'L330-L364'),
+        ('src/yasb_limitora/projection.py', 'L484-L563'),
+        ('docs/architecture/README.md', 'L63-L109'),
     ):
-        target = (original_directory / original).resolve()
+        target = (REPOSITORY / repository_path).resolve()
         relocated = Path(os.path.relpath(target, ROOT)).as_posix()
         assert f'href="{relocated}#{fragment}"' in source
 
@@ -394,8 +390,7 @@ def test_installer_transaction_recovery_caveats_and_source_links(name):
         'quarantine', 'restore', 'registry',
     }
     assert len(svg.findall('.//*[@marker-end]')) == 8
-    original_directory = REPOSITORY / 'docs' / 'diagrams' / 'product'
-    target = (original_directory / '../../../packaging/inno/yasb-limitora.iss').resolve()
+    target = (REPOSITORY / 'packaging/inno/yasb-limitora.iss').resolve()
     relocated = Path(os.path.relpath(target, ROOT)).as_posix()
     for fragment in ('L1-L45', 'L222-L448', 'L904-L952'):
         assert f'href="{relocated}#{fragment}"' in source
@@ -422,12 +417,11 @@ def test_setup_assist_active_transport_consent_and_source_links(name):
         'postcommit', 'uninstall', 'request', 'validate', 'execute', 'exit',
     }
     assert len(svg.findall('.//*[@marker-end]')) == 5
-    original_directory = REPOSITORY / 'docs' / 'diagrams' / 'product'
-    for original, fragments in (
-        ('../../../packaging/inno/SetupAssistant.isi', ('L1-L12', 'L198-L298')),
-        ('../../../src/yasb_limitora/setup_assist.py', ('L163-L224', 'L494-L565', 'L675-L703')),
+    for repository_path, fragments in (
+        ('packaging/inno/SetupAssistant.isi', ('L1-L12', 'L198-L298')),
+        ('src/yasb_limitora/setup_assist.py', ('L163-L224', 'L494-L565', 'L675-L703')),
     ):
-        target = (original_directory / original).resolve()
+        target = (REPOSITORY / repository_path).resolve()
         relocated = Path(os.path.relpath(target, ROOT)).as_posix()
         for fragment in fragments:
             assert f'href="{relocated}#{fragment}"' in source
@@ -446,13 +440,12 @@ def test_proof_harness_integrity_limits_and_resolved_source_links(name):
     ):
         assert claim in public_text
     assert '<code>-AllowWritableInputIntegrityFallback</code>' in source.split('<script>')[0]
-    original_directory = REPOSITORY / 'docs' / 'diagrams' / 'product'
-    for original, fragments in (
-        ('../../../proof-harness/README.md', ('L5-L18', 'L43-L68')),
-        ('../../../proof-harness/guest/bootstrap-watch.ps1',
+    for repository_path, fragments in (
+        ('proof-harness/README.md', ('L5-L18', 'L43-L68')),
+        ('proof-harness/guest/bootstrap-watch.ps1',
          ('L43-L57', 'L252-L300', 'L425-L478')),
     ):
-        target = (original_directory / original).resolve()
+        target = (REPOSITORY / repository_path).resolve()
         relocated = Path(os.path.relpath(target, ROOT)).as_posix()
         for fragment in fragments:
             assert f'href="{relocated}#{fragment}"' in source
@@ -461,15 +454,41 @@ def test_proof_harness_integrity_limits_and_resolved_source_links(name):
 @pytest.mark.parametrize('name', tuple(name for name in DELIVERED_PAGES if name == 'proof-cases.html'))
 def test_proof_cases_resolved_historical_source_links(name):
     source = read(name)
-    original_directory = REPOSITORY / 'docs' / 'diagrams' / 'product'
-    for original, fragments in (
-        ('../../../proof-harness/README.md', ('L79-L120',)),
-        ('../../release/0.2.0/evidence/issue-304-reusable-vm-proof.md', ('L1-L47',)),
-        ('../../release/0.2.0/evidence/s11b-c5-silent-uninstall-state-root.md',
+    for repository_path, fragments in (
+        ('proof-harness/README.md', ('L79-L120',)),
+        ('docs/release/0.2.0/evidence/issue-304-reusable-vm-proof.md', ('L1-L47',)),
+        ('docs/release/0.2.0/evidence/s11b-c5-silent-uninstall-state-root.md',
          ('L3-L58', 'L99-L111')),
-        ('../../../proof-harness/guest/run-c5-silent-uninstall.ps1', ('L14-L21',)),
+        ('proof-harness/guest/run-c5-silent-uninstall.ps1', ('L14-L21',)),
     ):
-        target = (original_directory / original).resolve()
+        target = (REPOSITORY / repository_path).resolve()
+        relocated = Path(os.path.relpath(target, ROOT)).as_posix()
+        for fragment in fragments:
+            assert f'href="{relocated}#{fragment}"' in source
+
+
+@pytest.mark.parametrize('name', tuple(
+    name for name in DELIVERED_PAGES if name == 'lifecycle-verify.html'
+))
+def test_lifecycle_candidate_branch_and_repository_source_links(name):
+    source = read(name)
+    svg = ET.fromstring(re.search(r'<svg\b.*?</svg>', source, re.S)[0])
+    assert {node.attrib['data-node'] for node in svg.findall('.//*[@data-node]')} == {
+        'source', 'frozen', 'candidate', 'install', 'cli', 'boundary',
+        'vm', 'evidence', 'verifier',
+    }
+    branch = next(edge for edge in svg.findall('{http://www.w3.org/2000/svg}path')
+                  if edge.attrib['data-to'] == 'vm')
+    assert branch.attrib['data-from'] == 'candidate'
+    assert branch.attrib['stroke-dasharray'] == '5,4'
+    for repository_path, fragments in (
+        ('scripts/build_setup.py', ('L85-L120', 'L154-L199')),
+        ('packaging/inno/yasb-limitora.iss', ('L27-L45',)),
+        ('docs/architecture/README.md', ('L1-L47',)),
+        ('proof-harness/README.md', ('L43-L68',)),
+        ('docs/release/0.2.0/RELEASE_NOTES.md', ('L1-L8',)),
+    ):
+        target = (REPOSITORY / repository_path).resolve()
         relocated = Path(os.path.relpath(target, ROOT)).as_posix()
         for fragment in fragments:
             assert f'href="{relocated}#{fragment}"' in source

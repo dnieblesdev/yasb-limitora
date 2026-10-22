@@ -24,9 +24,9 @@ Checks: `.venv/Scripts/python.exe -m pytest -q --strict-markers tests/test_diagr
 - T4 [S1-S4,S10] delegated/parent done — installer transaction migrated, 37 passed / 1 future proof parametrization; commit b518e82; assessment unavailable (untracked paths).
 - T5 [S1-S4,S10] delegated/parent done — setup assistance migrated, 44 passed / 1 future proof parametrization; commit 5478a7a; assessment unavailable (untracked paths).
 - T6 [S1-S4,S10] delegated/parent done — harness migrated, 52 passed / no skips; commit a7a6eee; assessment unavailable (untracked paths).
-- T7 [S1-S4,S10] delegated/parent done — proof boundaries migrated, 60 passed; this commit records outcome.
-- T8 [S1-S4,S10] delegated/parent in_progress — combined diagram with checks; commit pending.
-- T9 [S5,S9,S10] delegated/parent pending — persistent installer state and interruption diagram; commit pending.
+- T7 [S1-S4,S10] delegated/parent done — proof boundaries migrated, 60 passed; commit bfb85fe; assessment unavailable (untracked paths).
+- T8 [S1-S4,S10] delegated/parent done — combined diagram migrated, 68 passed / no ignored-worktree test dependency; this commit records outcome.
+- T9 [S5,S9,S10] delegated/parent in_progress — persistent installer state and interruption diagram; commit pending.
 - T10 [S6,S9,S10] delegated/parent pending — ownership/authority matrix; commit pending.
 - T11 [S7,S9,S10] delegated/parent pending — implementation/test/evidence traceability; commit pending.
 - T12 [S8,S9,S10] delegated/parent pending — harness failure/responsibility diagram; commit pending.
