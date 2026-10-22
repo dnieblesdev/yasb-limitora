@@ -22,7 +22,7 @@ COMPLETE_ORDER = (
 DELIVERED_PAGES = (
     'purpose.html', 'structure.html', 'data-journey.html', 'installer-transaction.html',
     'setup-assist.html', 'proof-harness.html', 'proof-cases.html', 'lifecycle-verify.html',
-    'installer-states.html',
+    'installer-states.html', 'resource-ownership.html',
 )
 GROUPS = {
     'product': COMPLETE_ORDER[:3],
@@ -528,6 +528,44 @@ def test_installer_states_artifacts_guards_and_responsibility(name):
     assert len(svg.findall('.//*[@marker-end]')) == 8
     assert 'tests/test_inno_script.py#L214-L248' in source
     assert 'inno-staged-swap-spike.md#L125-L149' in source
+
+
+@pytest.mark.parametrize('name', tuple(
+    name for name in DELIVERED_PAGES if name == 'resource-ownership.html'
+))
+def test_resource_ownership_matrix_authority_and_retention(name):
+    source = read(name)
+    rows = re.findall(r'<tr data-resource="([^"]+)">(.*?)</tr>', source, re.S)
+    assert [key for key, _ in rows] == [
+        'app', 'old', 'failed', 'snapshot', 'uninstall-key', 'path-record',
+        'path-entry', 'config', 'state-cache', 'input-vhdx', 'evidence-vhdx',
+        'vm-checkpoint', 'archive-provenance',
+    ]
+    for key, row in rows:
+        assert row.count('<td>') == 5, key
+        assert 'scope="row"' in row and '<a href=' in row, key
+        assert 'PENDING' in row, key
+    public_text = ' '.join(Page(source).texts)
+    for claim in (
+        'A filename alone is not deletion authority; process globals are not durable ownership.',
+        'Inno ownership is path and registry coherence plus file existence, not content-hash identity.',
+        'No independent stale snapshot gate; export /y may overwrite an earlier snapshot.',
+        'PATH removal requires the recorded full live value and type to match, including the final owned element.',
+        'Configuration rollback is attempted only after replacement and while the lease remains owned; it can fail.',
+        'The host finally attempts disk detach and image dismount, not VM, checkpoint, VHDX or archive deletion.',
+        'Hot-detach may succeed while the VM is running; running state alone does not prove detachment failure.',
+        'Writable fallback is explicit opt-in; pre/post hashes detect persistent mutation only, not read-only or hostile-guest protection.',
+        'The generic checkpoint is operator-provisioned with OS and bootstrap only, not scenario payload.',
+        'No automatic edits to user YASB YAML or CSS; provider detection, authentication and transport remain Limitora responsibilities.',
+        'Reading a test is not executing it. PENDING means no exact-current-candidate native evidence is claimed here.',
+    ):
+        assert claim in public_text
+    assert '<table' in source and '<caption>' in source
+    assert source.count('scope="col"') == 6
+    assert 'class="table-container"' in source
+    svg = ET.fromstring(re.search(r'<svg\b.*?</svg>', source, re.S)[0])
+    assert len(svg.findall('.//*[@data-node]')) == 4
+    assert len(svg.findall('.//*[@marker-end]')) == 3
 
 
 PROOF_CLAIMS = {
